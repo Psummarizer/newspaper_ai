@@ -1,0 +1,139 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual Environment
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+.venv/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+.project
+.pydevproject
+.settings/
+.classpath
+
+# Testing
+.coverage
+.pytest_cache/
+htmlcov/
+.tox/
+.nox/
+coverage.xml
+*.cover
+.hypothesis/
+nosetests.xml
+pytest.xml
+pytest_cache/
+
+# Logs
+logs/
+*.log
+*.pid
+*.seed
+*.pid.lock
+
+# Environment
+.env
+.env.local
+.env.*.local
+.env.production
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+instance/
+
+
+# Cache
+.cache/
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.ruff_cache/
+
+# Uploads
+uploads/
+media/
+static/admin/
+static/CACHE/
+
+# Security
+*.pem
+*.key
+*.cert
+*.crt
+secrets/
+
+# Docker
+.docker/
+docker-compose.override.yml
+
+# Monitoring
+prometheus_data/
+grafana_data/
+*.prof
+profile.stats
+
+# Documentation
+site/
+docs/_build/
+.docusaurus/
+
+# MacOS
+.DS_Store
+.AppleDouble
+.LSOverride
+Thumbs.db
+
+# Backups
+*.bak
+*.backup
+*.tmp
+*.temp
+
+# Local development
+local/
+scratch/
+notebooks/
+.ipynb_checkpoints/
+
+# Production
+*.production
+*.prod
+
+# Custom
+.newsletter_cache/
+crawled_data/
+generated_newsletters/
+delivery_logs/
