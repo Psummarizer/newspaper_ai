@@ -10,8 +10,9 @@ class ContentProcessorAgent:
     def __init__(self, mock_mode: bool = False):
         self.logger = logging.getLogger(__name__)
         self.client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+        # Using nano models as per recent project config
         self.model_fast = "gpt-5-nano"
-        self.model_quality = "gpt-5-mini"
+        self.model_quality = "gpt-4o-mini" # Nano returning 0 chars, reverting to reliable mini
         self.mock_mode = mock_mode
 
     # ---------------------------------------------------------
@@ -20,13 +21,33 @@ class ContentProcessorAgent:
     async def filter_relevant_articles(self, topic: str, articles: List[Dict]) -> List[Dict]:
         if not articles: return []
         
-        # MOCK MODE: Si estamos en modo mock, devolvemos las 3 primeras y ya
+        # MOCK MODE
         if self.mock_mode:
             self.logger.info(f"🔎 [MOCK] Saltando filtro IA para '{topic}'. Pasando candidatos directos.")
             return articles[:3]
 
         self.logger.info(f"🔎 Filtrando relevancia para '{topic}' entre {len(articles)} noticias...")
         
+        # 1. First Pass: Length Filter (> 30 words - Relaxed as per user request)
+        # Many RSS feeds only provide summaries.
+        candidates_checked = []
+        for art in articles:
+            content_text = art.get('content') or ""
+            content_len = len(content_text.split())
+            if content_len > 30:
+                # Update art content to be safe
+                art['content'] = content_text
+                candidates_checked.append(art)
+            else:
+                self.logger.debug(f"📉 Descartando artículo muy corto ({content_len} palabras): {art.get('title')}")
+                
+        if not candidates_checked:
+            self.logger.warning(f"⚠️ Ningún artículo supera las 30 palabras para '{topic}'.")
+            return []
+            
+        # Optimization: Limit to top 40 candidates to avoid huge prompts
+        articles = candidates_checked[:40]
+
         articles_input = ""
         for i, art in enumerate(articles):
             snippet = art.get('content', '')[:300].replace("\n", " ")
@@ -68,7 +89,6 @@ class ContentProcessorAgent:
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": articles_input}
                 ],
-
                 response_format={"type": "json_object"}
             )
             result = json.loads(response.choices[0].message.content)
@@ -76,6 +96,7 @@ class ContentProcessorAgent:
             
             filtered_articles = [articles[i] for i in valid_ids if i < len(articles)]
             self.logger.info(f"   ✅ Seleccionadas {len(filtered_articles)} noticias relevantes para '{topic}'.")
+            
             # Merge similar articles and limit to max 3 per topic
             merged = self._merge_articles(topic, filtered_articles)
             limited = merged[:3]
@@ -105,9 +126,11 @@ class ContentProcessorAgent:
                 "title": combined_title,
                 "content": combined_content,
                 "url": group[0].get('url'),
-                "category": group[0].get('category')
+                "category": group[0].get('category'),
+                "image_url": group[0].get('image_url') # Preserve image
             })
         return merged
+
     # PASO 2: REDACCIÓN POR CATEGORÍA
     # ---------------------------------------------------------
     async def write_category_section(self, category_name: str, articles: List[Dict], language: str = "es") -> str:
@@ -117,12 +140,12 @@ class ContentProcessorAgent:
         if self.mock_mode:
             return self._generate_mock_content(category_name, language)
         
-        self.logger.info(f"✍️  Redactando sección '{category_name}' con {len(articles)} noticias (GPT-5o-mini)...")
+        self.logger.info(f"✍️  Redactando sección '{category_name}' con {len(articles)} noticias (GPT-5-nano)...")
 
         context_text = ""
         for i, art in enumerate(articles):
             content_clean = art.get('content', '')[:6000].replace("\n", " ") 
-            context_text += f"-- NOTICIA {i+1} --\nTÍTULO: {art.get('title')}\nCONTENIDO: {content_clean}\nLINK: {art.get('url')}\n\n"
+            context_text += f"-- NOTICIA {i+1} --\nID: {i}\nTÍTULO: {art.get('title')}\nCONTENIDO: {content_clean}\nLINK: {art.get('url')}\nIMAGEN: {art.get('image_url')}\n\n"
 
         system_prompt = f"""
         Eres el Editor Jefe de una Newsletter Premium. Vas a redactar la sección: "{category_name}".
@@ -141,10 +164,14 @@ class ContentProcessorAgent:
            - SIEMPRE frases completas (Sujeto + Verbo).
         4. **ESTILO**: Justifica el texto narrativamente. Tono periodístico serio y profesional.
         5. **FUENTES**: Incluye todas las fuentes originales.
-
-        FORMATO HTML (ESTRICTO):
+        6. **IMAGEN**: Si la noticia tiene imagen, inclúyela DEBAJO del título usando <img src="..."> con estilo centrado y limitado (max-width:240px, max-height:160px).
+        
+        FORMATO HTML (ESTRICTO) POR NOTICIA:
         <div class="news-item" category="{category_name}">
             <h3>EMOJI + TÍTULO IMPACTANTE (En {language})</h3>
+            <div style="margin-bottom: 12px; text-align: center;">
+                 <img src="URL_IMAGEN" alt="Título" style="max-width: 240px; max-height: 160px; width: auto; height: auto; object-fit: cover; border-radius: 8px; display: inline-block;">
+            </div>
             <p>
                Primer párrafo fuerte explicando el QUÉ y el POR QUÉ. (+100 palabras)
             </p>
@@ -164,10 +191,13 @@ class ContentProcessorAgent:
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": context_text}
                 ],
-
+                max_completion_tokens=4000
             )
             
-            content = response.choices[0].message.content.strip()
+            content = response.choices[0].message.content or ""
+            # self.logger.info(f"DEBUG LLM RESPONSE for {category_name}: {len(content)} chars.")
+            
+            content = content.strip()
             content = content.replace("```html", "").replace("```", "")
             
             # Post-process: convertir markdown a HTML
@@ -286,21 +316,20 @@ class ContentProcessorAgent:
         }}
         
         NOTA IMPORTANTE SOBRE RESÚMENES:
-        - **DESTACADA (1ª noticia del array)**: Resumen de 30 palabras exactas. NO pongas "RESUMEN DESTACADA:", solo el texto.
+        - **DESTACADA (1ª noticia del array)**: Resumen de 28 palabras exactas. NO pongas "RESUMEN DESTACADA:", solo el texto.
         - **RESTO**: Resumen de 10-15 palabras. NO pongas "RESUMEN NORMAL:", solo el texto.
         - **ESTILO**: Frases completas y con gancho.
-        - Ejemplo Mal: "Resumen Normal: El gobierno aprueba ley."
-        - Ejemplo Bien: "El Gobierno aprueba la polémica Ley de Amnistía tras meses de debate." (12 palabras)
+        - NO IMÁGENES.
         """
 
         try:
             response = await self.client.chat.completions.create(
-                model=self.model_fast, # Use fast model for selection
+                model=self.model_quality, 
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": articles_input}
                 ],
-
+                max_completion_tokens=1000,
                 response_format={"type": "json_object"}
             )
             
@@ -317,7 +346,7 @@ class ContentProcessorAgent:
                         "summary": item.get("summary"),
                         "category": item.get("category"),
                         "emoji": item.get("emoji"),
-                        "original_url": original.get("url") # Para buscar imágenes después
+                        "original_url": original.get("url")
                     })
             
             self.logger.info(f"   ✅ Portada generada con {len(final_selection)} noticias.")

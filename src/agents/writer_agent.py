@@ -53,11 +53,11 @@ class WriterAgent:
             response = await self.client.chat.completions.create(
                 model="gpt-5-mini",
                 messages=[
-                    {"role": "system", "content": "Eres un redactor web experto. Escribes solo en HTML limpio. Nunca usas Markdown."},
+                    {"role": "user", "content": "Eres un redactor web experto. Escribes solo en HTML limpio. Nunca usas Markdown."},
                     {"role": "user", "content": prompt}
                 ],
 
-                max_tokens=2500
+                max_completion_tokens=2500
             )
 
             content = response.choices[0].message.content

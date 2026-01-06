@@ -1,12 +1,22 @@
 import logging
 import asyncio
+import json
+import re
 from datetime import datetime
 from typing import List, Dict, Set
 from urllib.parse import urlparse
 
 # Imports Locales
-from src.database.connection import AsyncSessionLocal
-from src.database.repository import ArticleRepository
+# Database imports are optional (only for local SQLite mode)
+try:
+    from src.database.connection import AsyncSessionLocal
+    from src.database.repository import ArticleRepository
+    HAS_LOCAL_DB = True
+except ImportError:
+    HAS_LOCAL_DB = False
+    AsyncSessionLocal = None
+    ArticleRepository = None
+
 from src.services.classifier_service import ClassifierService
 from src.agents.content_processor import ContentProcessorAgent
 from src.utils.html_builder import build_newsletter_html, build_front_page, build_section_html
@@ -23,229 +33,280 @@ class Orchestrator:
         self.mock_mode = mock_mode
         self.gcs = gcs_service or GCSService()  # Usar GCS para artículos
         self.fb_service = FirebaseService()  # Solo para usuarios
+        
+    def _normalize_id(self, name: str) -> str:
+        """Convierte nombre a ID normalizado (igual que ingest_news.py)"""
+        id_str = name.lower().strip()
+        id_str = re.sub(r'[^a-záéíóúüñ0-9\s]', '', id_str)
+        id_str = re.sub(r'\s+', '_', id_str)
+        return id_str
+
+    def _load_topics_cache(self) -> Dict:
+        """Carga topics.json de GCS"""
+        try:
+            data = self.gcs.get_topics()  # Retorna lista de topics
+            if data and isinstance(data, list):
+                return {self._normalize_id(t.get("name", t.get("id", ""))): t for t in data}
+            elif data and isinstance(data, dict):
+                return data
+        except Exception as e:
+            self.logger.warning(f"Error cargando topics.json: {e}")
+        return {}
+        
+    def _format_cached_news_to_html(self, news_item: Dict, category: str) -> str:
+        """Convierte noticia cacheada (JSON) a HTML final"""
+        title = news_item.get("titulo", "")
+        body = news_item.get("noticia", "")
+        image_url = news_item.get("imagen_url", "")
+        sources = news_item.get("fuentes", [])
+        
+        # Debug: mostrar si hay imagen
+        if not image_url:
+            print(f"      [DEBUG] Noticia sin imagen: {title[:40]}...")
+        
+        # Sources HTML
+        sources_html = ""
+        if sources:
+            links = []
+            for i, src in enumerate(sources):
+                 domain = urlparse(src).netloc.replace("www.", "")
+                 links.append(f'<a href="{src}" target="_blank" style="color: #1DA1F2;">{domain}</a>')
+            sources_line = " | ".join(links)
+            sources_html = f'<p style="font-size: 12px; color: #8899A6; margin-top: 10px; border-top: 1px dashed #38444D; padding-top: 8px;">Fuentes: {sources_line}</p>'
+            
+        # Image HTML - Solo mostrar si hay URL valida
+        img_html = ""
+        if image_url and image_url.startswith("http"):
+            img_html = f'''
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom: 12px;">
+                <tr>
+                    <td align="center">
+                        <img src="{image_url}" alt="Imagen de noticia" style="max-width: 540px; max-height: 420px; width: 100%; height: auto; border-radius: 8px; display: block;">
+                    </td>
+                </tr>
+            </table>
+            '''
+            
+        # Titulo en AZUL ELECTRICO (#1DA1F2)
+        # Linea discontinua ANTES de las fuentes, no separando noticias
+        return f'''
+        <div style="margin-bottom: 25px; padding-bottom: 0;">
+            <h3 style="color: #1DA1F2; font-size: 18px; font-weight: bold; margin: 0 0 10px 0;">{title}</h3>
+            {img_html}
+            <div style="color: #D9D9D9; line-height: 1.6; font-size: 15px;">
+                {body}
+            </div>
+            {sources_html}
+        </div>
+        '''
+
+    async def _select_top_3_cached(self, topic: str, news_list: List[Dict]) -> List[Dict]:
+        """Selecciona las 3 noticias más relevantes de la lista cacheada usando LLM"""
+        if len(news_list) <= 3:
+            return news_list
+            
+        # Preparar input
+        prompt_text = ""
+        for i, news in enumerate(news_list):
+            title = news.get("titulo", "")
+            summary = news.get("resumen", "")
+            prompt_text += f"ID {i}: {title} | {summary}\n"
+            
+        prompt = f"""
+        Eres un Editor Jefe. Tienes {len(news_list)} noticias sobre "{topic}".
+        Selecciona las 3 MEJORES y MÁS IMPORTANTES para el boletín de hoy.
+        Prioriza impacto, relevancia y actualidad.
+        
+        {prompt_text}
+        
+        Responde SOLO JSON: {{"selected_ids": [0, 2, 5]}}
+        """
+        
+        try:
+            # Usar cliente de ContentProcessor si es público, o crear uno temporal?
+            # Orchestrator tiene self.processor.client
+            response = await self.processor.client.chat.completions.create(
+                model="gpt-5-nano",
+                messages=[{"role": "user", "content": prompt}],
+                response_format={"type": "json_object"}
+            )
+            result = json.loads(response.choices[0].message.content)
+            ids = result.get("selected_ids", [])
+            selected = [news_list[i] for i in ids if i < len(news_list)]
+            return selected[:3]
+        except Exception as e:
+            self.logger.error(f"Error seleccionando top 3: {e}")
+            return news_list[:3] # Fallback: first 3
 
     async def run_for_user(self, user_data: Dict):
         """
-        user_data: {'email': str, 'topics': str, 'language': str}
+        Pipeline optimizado: Cache First (topics.json)
+        1. Lee topics.json (generado por ingest_news.py)
+        2. Selecciona Top 3 noticias por topic (LLM)
+        3. Genera HTML final directamente (sin re-redactar)
         """
         user_email = user_data.get('email')
-        self.logger.info(f"🚀 ORCHESTRATOR (Mock={self.mock_mode}): Pipeline para {user_email}")
+        self.logger.info(f"🚀 ORCHESTRATOR: Pipeline Cache-Optimized para {user_email}")
         
-        # Usar GCS para artículos (más rápido)
-        use_gcs = self.gcs.is_connected()
+        # Cargar Topics de Usuario (puede ser string o list)
+        topics_raw = user_data.get('Topics') or user_data.get('topics', [])
+        if not topics_raw:
+            print(f"Usuario sin topics definidos.")
+            return None
         
-        async with AsyncSessionLocal() as session:
-            # Repo Local (solo usado si no hay GCS)
-            article_repo_local = ArticleRepository(session)
+        if isinstance(topics_raw, str):
+            topics = [t.strip() for t in topics_raw.split(',') if t.strip()]
+        else:
+            topics = [t.strip() for t in topics_raw if t.strip()]
+        user_lang = user_data.get('Language') or user_data.get('language', 'es')
+        
+        # Cargar Caché Global
+        topics_cache = self._load_topics_cache()
+        print(f"📦 Cache topics cargado: {len(topics_cache)} topics disponibles globalmente")
 
-            # Firestore usa 'Topics' y 'Language' (mayúscula), soportamos ambos
-            topics_str = user_data.get('Topics') or user_data.get('topics', '')
-            if not topics_str:
-                print(f"⚠️ Usuario sin topics definidos, saltando. Campos: {list(user_data.keys())}")
-                return None
-
-            topics = [t.strip() for t in topics_str.split(',') if t.strip()]
-            user_lang = user_data.get('Language') or user_data.get('language', 'es')
-            print(f"📋 Topics del usuario ({len(topics)}): {topics[:3]}...")
-            print(f"🌐 Idioma: {user_lang}, Modo GCS: {use_gcs}")
+        category_map: Dict[str, Dict[str, Dict]] = {} 
+        
+        # --- FASE 1: RECOLECCIÓN & SELECCIÓN (CACHE ONLY) ---
+        for idx, topic in enumerate(topics):
+            print(f"\n--- [{idx+1}/{len(topics)}] Procesando topic: '{topic}' ---")
             
-            # Ventana temporal (Lunes=72h, Resto=24h)
-            is_monday = datetime.now().weekday() == 0
-            hours_window = 72 if is_monday else 24
+            norm_id = self._normalize_id(topic)
+            cached_data = topics_cache.get(norm_id)
             
-            if self.mock_mode:
-                self.logger.info("🎨 MOCK MODE: Saltando chequeo estricto.")
-            
-            # -------------------------------------------------------------
-            # FASE 1: RECOLECCIÓN
-            # -------------------------------------------------------------
-            category_map: Dict[str, Dict[str, Dict]] = {} 
-            
-            for idx, topic in enumerate(topics):
-                print(f"\n--- [{idx+1}/{len(topics)}] Procesando topic: '{topic}' ---")
+            if not cached_data or not cached_data.get("noticias"):
+                print(f"   ⚠️ No hay noticias cacheadas para '{topic}' (ID: {norm_id}). Saltando.")
+                continue
                 
-                # MOCK MODE SHORTCUT
-                if self.mock_mode:
-                    fake_cats = await self.classifier.determine_categories(topic)
-                    if not fake_cats: continue
-                    cat_key = fake_cats[0]
-                    if cat_key not in category_map: category_map[cat_key] = {}
-                    category_map[cat_key]['mock_url'] = {'title': f'Mock News about {topic}', 'content': 'Mock content', 'url': 'mock_url'}
-                    continue
-
-                # LÓGICA REAL
-                print(f"   🔍 Clasificando topic con LLM...")
-                target_categories = await self.classifier.determine_categories(topic)
-                print(f"   📂 Categorías detectadas: {target_categories}")
-                if not target_categories:
-                    print(f"   ⚠️ Sin categorías, saltando topic.")
-                    continue
-
-                # BUSCAR ARTÍCULOS (GCS = rápido, Firestore = lento, Local = SQLite)
-                articles_found = []
-                print(f"   🗄️ Buscando artículos (ventana: {hours_window}h)...")
-                
-                if use_gcs:
-                    # GCS: Ultra rápido (un solo JSON)
-                    for cat in target_categories:
-                        print(f"      📥 GCS query: categoría '{cat}'")
-                        found = self.gcs.get_articles_by_category(cat, hours_limit=hours_window)
-                        print(f"      📊 Encontrados: {len(found)} artículos")
-                        articles_found.extend(found)
+            all_news = cached_data["noticias"]
+            print(f"   Total noticias en cache: {len(all_news)}")
+            
+            # Filtrar por fecha (ultimas 24h)
+            current_time = datetime.now()
+            fresh_news = []
+            for n in all_news:
+                fecha_str = n.get("fecha_inventariado", "")
+                if fecha_str:
+                    try:
+                        # Parse ISO format
+                        fecha = datetime.fromisoformat(fecha_str.replace("Z", "+00:00").split("+")[0])
+                        age_hours = (current_time - fecha).total_seconds() / 3600
+                        if age_hours <= 24:
+                            fresh_news.append(n)
+                    except:
+                        # Si no se puede parsear, incluirla por si acaso
+                        fresh_news.append(n)
                 else:
-                    # Local: Usar SQLite
-                    articles_orm = await article_repo_local.get_articles_by_categories(target_categories, hours_limit=hours_window)
-                    for art in articles_orm:
-                        articles_found.append({
-                            "title": art.title,
-                            "content": art.content,
-                            "url": art.url,
-                            "category": art.category 
-                        })
-
-                print(f"   📰 Total artículos encontrados para '{topic}': {len(articles_found)}")
-                if not articles_found:
-                    print(f"   ⚠️ Sin artículos, saltando topic.")
-                    continue
-
-                # SOURCE FILTERING
-                forbidden_input = user_data.get('forbidden_sources', '') or ''
-                forbidden_list = []
-                if forbidden_input:
-                    # Parsear URLs del usuario para extraer dominios limpios
-                    for item in forbidden_input.split(','):
-                        clean_item = item.strip()
-                        if not clean_item: continue
-                        # Añadir esquema si falta para que urlparse funcione
-                        if not clean_item.startswith(('http://', 'https://')):
-                            clean_item = 'https://' + clean_item
-                        
-                        try:
-                            parsed = urlparse(clean_item)
-                            domain = parsed.netloc.lower()
-                            # Quitar www.
-                            if domain.startswith('www.'):
-                                domain = domain[4:]
-                            if domain:
-                                forbidden_list.append(domain)
-                        except:
-                            pass
-                
-                candidates = []
-                for art in articles_found:
-                    # Check forbidden
-                    if forbidden_list:
-                        u = art.get('url', '')
-                        try:
-                            art_netloc = urlparse(u).netloc.lower()
-                            # Quitar www. para comparar
-                            if art_netloc.startswith('www.'):
-                                art_netloc = art_netloc[4:]
-                            
-                            # Si el dominio prohibido (ej: elpais.com) está en el del articulo (ej: verne.elpais.com)
-                            if any(bad in art_netloc for bad in forbidden_list):
-                                print(f"      🚫 Saltando fuente prohibida: {art_netloc} (Match: {forbidden_list})")
-                                continue
-                        except:
-                            pass
-
-                    candidates.append({
-                        "title": art.get('title'),
-                        "content": art.get('content'),
-                        "url": art.get('url'),
-                        "category": art.get('category') 
-                    })
-
-                print(f"   🤖 Filtrando artículos relevantes con LLM ({len(candidates)} candidatos)...")
-                relevant_articles = await self.processor.filter_relevant_articles(topic, candidates)
-                print(f"   ✅ Artículos relevantes: {len(relevant_articles)}")
-                
-                for art in relevant_articles:
-                    cat_key = art.get('category') or target_categories[0]
-                    if cat_key not in category_map: category_map[cat_key] = {}
-                    if art['url'] not in category_map[cat_key]:
-                        category_map[cat_key][art['url']] = art
-
-            # -------------------------------------------------------------
-            # FASE 2: REDACCIÓN
-            # -------------------------------------------------------------
+                    fresh_news.append(n)
             
-            # 2.1 - Generar PORTADA (Front Page)
-            print(f"\n📰 Generando PORTADA...")
-            all_articles_flat = []
-            for cat_articles in category_map.values():
-                all_articles_flat.extend(cat_articles.values())
-            
-            front_page_data = await self.processor.select_front_page_stories(all_articles_flat, user_lang)
-            front_page_html = build_front_page(front_page_data)
-            print(f"   ✅ Portada generada ({len(front_page_data)} noticias)")
-
-            final_html_parts = []
-            
-            CATEGORY_DISPLAY_MAP = {
-                "Política": "🏛️ POLÍTICA Y GOBIERNO",
-                "Geopolítica": "🌍 GEOPOLÍTICA GLOBAL",
-                "Economía y Finanzas": "💰 ECONOMÍA Y MERCADOS",
-                "Negocios y Empresas": "🏢 NEGOCIOS Y EMPRESAS",
-                "Tecnología y Digital": "💻 TECNOLOGÍA Y DIGITAL",
-                "Ciencia e Investigación": "🔬 CIENCIA E INVESTIGACIÓN",
-                "Sociedad": "👥 SOCIEDAD",
-                "Cultura y Entretenimiento": "🎭 CULTURA Y ENTRETENIMIENTO",
-                "Deporte": "⚽ DEPORTES",
-                "Salud y Bienestar": "🏥 SALUD Y BIENESTAR",
-                "Internacional": "🌍 INTERNACIONAL",
-                "Medio Ambiente y Clima": "🌱 MEDIO AMBIENTE",
-                "Justicia y Legal": "⚖️ JUSTICIA Y LEGAL",
-                "Transporte y Movilidad": "🚗 TRANSPORTE",
-                "Energía": "⚡ ENERGÍA",
-                "Consumo y Estilo de Vida": "🛍️ CONSUMO Y ESTILO DE VIDA"
-            }
-
-            ordered_cats = [
-                "Política", "Internacional", "Geopolítica", 
-                "Economía y Finanzas", "Negocios y Empresas", 
-                "Tecnología y Digital", "Ciencia e Investigación",
-                "Deporte", "Cultura y Entretenimiento", "Sociedad"
-            ]
-
-            all_current_cats = list(category_map.keys())
-            sorted_cats = [c for c in ordered_cats if c in all_current_cats] + [c for c in all_current_cats if c not in ordered_cats]
-            print(f"\n📝 FASE 2: REDACCIÓN - {len(sorted_cats)} categorías a procesar")
-
-            for cat_idx, cat in enumerate(sorted_cats):
-                articles_dict = category_map[cat]
-                if not articles_dict: continue
+            if not fresh_news:
+                print(f"   Sin noticias de las ultimas 24h para '{topic}'")
+                continue
                 
-                articles_list = list(articles_dict.values())
-                print(f"   [{cat_idx+1}/{len(sorted_cats)}] Redactando sección '{cat}' ({len(articles_list)} artículos)...")
-                section_html = await self.processor.write_category_section(cat, articles_list, user_lang)
-                print(f"   ✅ Sección '{cat}' completada ({len(section_html) if section_html else 0} chars)")
+            print(f"   Noticias ultimas 24h: {len(fresh_news)}")
+            
+            # SELECCION TOP 3
+            selected_news = await self._select_top_3_cached(topic, fresh_news)
+            print(f"   ✅ Seleccionadas Top {len(selected_news)} para el boletín.")
+            
+            # Asignar a Categoría
+            cached_cats = cached_data.get("categories", ["General"])
+            main_cat = cached_cats[0] if cached_cats else "General"
+            if main_cat not in category_map: category_map[main_cat] = {}
+            
+            for news in selected_news:
+                # Usar URL como key
+                art_url = news.get("fuentes", [""])[0] or f"no_url_{len(category_map[main_cat])}"
+                
+                # Generar HTML pre-renderizado (Ya viene redactado, solo envolver)
+                pre_html = self._format_cached_news_to_html(news, main_cat)
+                
+                category_map[main_cat][art_url] = {
+                    "title": news.get("titulo"),
+                    "content": news.get("resumen"), # Para selección portada
+                    "url": art_url,
+                    "category": main_cat,
+                    "image_url": news.get("imagen_url"),
+                    "pre_rendered_html": pre_html
+                }
+
+        # --- FASE 2: GENERACIÓN DE HTML (PORTADA + SECCIONES) ---
+        
+        print(f"\n📰 Generando PORTADA...")
+        all_articles_flat = []
+        for cat_articles in category_map.values():
+            all_articles_flat.extend(cat_articles.values())
+            
+        if not all_articles_flat:
+            print("📭 No hay noticias seleccionadas para ningún topic.")
+            return None
+        
+        # Selección Portada
+        front_page_data = await self.processor.select_front_page_stories(all_articles_flat, user_lang)
+        front_page_html = build_front_page(front_page_data)
+        print(f"   ✅ Portada generada ({len(front_page_data)} noticias)")
+
+        # Generación Secciones (Join HTML pre-renderizado)
+        final_html_parts = []
+        
+        CATEGORY_DISPLAY_MAP = {
+            "Política": "🏛️ POLÍTICA Y GOBIERNO",
+            "Geopolítica": "🌍 GEOPOLÍTICA GLOBAL",
+            "Economía y Finanzas": "💰 ECONOMÍA Y MERCADOS",
+            "Negocios y Empresas": "🏢 NEGOCIOS Y EMPRESAS",
+            "Tecnología y Digital": "💻 TECNOLOGÍA Y DIGITAL",
+            "Ciencia e Investigación": "🔬 CIENCIA E INVESTIGACIÓN",
+            "Sociedad": "👥 SOCIEDAD",
+            "Cultura y Entretenimiento": "🎭 CULTURA Y ENTRETENIMIENTO",
+            "Deporte": "⚽ DEPORTES",
+            "Salud y Bienestar": "🏥 SALUD Y BIENESTAR",
+            "Internacional": "🌍 INTERNACIONAL",
+            "Medio Ambiente y Clima": "🌱 MEDIO AMBIENTE",
+            "Justicia y Legal": "⚖️ JUSTICIA Y LEGAL",
+            "Transporte y Movilidad": "🚗 TRANSPORTE",
+            "Energía": "⚡ ENERGÍA",
+            "Consumo y Estilo de Vida": "🛍️ CONSUMO Y ESTILO DE VIDA"
+        }
+        
+        ordered_cats = [
+            "Política", "Internacional", "Geopolítica", 
+            "Economía y Finanzas", "Negocios y Empresas", 
+            "Tecnología y Digital", "Ciencia e Investigación",
+            "Deporte", "Cultura y Entretenimiento", "Sociedad"
+        ]
+        
+        all_current_cats = list(category_map.keys())
+        sorted_cats = [c for c in ordered_cats if c in all_current_cats] + [c for c in all_current_cats if c not in ordered_cats]
+
+        for cat in sorted_cats:
+            articles_dict = category_map[cat]
+            if not articles_dict: continue
+            
+            # Solo unir HTML pre-renderizado
+            items_html = []
+            for art in articles_dict.values():
+                if art.get("pre_rendered_html"):
+                    items_html.append(art["pre_rendered_html"])
+            
+            if items_html:
+                section_body = "\n".join(items_html)
                 display_title = CATEGORY_DISPLAY_MAP.get(cat, cat.upper())
+                section_box = build_section_html(display_title, section_body)
+                final_html_parts.append(section_box)
+                print(f"   ✅ Sección '{cat}' generada ({len(items_html)} noticias)")
 
-                if section_html and len(section_html) > 50:
-                    section_box = build_section_html(display_title, section_html)
-                    final_html_parts.append(section_box)
-
-            # -------------------------------------------------------------
-            # FASE 3: ENTREGA (EMAIL)
-            # -------------------------------------------------------------
-            print(f"\n📬 FASE 3: ENTREGA - {len(final_html_parts)} secciones generadas")
-            if final_html_parts:
-                full_body_html = "\n".join(final_html_parts)
-                final_html = build_newsletter_html(full_body_html, front_page_html)
-                print(f"   📄 HTML final generado: {len(final_html)} chars")
-                
-                subject = f"📰 Briefing Diario - {datetime.now().strftime('%d/%m/%Y')}"
-                if self.mock_mode: subject += " [MOCK PREVIEW]"
-                
-                print(f"   📧 Enviando email a {user_email}...")
-                self.email_service.send_email(user_email, subject, final_html)
-                print(f"   ✅ Email enviado correctamente!")
-                return final_html
-            else:
-                print("📭 No se han encontrado noticias para ningún topic.")
-                self.logger.warning("📭 No se han encontrado noticias.")
-                return None
+        # --- FASE 3: ENTREGA ---
+        if final_html_parts:
+            full_body_html = "\n".join(final_html_parts)
+            final_html = build_newsletter_html(full_body_html, front_page_html)
+            
+            subject = f"📰 Briefing Diario - {datetime.now().strftime('%d/%m/%Y')}"
+            print(f"\n📧 Enviando email a {user_email}...")
+            self.email_service.send_email(user_email, subject, final_html)
+            print(f"   ✅ Email enviado correctamente!")
+            return final_html
+            
+        print("⚠️ No se generó contenido HTML.")
+        return None
 
     async def cleanup(self):
         pass

@@ -68,6 +68,83 @@ class EmailService:
                 self.logger.error(f"❌ Error subiendo email fallido a GCS: {save_err}")
             return False
 
+    def send_no_credits_email(self, to_email: str, language: str = "es") -> bool:
+        """
+        Envia email notificando falta de creditos o cuenta inactiva.
+        Multilingue: ES/EN
+        """
+        # Contenido por idioma
+        if language.lower() == "en":
+            subject = "Your AI Newsletter Could Not Be Sent"
+            html_content = """
+<!DOCTYPE html>
+<html>
+<head><meta charset="UTF-8"></head>
+<body style="margin: 0; padding: 0; background-color: #15202B; font-family: Arial, sans-serif;">
+<table width="100%" cellpadding="0" cellspacing="0" style="background-color: #15202B;">
+<tr><td align="center" style="padding: 40px 20px;">
+    <table width="600" cellpadding="0" cellspacing="0" style="background-color: #192734; border-radius: 8px;">
+        <tr><td style="padding: 30px; text-align: center;">
+            <h1 style="color: #1DA1F2; margin: 0 0 20px 0;">Oops! Insufficient Credits</h1>
+            <p style="color: #FFFFFF; font-size: 16px; line-height: 1.6;">
+                We couldn't send your daily newsletter because you don't have enough credits.
+            </p>
+            <p style="color: #8899A6; font-size: 14px; margin: 20px 0;">
+                Each newsletter topic costs 100 credits.
+            </p>
+            <a href="https://podsummarizer.xyz/pricing" 
+               style="display: inline-block; background-color: #1DA1F2; color: #FFFFFF; 
+                      padding: 15px 30px; border-radius: 25px; text-decoration: none; 
+                      font-weight: bold; margin: 20px 0;">
+                Get More Credits
+            </a>
+            <p style="color: #8899A6; font-size: 12px; margin-top: 30px;">
+                Questions? Contact us at support@podsummarizer.xyz
+            </p>
+        </td></tr>
+    </table>
+</td></tr>
+</table>
+</body>
+</html>
+"""
+        else:  # ES (default)
+            subject = "Tu Newsletter AI No Pudo Ser Enviada"
+            html_content = """
+<!DOCTYPE html>
+<html>
+<head><meta charset="UTF-8"></head>
+<body style="margin: 0; padding: 0; background-color: #15202B; font-family: Arial, sans-serif;">
+<table width="100%" cellpadding="0" cellspacing="0" style="background-color: #15202B;">
+<tr><td align="center" style="padding: 40px 20px;">
+    <table width="600" cellpadding="0" cellspacing="0" style="background-color: #192734; border-radius: 8px;">
+        <tr><td style="padding: 30px; text-align: center;">
+            <h1 style="color: #1DA1F2; margin: 0 0 20px 0;">Vaya! Creditos Insuficientes</h1>
+            <p style="color: #FFFFFF; font-size: 16px; line-height: 1.6;">
+                No hemos podido enviar tu newsletter diaria porque no tienes suficientes creditos.
+            </p>
+            <p style="color: #8899A6; font-size: 14px; margin: 20px 0;">
+                Cada tema de la newsletter cuesta 100 creditos.
+            </p>
+            <a href="https://podsummarizer.xyz/pricing" 
+               style="display: inline-block; background-color: #1DA1F2; color: #FFFFFF; 
+                      padding: 15px 30px; border-radius: 25px; text-decoration: none; 
+                      font-weight: bold; margin: 20px 0;">
+                Obtener Mas Creditos
+            </a>
+            <p style="color: #8899A6; font-size: 12px; margin-top: 30px;">
+                Preguntas? Contactanos en support@podsummarizer.xyz
+            </p>
+        </td></tr>
+    </table>
+</td></tr>
+</table>
+</body>
+</html>
+"""
+        
+        return self.send_email(to_email, subject, html_content)
+
     async def close(self):
         # Método placeholder por si se necesitara en el futuro
         pass

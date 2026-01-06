@@ -15,6 +15,10 @@ from src.agents.orchestrator import Orchestrator
 from src.services.firebase_service import FirebaseService
 from src.services.gcs_service import GCSService
 
+# Import New Scripts
+from scripts.ingest_news import ingest_news as script_ingest_news
+from scripts.create_and_send_newspapers import generate_and_send as script_generate_and_send
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -24,13 +28,26 @@ app = FastAPI(title="Newsletter AI Orchestrator")
 def health_check():
     return {"status": "ok", "mode": "GCS + Firestore Hybrid"}
 
+@app.post("/ingest")
+async def trigger_ingest():
+    """Endpoint para Ingesta Horaria (Cloud Scheduler)."""
+    print("⏰ Triggering Ingest Pipeline...")
+    await script_ingest_news()
+    return {"status": "Ingestion completed"}
+
+@app.post("/send-newsletter")
+async def trigger_newsletter():
+    """Endpoint para Generación Diaria (Cloud Scheduler)."""
+    print("⏰ Triggering Newsletter Generation...")
+    await script_generate_and_send()
+    return {"status": "Newsletter sent"}
+
 @app.post("/run-batch")
 async def trigger_batch_run():
-    """Endpoint para Cloud Scheduler (Daily Trigger). Ejecución síncrona para mantener CPU."""
-    print("⏰ Cloud Scheduler activó /run-batch (Sync Mode)")
-    # Ejecutamos síncronamente para que Cloud Run no corte la CPU
-    await full_pipeline()
-    return {"status": "Batch completed"}
+    """Legacy Endpoint. Redirige a Ingesta por compatibilidad."""
+    print("⚠️ Legacy /run-batch called. Redirecting to Ingest logic.")
+    await script_ingest_news()
+    return {"status": "Legacy Batch completed (Ingest)"}
 
 # =============================================================================
 # FASE 0: INGESTA DE NOTICIAS (GCS - Ultra rápido + Paralelo)

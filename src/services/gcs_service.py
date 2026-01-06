@@ -32,6 +32,20 @@ class GCSService:
     
     def is_connected(self) -> bool:
         return self.bucket is not None
+
+    def delete_file(self, filename: str) -> bool:
+        """Elimina un archivo del bucket."""
+        if not self.bucket: return False
+        try:
+            blob = self.bucket.blob(filename)
+            if blob.exists():
+                blob.delete()
+                self.logger.info(f"🗑️ Eliminado GCS: {filename}")
+                return True
+            return False
+        except Exception as e:
+            self.logger.error(f"Error delete: {e}")
+            return False
     
     # =========================================================================
     # SOURCES
@@ -69,7 +83,42 @@ class GCSService:
             return False
     
     # =========================================================================
+    # TOPICS
+    # =========================================================================
+    def get_topics(self) -> list:
+        """Lee topics.json desde el bucket."""
+        if not self.bucket:
+            return []
+        try:
+            blob = self.bucket.blob("topics.json")
+            if not blob.exists():
+                return []
+            content = blob.download_as_text()
+            return json.loads(content)
+        except Exception as e:
+            self.logger.error(f"Error leyendo topics: {e}")
+            return []
+
+    def save_topics(self, topics: list):
+        """Guarda topics.json en el bucket."""
+        if not self.bucket:
+            return False
+        try:
+            blob = self.bucket.blob("topics.json")
+            blob.upload_from_string(
+                json.dumps(topics, ensure_ascii=False, indent=2),
+                content_type="application/json"
+            )
+            return True
+        except Exception as e:
+            self.logger.error(f"Error guardando topics: {e}")
+            return False
+            
+    # =========================================================================
     # ARTICLES
+    # =========================================================================
+    # =========================================================================
+    # ARTICLES (FLAT - ARCHIVE)
     # =========================================================================
     def get_articles(self) -> list:
         """Lee articles.json desde el bucket."""
@@ -84,9 +133,9 @@ class GCSService:
         except Exception as e:
             self.logger.error(f"Error leyendo articles: {e}")
             return []
-    
+
     def save_articles(self, articles: list):
-        """Guarda articles.json en el bucket (reemplaza todo)."""
+        """Guarda articles.json en el bucket."""
         if not self.bucket:
             return False
         try:
@@ -98,6 +147,41 @@ class GCSService:
             return True
         except Exception as e:
             self.logger.error(f"Error guardando articles: {e}")
+            return False
+
+    # =========================================================================
+    # ARTICLES (TOPIC-CENTRIC)
+    # =========================================================================
+    def get_news_by_topic(self) -> dict:
+        """
+        Lee news_by_topic.json desde el bucket.
+        Retorna: { "topic_id": [ {Article}, ... ] }
+        """
+        if not self.bucket:
+            return {}
+        try:
+            blob = self.bucket.blob("news_by_topic.json")
+            if not blob.exists():
+                return {}
+            content = blob.download_as_text()
+            return json.loads(content)
+        except Exception as e:
+            self.logger.error(f"Error leyendo news_by_topic: {e}")
+            return {}
+    
+    def save_news_by_topic(self, data: dict) -> bool:
+        """Guarda news_by_topic.json (dict) en el bucket."""
+        if not self.bucket:
+            return False
+        try:
+            blob = self.bucket.blob("news_by_topic.json")
+            blob.upload_from_string(
+                json.dumps(data, ensure_ascii=False, default=str),
+                content_type="application/json"
+            )
+            return True
+        except Exception as e:
+            self.logger.error(f"Error guardando news_by_topic: {e}")
             return False
     
     def get_articles_by_category(self, category: str, hours_limit: int = 24) -> list:
@@ -150,8 +234,8 @@ class GCSService:
         
         return added
     
-    def cleanup_old_articles(self, hours: int = 72):
-        """Elimina artículos más antiguos que X horas."""
+    def cleanup_old_articles(self, hours: int = 168):
+        """Elimina artículos más antiguos que X horas (defecto 7 días)."""
         articles = self.get_articles()
         if not articles:
             return 0

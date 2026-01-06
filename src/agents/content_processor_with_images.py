@@ -47,11 +47,9 @@ class ContentProcessorAgent:
             response = await self.client.chat.completions.create(
                 model="gpt-5-nano",
                 messages=[
-                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": system_prompt},
                     {"role": "user", "content": articles_input}
                 ],
-
-                response_format={"type": "json_object"}
             )
             result = json.loads(response.choices[0].message.content)
             valid_ids = result.get("valid_ids", [])
@@ -199,7 +197,7 @@ class ContentProcessorAgent:
             response = await self.client.chat.completions.create(
                 model="gpt-5-nano",
                 messages=[{"role": "user", "content": prompt}],
-                max_tokens=1000
+                max_completion_tokens=1000
             )
 
             keywords_text = response.choices[0].message.content.strip()
@@ -282,7 +280,7 @@ class ContentProcessorAgent:
             response = await self.client.chat.completions.create(
                 model="gpt-5-mini",
                 messages=[
-                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": system_prompt},
                     {"role": "user", "content": articles_text}
                 ],
 
@@ -389,7 +387,7 @@ class ContentProcessorAgent:
             response = await self.client.chat.completions.create(
                 model="gpt-5-nano",
                 messages=[
-                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": system_prompt},
                     {"role": "user", "content": raw_articles_html}
                 ],
 

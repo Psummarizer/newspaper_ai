@@ -48,8 +48,8 @@ gcloud run deploy $SERVICE_NAME `
 
 if ($LASTEXITCODE -ne 0) { Write-Error "Fallo en deploy Cloud Run"; exit 1 }
 
-# --- 5. CLOUD SCHEDULER (Daily 18:00) ---
-Write-Host "[INFO] Configurando Scheduler (18:00 PM)..."
+# --- 5. CLOUD SCHEDULER ---
+Write-Host "[INFO] Configurando Schedulers..."
 $SERVICE_URL = gcloud run services describe $SERVICE_NAME --platform managed --region $REGION --format="value(status.url)" --project=$PROJECT_ID
 
 if (-not $SERVICE_URL) {
@@ -57,22 +57,47 @@ if (-not $SERVICE_URL) {
     exit 1
 }
 
-gcloud scheduler jobs create http newsletter-daily-job `
-    --schedule="0 8 * * *" `
-    --uri="$SERVICE_URL/run-batch" `
+# 5.1 Ingesta cada 12 horas (8:00 AM y 8:00 PM Madrid)
+Write-Host "   -> Configurando 'newsletter-ingest-job' (8AM y 8PM)..."
+gcloud scheduler jobs create http newsletter-ingest-job `
+    --schedule="0 7,20 * * *" `
+    --uri="$SERVICE_URL/ingest" `
     --http-method=POST `
     --location=$REGION `
     --project=$PROJECT_ID `
+    --time-zone="Europe/Madrid" `
     --quiet 2>$null
 
 if ($LASTEXITCODE -ne 0) {
-    # Si ya existe, actualizamos
-    gcloud scheduler jobs update http newsletter-daily-job `
-        --schedule="0 8 * * *" `
-        --uri="$SERVICE_URL/run-batch" `
+    gcloud scheduler jobs update http newsletter-ingest-job `
+        --schedule="0 7,20 * * *" `
+        --uri="$SERVICE_URL/ingest" `
         --http-method=POST `
         --location=$REGION `
-        --project=$PROJECT_ID
+        --project=$PROJECT_ID `
+        --time-zone="Europe/Madrid"
+}
+
+# 5.2 Generación Diaria (Daily 8:30 AM Madrid)
+Write-Host "   -> Configurando 'newsletter-send-job' (Daily 8:30 AM)..."
+gcloud scheduler jobs create http newsletter-send-job `
+    --schedule="30 8 * * *" `
+    --uri="$SERVICE_URL/send-newsletter" `
+    --http-method=POST `
+    --location=$REGION `
+    --project=$PROJECT_ID `
+    --time-zone="Europe/Madrid" `
+    --quiet 2>$null
+
+if ($LASTEXITCODE -ne 0) {
+    gcloud scheduler jobs update http newsletter-send-job `
+        --schedule="30 8 * * *" `
+        --uri="$SERVICE_URL/send-newsletter" `
+        --http-method=POST `
+        --location=$REGION `
+        --project=$PROJECT_ID `
+        --time-zone="Europe/Madrid"
 }
 
 Write-Host "[OK] DESPLIEGUE FINALIZADO. URL: $SERVICE_URL"
+Write-Host "Jobs Activos: newsletter-ingest-job (8AM y 8PM), newsletter-send-job (08:30 AM)"
