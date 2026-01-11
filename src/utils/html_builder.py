@@ -329,23 +329,29 @@ def build_newsletter_html(content_body: str, front_page_html: str = "") -> str:
 
 def build_section_html(title: str, content: str) -> str:
     """
-    Genera una sección con banner de imagen y contenido.
+    Genera una seccion con banner de imagen y contenido.
     Email Compatible: usa <img> en vez de background-image.
     """
     
-    # Detectar categoría del título
-    clean_title = title.upper()
+    # Funcion para normalizar texto (quitar tildes)
+    def normalize(text):
+        import unicodedata
+        nfkd = unicodedata.normalize('NFKD', text)
+        return ''.join(c for c in nfkd if not unicodedata.combining(c))
+    
+    # Detectar categoria del titulo (normalizado para comparar)
+    normalized_title = normalize(title.upper())
     banner_image = CATEGORY_IMAGES.get("General")
-    banner_color = CATEGORY_BG_COLORS.get("General")
+    banner_color = CATEGORY_BG_COLORS.get("General", "#1a237e")
     banner_emoji = "📰"
     detected_category = "General"
     
-    # Ordenar por longitud (más largo primero) para evitar matches parciales
-    # Ej: "Geopolítica" debe matchear antes que "Política"
+    # Ordenar por longitud (mas largo primero) para evitar matches parciales
     sorted_keys = sorted(CATEGORY_IMAGES.keys(), key=len, reverse=True)
     
     for key in sorted_keys:
-        if key.upper() in clean_title or key.lower() in title.lower():
+        normalized_key = normalize(key.upper())
+        if normalized_key in normalized_title:
             banner_image = CATEGORY_IMAGES[key]
             banner_color = CATEGORY_BG_COLORS.get(key, "#424242")
             banner_emoji = CATEGORY_EMOJIS.get(key, "📰")

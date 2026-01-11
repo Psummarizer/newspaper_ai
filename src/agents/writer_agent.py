@@ -55,9 +55,7 @@ class WriterAgent:
                 messages=[
                     {"role": "user", "content": "Eres un redactor web experto. Escribes solo en HTML limpio. Nunca usas Markdown."},
                     {"role": "user", "content": prompt}
-                ],
-
-                max_completion_tokens=2500
+                ]
             )
 
             content = response.choices[0].message.content

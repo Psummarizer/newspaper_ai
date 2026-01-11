@@ -33,7 +33,7 @@ class LLMService:
         try:
             prompt = f"""
             Actúa como un editor experto. Resume el siguiente texto en {language}.
-            Máximo 3 frases.
+            Máximo 25 palabras.
 
             TEXTO:
             {text[:4000]}
@@ -148,7 +148,7 @@ class LLMService:
         FUENTE: {source_name}
         
         REGLAS DE REDACCIÓN (ESTRICTAS):
-        1. Longitud: Entre 300 y 450 palabras máximo.
+        1. Longitud: Entre 250 y 350 palabras máximo.
         2. Formato: Usa etiquetas HTML <p> para separar párrafos.
         3. Estilo: Tono neutral, informativo y profesional.
         4. NEGRITAS: Debes resaltar al menos 2 frases clave completas (de más de 10 palabras cada una) usando etiquetas <b>Frase importante...</b>.
@@ -160,9 +160,7 @@ class LLMService:
         try:
             response = await self.client.chat.completions.create(
                 model="gpt-5-nano",
-                messages=[{"role": "user", "content": prompt}],
-                max_completion_tokens=800,
-                temperature=0.7
+                messages=[{"role": "user", "content": prompt}]
             )
             return response.choices[0].message.content.strip()
         except Exception as e:

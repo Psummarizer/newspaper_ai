@@ -1,10 +1,20 @@
 import os
 import logging
 import json
+import re
 import asyncio
 from typing import Dict, Any, List
 from urllib.parse import urlparse
 from openai import AsyncOpenAI
+
+def _extract_json(text: str) -> dict:
+    """Extract JSON from LLM response that may contain markdown code blocks."""
+    # Remove markdown code blocks
+    text = re.sub(r'^```json\s*', '', text.strip())
+    text = re.sub(r'^```\s*', '', text)
+    text = re.sub(r'\s*```$', '', text)
+    text = text.strip()
+    return json.loads(text)
 
 class ContentProcessorAgent:
     def __init__(self, mock_mode: bool = False):
@@ -188,10 +198,9 @@ class ContentProcessorAgent:
             response = await self.client.chat.completions.create(
                 model=self.model_quality, 
                 messages=[
-                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": system_prompt},
                     {"role": "user", "content": context_text}
-                ],
-                max_completion_tokens=4000
+                ]
             )
             
             content = response.choices[0].message.content or ""
@@ -326,14 +335,12 @@ class ContentProcessorAgent:
             response = await self.client.chat.completions.create(
                 model=self.model_quality, 
                 messages=[
-                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": system_prompt},
                     {"role": "user", "content": articles_input}
-                ],
-                max_completion_tokens=1000,
-                response_format={"type": "json_object"}
+                ]
             )
             
-            result = json.loads(response.choices[0].message.content)
+            result = _extract_json(response.choices[0].message.content)
             selected = result.get("selected_stories", [])
             
             final_selection = []

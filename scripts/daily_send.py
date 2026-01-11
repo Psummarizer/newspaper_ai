@@ -146,8 +146,13 @@ class DailySender:
     
     def _normalize_id(self, name: str) -> str:
         import re
-        id_str = name.lower().strip()
-        id_str = re.sub(r'[^a-záéíóúüñ0-9\s]', '', id_str)
+        import unicodedata
+        # Quitar tildes
+        nfkd = unicodedata.normalize('NFKD', name)
+        id_str = ''.join(c for c in nfkd if not unicodedata.combining(c))
+        # Lowercase y limpiar
+        id_str = id_str.lower().strip()
+        id_str = re.sub(r'[^a-z0-9\s]', '', id_str)
         id_str = re.sub(r'\s+', '_', id_str)
         return id_str
     
@@ -198,8 +203,7 @@ class DailySender:
         try:
             response = await self.client.chat.completions.create(
                 model=self.model,
-                messages=[{"role": "user", "content": prompt}],
-                response_format={"type": "json_object"}
+                messages=[{"role": "user", "content": prompt}]
             )
             result = json.loads(response.choices[0].message.content)
             ids = result.get("selected_ids", [])[:3]
@@ -229,8 +233,7 @@ class DailySender:
         try:
             response = await self.client.chat.completions.create(
                 model=self.model,
-                messages=[{"role": "user", "content": prompt}],
-                response_format={"type": "json_object"}
+                messages=[{"role": "user", "content": prompt}]
             )
             result = json.loads(response.choices[0].message.content)
             ids = result.get("front_page_ids", [])[:7]

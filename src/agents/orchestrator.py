@@ -35,9 +35,14 @@ class Orchestrator:
         self.fb_service = FirebaseService()  # Solo para usuarios
         
     def _normalize_id(self, name: str) -> str:
-        """Convierte nombre a ID normalizado (igual que ingest_news.py)"""
-        id_str = name.lower().strip()
-        id_str = re.sub(r'[^a-záéíóúüñ0-9\s]', '', id_str)
+        """Convierte nombre a ID normalizado (sin tildes para matching consistente)"""
+        import unicodedata
+        # Quitar tildes
+        nfkd = unicodedata.normalize('NFKD', name)
+        id_str = ''.join(c for c in nfkd if not unicodedata.combining(c))
+        # Lowercase y limpiar
+        id_str = id_str.lower().strip()
+        id_str = re.sub(r'[^a-z0-9\s]', '', id_str)
         id_str = re.sub(r'\s+', '_', id_str)
         return id_str
 
@@ -52,6 +57,32 @@ class Orchestrator:
         except Exception as e:
             self.logger.warning(f"Error cargando topics.json: {e}")
         return {}
+    
+    def _find_topic_by_alias(self, user_alias: str, topics_cache: Dict) -> tuple:
+        """
+        Busca el topic que contiene el alias del usuario.
+        Retorna (topic_id, topic_data) o (None, None) si no encuentra.
+        """
+        normalized_alias = self._normalize_id(user_alias)
+        
+        # 1. Búsqueda directa por topic_id normalizado
+        if normalized_alias in topics_cache:
+            return (normalized_alias, topics_cache[normalized_alias])
+        
+        # 2. Búsqueda en aliases de cada topic
+        for topic_id, topic_data in topics_cache.items():
+            aliases = topic_data.get("aliases", [])
+            for alias in aliases:
+                if self._normalize_id(alias) == normalized_alias:
+                    return (topic_id, topic_data)
+        
+        # 3. Búsqueda parcial en nombre del topic
+        for topic_id, topic_data in topics_cache.items():
+            topic_name = topic_data.get("name", "")
+            if normalized_alias in self._normalize_id(topic_name):
+                return (topic_id, topic_data)
+        
+        return (None, None)
         
     def _format_cached_news_to_html(self, news_item: Dict, category: str) -> str:
         """Convierte noticia cacheada (JSON) a HTML final"""
@@ -165,18 +196,20 @@ class Orchestrator:
         print(f"📦 Cache topics cargado: {len(topics_cache)} topics disponibles globalmente")
 
         category_map: Dict[str, Dict[str, Dict]] = {} 
+        used_titles: set = set()  # Para evitar duplicados cross-categoria 
         
         # --- FASE 1: RECOLECCIÓN & SELECCIÓN (CACHE ONLY) ---
         for idx, topic in enumerate(topics):
-            print(f"\n--- [{idx+1}/{len(topics)}] Procesando topic: '{topic}' ---")
+            print(f"\n--- [{idx+1}/{len(topics)}] Procesando alias: '{topic}' ---")
             
-            norm_id = self._normalize_id(topic)
-            cached_data = topics_cache.get(norm_id)
+            # Buscar topic por alias (soporta sinónimos)
+            topic_id, cached_data = self._find_topic_by_alias(topic, topics_cache)
             
-            if not cached_data or not cached_data.get("noticias"):
-                print(f"   ⚠️ No hay noticias cacheadas para '{topic}' (ID: {norm_id}). Saltando.")
+            if not topic_id or not cached_data or not cached_data.get("noticias"):
+                print(f"   ⚠️ No hay noticias cacheadas para alias '{topic}'. Saltando.")
                 continue
-                
+            
+            print(f"   ✅ Alias '{topic}' → Topic '{topic_id}' encontrado")
             all_news = cached_data["noticias"]
             print(f"   Total noticias en cache: {len(all_news)}")
             
@@ -214,6 +247,14 @@ class Orchestrator:
             if main_cat not in category_map: category_map[main_cat] = {}
             
             for news in selected_news:
+                # Dedup cross-categoria por titulo normalizado
+                title = news.get("titulo", "")
+                norm_title = title.lower().strip()
+                if norm_title in used_titles:
+                    print(f"      ⏭️ Saltando '{title[:40]}...' (ya aparece en otra categoria)")
+                    continue
+                used_titles.add(norm_title)
+                
                 # Usar URL como key
                 art_url = news.get("fuentes", [""])[0] or f"no_url_{len(category_map[main_cat])}"
                 

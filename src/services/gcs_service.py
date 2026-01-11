@@ -5,8 +5,17 @@ Mucho más rápido que Firestore para operaciones bulk.
 import os
 import json
 import logging
+import unicodedata
 from datetime import datetime
 from google.cloud import storage
+
+def _normalize_category(text: str) -> str:
+    """Normaliza categoría: quita tildes y pasa a minúsculas"""
+    if not text:
+        return ""
+    normalized = unicodedata.normalize('NFD', text)
+    without_accents = ''.join(c for c in normalized if unicodedata.category(c) != 'Mn')
+    return without_accents.lower().strip()
 
 class GCSService:
     def __init__(self, bucket_name: str = None):
@@ -194,8 +203,10 @@ class GCSService:
         cutoff = datetime.now() - timedelta(hours=hours_limit)
         
         filtered = []
+        normalized_category = _normalize_category(category)
         for art in articles:
-            if art.get("category") != category:
+            art_category = _normalize_category(art.get("category", ""))
+            if art_category != normalized_category:
                 continue
             
             # Parsear fecha
@@ -262,3 +273,45 @@ class GCSService:
             self.save_articles(kept)
         
         return removed
+
+    def cleanup_old_topic_news(self, topics_data: dict, days: int = 7) -> int:
+        """
+        Elimina noticias más antiguas que X días de topics.json.
+        Retorna el número total de noticias eliminadas.
+        """
+        if not topics_data:
+            return 0
+        
+        from datetime import timedelta
+        cutoff = datetime.now() - timedelta(days=days)
+        total_removed = 0
+        
+        for topic_id, topic_info in topics_data.items():
+            if not isinstance(topic_info, dict):
+                continue
+            
+            noticias = topic_info.get("noticias", [])
+            if not noticias:
+                continue
+            
+            kept_news = []
+            for news in noticias:
+                fecha = news.get("fecha_inventariado")
+                if isinstance(fecha, str):
+                    try:
+                        fecha_dt = datetime.fromisoformat(fecha)
+                        if fecha_dt.replace(tzinfo=None) >= cutoff:
+                            kept_news.append(news)
+                        else:
+                            total_removed += 1
+                    except:
+                        kept_news.append(news)  # Si no puede parsear, mantener
+                else:
+                    kept_news.append(news)
+            
+            topic_info["noticias"] = kept_news
+        
+        if total_removed > 0:
+            self.logger.info(f"🧹 Limpieza: {total_removed} noticias antiguas eliminadas de topics.json")
+        
+        return total_removed

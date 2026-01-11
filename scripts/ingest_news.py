@@ -30,6 +30,14 @@ from src.utils.html_builder import CATEGORY_IMAGES
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
+def _extract_json(text: str) -> dict:
+    """Extract JSON from LLM response that may contain markdown code blocks."""
+    text = re.sub(r'^```json\s*', '', text.strip())
+    text = re.sub(r'^```\s*', '', text)
+    text = re.sub(r'\s*```$', '', text)
+    text = text.strip()
+    return json.loads(text)
+
 # Lista oficial de categorías
 VALID_CATEGORIES = list(CATEGORY_IMAGES.keys())
 
@@ -56,24 +64,43 @@ class HourlyProcessor:
         # 0. INGESTA RSS
         await self._ingest_all_rss()
         
-        # 1. Obtener todos los Topics únicos de Firebase
-        all_topics = self._get_all_topics_from_firebase()
-        logger.info(f"📋 Topics únicos encontrados: {len(all_topics)}")
+        # 0.1 LIMPIEZA DE DATOS ANTIGUOS
+        removed_articles = self.gcs.cleanup_old_articles(hours=168)  # 7 días
+        if removed_articles > 0:
+            logger.info(f"🧹 Eliminados {removed_articles} artículos antiguos (>7 días)")
+        
+        # 1. Obtener todos los aliases únicos de Firebase
+        all_aliases = self._get_all_topics_from_firebase()
+        logger.info(f"📋 Aliases de usuarios encontrados: {len(all_aliases)}")
         
         # 2. Cargar topics.json actual
         topics_data = self._load_topics_json()
+        logger.info(f"📦 Topics existentes: {len(topics_data)}")
+        
+        # 2.1 Limpiar noticias antiguas de topics (>7 días)
+        removed_news = self.gcs.cleanup_old_topic_news(topics_data, days=7)
+        if removed_news > 0:
+            logger.info(f"🧹 Eliminadas {removed_news} noticias antiguas (>7 días) de topics")
+        
+        # 3. Sincronizar aliases con topics (LLM matching semántico)
+        topics_data = await self._sync_aliases_with_topics(all_aliases, topics_data)
+        logger.info(f"🔄 Topics después de sincronización: {len(topics_data)}")
         
         # Cargar noticias existentes para deduplicación semántica
         self._load_existing_news(topics_data)
         
-        # 3. Procesar Topics EN PARALELO (con límite)
+        # 4. Procesar Topics EN PARALELO (con límite)
         semaphore = asyncio.Semaphore(MAX_CONCURRENT_TOPICS)
+        
+        # Procesar cada topic (las keys de topics_data después de sincronización)
+        topic_names = [topics_data[tid].get("name", tid) for tid in topics_data.keys()]
+        logger.info(f"📰 Procesando {len(topic_names)} topics...")
         
         async def process_topic_wrapper(topic_name):
             async with semaphore:
                 return await self._process_single_topic(topic_name, topics_data)
         
-        tasks = [process_topic_wrapper(topic) for topic in all_topics]
+        tasks = [process_topic_wrapper(topic) for topic in topic_names]
         results = await asyncio.gather(*tasks, return_exceptions=True)
         
         # Consolidar resultados
@@ -190,7 +217,59 @@ class HourlyProcessor:
                     topic_info["noticias"].append(cached_news_item)
                     logger.info(f"♻️ {topic_name}: Reutilizada noticia de cache")
         
+        # POST-MERGE: Fusionar noticias similares (procesadas en paralelo)
+        topic_info["noticias"] = await self._merge_similar_news(topic_info.get("noticias", []))
+        
         return {"topic_id": topic_id, "data": topic_info}
+    
+    async def _merge_similar_news(self, news_list: list) -> list:
+        """
+        Fusiona noticias similares que fueron procesadas en paralelo.
+        Compara títulos normalizados y combina fuentes.
+        """
+        if len(news_list) <= 1:
+            return news_list
+        
+        merged = []
+        used_indices = set()
+        
+        for i, news_a in enumerate(news_list):
+            if i in used_indices:
+                continue
+            
+            title_a = self._normalize_title(news_a.get("titulo", ""))
+            sources_a = list(news_a.get("fuentes", []))
+            
+            # Buscar noticias similares
+            for j, news_b in enumerate(news_list):
+                if j <= i or j in used_indices:
+                    continue
+                
+                title_b = self._normalize_title(news_b.get("titulo", ""))
+                
+                # Comparar similitud (si > 60% de palabras coinciden, son similares)
+                words_a = set(title_a.split())
+                words_b = set(title_b.split())
+                if not words_a or not words_b:
+                    continue
+                
+                common = len(words_a & words_b)
+                similarity = common / max(len(words_a), len(words_b))
+                
+                if similarity > 0.6:
+                    # Fusionar fuentes
+                    for src in news_b.get("fuentes", []):
+                        if src and src not in sources_a:
+                            sources_a.append(src)
+                    used_indices.add(j)
+                    logger.info(f"🔗 Fusionadas fuentes: {news_a.get('titulo', '')[:40]}... ({len(sources_a)} fuentes)")
+            
+            # Actualizar fuentes y añadir
+            news_a["fuentes"] = sources_a[:5]  # Max 5 fuentes
+            merged.append(news_a)
+            used_indices.add(i)
+        
+        return merged
     
     def _get_cached_news_for_categories(self, categories: list) -> list:
         """Busca noticias ya redactadas para las categorías dadas"""
@@ -215,8 +294,17 @@ class HourlyProcessor:
         status = dedup_result.get("status", "different")
         matched_key = dedup_result.get("matched_key")
         
-        if status == "duplicate":
-            logger.info(f"🔄 SKIP (duplicado): {title[:50]}...")
+        if status == "duplicate" and matched_key:
+            # Es DUPLICADO - añadir esta URL a las fuentes de la noticia existente
+            logger.info(f"🔄 Duplicado detectado: añadiendo fuente a '{matched_key[:40]}...'")
+            existing_info = self.existing_news.get(matched_key)
+            if existing_info and existing_info.get("news"):
+                existing_news = existing_info["news"]
+                existing_sources = existing_news.get("fuentes", [])
+                if url and url not in existing_sources:
+                    existing_sources.append(url)
+                    existing_news["fuentes"] = existing_sources[:5]  # Max 5 fuentes
+                    logger.info(f"   ✅ Fuentes ahora: {len(existing_news['fuentes'])}")
             self.redacted_cache[url] = None
             return None
         
@@ -300,11 +388,9 @@ class HourlyProcessor:
         NOTICIAS YA PROCESADAS:
         {titles_text}
         
-        REGLAS:
-        - Si la noticia nueva habla del MISMO producto, evento, anuncio o persona = "duplicate"
-        - Ejemplo: "DLSS 4.5 en CES" y "Nvidia DLSS 4.5: mejoras" = MISMO tema = "duplicate"
-        - Ejemplo: "OpenAI lanza GPT-5" y "GPT-5 disponible" = MISMO evento = "duplicate"
-        - Solo "different" si es un tema COMPLETAMENTE distinto
+        CRITERIO:
+        - "duplicate" si la noticia nueva cubre el MISMO evento, anuncio, producto o persona que alguna existente (aunque use palabras diferentes)
+        - "different" solo si es un tema COMPLETAMENTE distinto
         
         Responde JSON: {{"status": "duplicate/different", "matched_id": 0 o null}}
         """
@@ -312,10 +398,9 @@ class HourlyProcessor:
         try:
             response = await self.client.chat.completions.create(
                 model=self.model,
-                messages=[{"role": "user", "content": prompt}],
-                max_completion_tokens=150
+                messages=[{"role": "user", "content": prompt}]
             )
-            result = json.loads(response.choices[0].message.content)
+            result = _extract_json(response.choices[0].message.content)
             status = result.get("status", "different")
             matched_id = result.get("matched_id")
             
@@ -345,10 +430,9 @@ class HourlyProcessor:
         try:
             response = await self.client.chat.completions.create(
                 model=self.model,
-                messages=[{"role": "user", "content": prompt}],
-                max_completion_tokens=50
+                messages=[{"role": "user", "content": prompt}]
             )
-            result = json.loads(response.choices[0].message.content)
+            result = _extract_json(response.choices[0].message.content)
             return result.get("is_relevant", False)
         except:
             return False
@@ -358,8 +442,8 @@ class HourlyProcessor:
     # =========================================================================
     
     def _get_all_topics_from_firebase(self) -> list:
-        """Lee todos los Topics únicos de AINewspaper"""
-        topics_set = set()
+        """Lee todos los aliases únicos de usuarios en AINewspaper"""
+        aliases_set = set()
         docs = self.fb.db.collection("AINewspaper").stream()
         for doc in docs:
             data = doc.to_dict()
@@ -368,8 +452,110 @@ class HourlyProcessor:
                 user_topics = [t.strip() for t in user_topics.replace("[", "").replace("]", "").replace("'", "").replace('"', "").split(",")]
             for t in user_topics:
                 if t.strip():
-                    topics_set.add(t.strip())
-        return list(topics_set)
+                    aliases_set.add(t.strip())
+        return list(aliases_set)
+    
+    async def _match_alias_to_topic(self, alias: str, existing_topics: dict) -> str:
+        """
+        LLM decide si el alias es sinónimo de algún topic existente.
+        Retorna el nombre del topic si es sinónimo, o None si es nuevo.
+        """
+        if not existing_topics:
+            return None
+        
+        # Primero check exacto (case-insensitive)
+        alias_lower = alias.lower().strip()
+        for topic_id, topic_data in existing_topics.items():
+            # Check nombre del topic
+            if topic_data.get("name", "").lower().strip() == alias_lower:
+                return topic_data.get("name")
+            # Check aliases existentes
+            for existing_alias in topic_data.get("aliases", []):
+                if existing_alias.lower().strip() == alias_lower:
+                    return topic_data.get("name")
+        
+        # Si no hay match exacto, usar LLM para matching semántico
+        topics_list = []
+        for tid, tdata in existing_topics.items():
+            topics_list.append({
+                "name": tdata.get("name", tid),
+                "aliases": tdata.get("aliases", [])
+            })
+        
+        prompt = f"""
+        Alias del usuario: "{alias}"
+
+        Topics existentes:
+        {json.dumps(topics_list, ensure_ascii=False, indent=2)}
+
+        REGLAS:
+        - IA = Inteligencia Artificial = AI = Artificial Intelligence → SINÓNIMOS
+        - genAI ≠ IA (relacionados pero NO sinónimos, crear topic nuevo)
+        - Geopolítica = geopolitica = Geopolitics → SINÓNIMOS
+        - Macroeconomía = macroeconomia = Macro = Economía Global → SINÓNIMOS
+
+        ¿Este alias es SINÓNIMO de algún topic existente?
+        
+        Responde JSON:
+        {{"match": "nombre_del_topic" o null}}
+        """
+        
+        try:
+            response = await self.client.chat.completions.create(
+                model=self.model,
+                messages=[{"role": "user", "content": prompt}]
+            )
+            result = _extract_json(response.choices[0].message.content)
+            return result.get("match")
+        except Exception as e:
+            logger.warning(f"Error en matching LLM para '{alias}': {e}")
+            return None
+    
+    async def _sync_aliases_with_topics(self, user_aliases: list, topics_data: dict) -> dict:
+        """
+        Sincroniza aliases de usuarios con topics existentes.
+        - Si el alias es sinónimo de un topic → lo añade a sus aliases
+        - Si el alias es nuevo → crea un topic nuevo
+        """
+        for alias in user_aliases:
+            # Buscar si este alias ya está en algún topic
+            found = False
+            for topic_id, topic_info in topics_data.items():
+                if alias in topic_info.get("aliases", []):
+                    found = True
+                    break
+                if alias.lower() == topic_info.get("name", "").lower():
+                    found = True
+                    # Asegurar que el alias está en la lista
+                    if alias not in topic_info.get("aliases", []):
+                        topic_info.setdefault("aliases", []).append(alias)
+                    break
+            
+            if found:
+                continue
+            
+            # Alias no encontrado - usar LLM para matching semántico
+            matched_topic_name = await self._match_alias_to_topic(alias, topics_data)
+            
+            if matched_topic_name:
+                # Añadir alias al topic existente
+                for topic_id, topic_info in topics_data.items():
+                    if topic_info.get("name") == matched_topic_name:
+                        topic_info.setdefault("aliases", []).append(alias)
+                        logger.info(f"🔗 Alias '{alias}' añadido a topic '{matched_topic_name}'")
+                        break
+            else:
+                # Crear topic nuevo
+                topic_id = alias.lower().replace(" ", "_")
+                topics_data[topic_id] = {
+                    "name": alias,
+                    "aliases": [alias],
+                    "categories": [],
+                    "noticias": []
+                }
+                logger.info(f"➕ Nuevo topic creado para alias '{alias}'")
+        
+        return topics_data
     
     def _normalize_id(self, name: str) -> str:
         """Convierte nombre a ID normalizado"""
@@ -451,7 +637,27 @@ class HourlyProcessor:
         if not articles:
             return []
         
-        articles = articles[:30]
+        # Filtrar artículos muy antiguos (más de 24h)
+        from datetime import datetime, timedelta
+        cutoff = datetime.now() - timedelta(hours=24)
+        fresh_articles = []
+        for a in articles:
+            pub_date = a.get("published_at")
+            if isinstance(pub_date, str):
+                try:
+                    pub_date = datetime.fromisoformat(pub_date.replace("Z", "+00:00"))
+                    if pub_date.replace(tzinfo=None) >= cutoff:
+                        fresh_articles.append(a)
+                except:
+                    fresh_articles.append(a)  # Si no puede parsear, incluir
+            else:
+                fresh_articles.append(a)
+        
+        if not fresh_articles:
+            logger.info(f"⏰ {topic}: 0 artículos frescos (todos > 48h)")
+            return []
+        
+        articles = fresh_articles[:30]
         
         articles_text = ""
         for i, a in enumerate(articles):
@@ -459,45 +665,41 @@ class HourlyProcessor:
             articles_text += f"ID {i}: {a.get('title')} | {snippet}\n"
         
         prompt = f"""
-        Eres un FILTRO DE RELEVANCIA para el topic: "{topic}".
+        Eres un FILTRO DE RELEVANCIA inteligente para el topic: "{topic}".
         
-        REGLAS DE FILTRADO:
+        Tu trabajo: Identificar noticias RELACIONADAS con "{topic}".
         
-        1. RELEVANCIA TEMATICA: La noticia debe estar TEMATICAMENTE relacionada con "{topic}".
-           - Ejemplo: Topic "astronomia" + noticia "nuevo exoplaneta descubierto" = ACEPTAR
-           - Ejemplo: Topic "IA" + noticia "OpenAI lanza modelo" = ACEPTAR
-           - Ejemplo: Topic "Formula 1" + noticia "Rally Dakar en directo" = RECHAZAR (otro deporte)
-           - La relacion debe ser clara, no forzada ni tangencial
+        ENFOQUE PARA TOPICS CIENTÍFICOS/TÉCNICOS (ej: física cuántica, IA, blockchain):
+        - SÉ INCLUSIVO: acepta investigaciones, papers, descubrimientos, avances
+        - Acepta temas relacionados (física cuántica → mecánica cuántica, computación cuántica, entrelazamiento)
+        - Acepta noticias de universidades, laboratorios, centros de investigación
+        - La palabra clave o tema debe aparecer o ser claramente implícito
         
-        2. RECHAZAR SIEMPRE:
-           - Coberturas EN DIRECTO o "LIVE" o "en vivo" (ej: "Rally Dakar en directo", "Partido en vivo")
-           - Ofertas, descuentos, promociones, rebajas
-           - Lanzamientos de productos de consumo (moviles, TV, gadgets, electrodomesticos)
-           - Horarios de tiendas, supermercados o comercios
-           - Reviews o analisis de productos
-           - Contenido patrocinado o publicitario
-           - Mercadona, Lidl, MediaMarkt y similares (a menos que sean noticias corporativas serias)
-           - Noticias de VENTAS o REBAJAS de ropa, electrodomesticos, etc (NO es macroeconomia)
-           - Ejemplo RECHAZAR: "rebajas de abrigo elevan ventas" = retail, NO macroeconomia
+        ENFOQUE PARA TOPICS DE ENTRETENIMIENTO/DEPORTE (ej: F1, Real Madrid):
+        - Acepta noticias del equipo, competición, fichajes, partidos, declaraciones
+        - Acepta contenido relacionado (F1 → carreras, pilotos, equipos, FIA, circuitos)
         
-        3. ACEPTAR SOLO:
-           - Noticias de caracter informativo serio
-           - Eventos politicos, economicos, cientificos, deportivos relevantes
-           - Analisis de fondo, investigaciones, reportajes
-           - Decisiones gubernamentales, empresariales estrategicas
-           - Descubrimientos científicos
-           - Innovaciones tecnológicas
-           - Avances en investigación médica
-           - Noticias corporativas relevantes
-           - Noticias de cotilleos (si el topic lo explicita)
+        RECHAZAR SIEMPRE:
+        - Contenido publicitario/promocional/patrocinado
+        - Reviews de productos de consumo (móviles, gadgets, electrodomésticos)
+        - Ofertas, descuentos, rebajas de tiendas
+        - "Mejores productos", "guías de compra"
+        - Cobertura en directo sin sustancia
+        
+        ACEPTAR:
+        - Noticias informativas serias
+        - Investigación científica o técnica
+        - Análisis de profundidad
+        - Eventos relevantes del sector
+        - Declaraciones de expertos, empresas o instituciones
         
         NOTICIAS A EVALUAR:
         {articles_text}
         
-        Responde JSON con SOLO los IDs de noticias que cumplan TODAS las reglas:
+        Responde JSON con los IDs relevantes para "{topic}":
         {{"relevant_ids": [0, 2, 5]}}
         
-        Si NINGUNA noticia es relevante, responde: {{"relevant_ids": []}}
+        Si NINGUNA es relevante: {{"relevant_ids": []}}
         """
         
         try:
@@ -505,15 +707,16 @@ class HourlyProcessor:
                 model=self.model,
                 messages=[{"role": "user", "content": prompt}],
             )
-            result = json.loads(response.choices[0].message.content)
+            result = _extract_json(response.choices[0].message.content)
             ids = result.get("relevant_ids", [])
-            return [articles[i] for i in ids if i < len(articles)][:10]
+            # Devolver todas las relevantes - la deduplicación fusionará fuentes
+            return [articles[i] for i in ids if i < len(articles)]
         except Exception as e:
             logger.error(f"Error filtrando: {e}")
             return []
     
     async def _fetch_og_image(self, url: str) -> str:
-        """Extrae og:image de una URL usando Open Graph"""
+        """Extrae og:image de una URL usando Open Graph, filtrando logos/iconos"""
         if not url:
             return ""
         try:
@@ -527,16 +730,95 @@ class HourlyProcessor:
                     if not match:
                         match = re.search(r'<meta[^>]*content=["\']([^"\']+)["\'][^>]*property=["\']og:image["\']', html, re.IGNORECASE)
                     if match:
-                        return match.group(1)
+                        img_url = match.group(1)
+                        
+                        # Filtrar imágenes que son logos, iconos o assets de redes sociales
+                        skip_patterns = [
+                            'logo', 'icon', 'favicon', 'avatar', 'brand',
+                            'twitter.com', 'x.com', 'facebook.com', 'linkedin.com',
+                            '/icons/', '/logos/', '/emoji/', '/emojis/',
+                            'static.xx.', 'abs.twimg.com', 'pbs.twimg.com',
+                            '.svg', '.ico', 'sprite', 'placeholder',
+                            'default-', 'og-default', 'share-image', 'social-',
+                            'msn.com/static', 'slashdot.org/~',  # Specific problematic sources
+                        ]
+                        
+                        img_lower = img_url.lower()
+                        for pattern in skip_patterns:
+                            if pattern in img_lower:
+                                return ""  # No usar esta imagen
+                        
+                        # Verificar que no sea una imagen muy pequeña (parámetros de URL)
+                        if 'w=64' in img_lower or 'h=64' in img_lower or 'size=small' in img_lower:
+                            return ""
+                        
+                        return img_url
         except Exception as e:
             pass  # Silently fail - image is optional
         return ""
+    
+    async def _fetch_article_content(self, url: str) -> str:
+        """Extrae el texto principal de un artículo web"""
+        if not url:
+            return ""
+        try:
+            async with aiohttp.ClientSession() as session:
+                headers = {"User-Agent": "Mozilla/5.0 (compatible; NewsBot/1.0)"}
+                async with session.get(url, timeout=aiohttp.ClientTimeout(total=10), headers=headers) as response:
+                    if response.status != 200:
+                        return ""
+                    html = await response.text()
+                    
+                    # Extraer texto de párrafos <p>
+                    paragraphs = re.findall(r'<p[^>]*>([^<]+(?:<[^/p][^>]*>[^<]*</[^p][^>]*>)*[^<]*)</p>', html, re.IGNORECASE | re.DOTALL)
+                    text_content = " ".join(p.strip() for p in paragraphs if len(p.strip()) > 50)
+                    
+                    # Limpiar tags HTML residuales
+                    text_content = re.sub(r'<[^>]+>', ' ', text_content)
+                    text_content = re.sub(r'\s+', ' ', text_content).strip()
+                    
+                    # Limpiar basura HTML común de medios españoles
+                    garbage_patterns = [
+                        r'Noticia\s+Relacionada[^.]*\.?',
+                        r'Leer\s+(m[aá]s|art[ií]culo\s+completo)[^.]*\.?',
+                        r'Ver\s+(m[aá]s|galer[ií]a|v[ií]deo)[^.]*\.?',
+                        r'Suscr[ií]bete[^.]*\.?',
+                        r'Newsletter[^.]*suscr[^.]*\.?',
+                        r'estandar\s+No',
+                        r'Premium\s+No',
+                        r'Publicidad[^.]*\.?',
+                    ]
+                    for pattern in garbage_patterns:
+                        text_content = re.sub(pattern, '', text_content, flags=re.IGNORECASE)
+                    
+                    text_content = re.sub(r'\s+', ' ', text_content).strip()
+                    
+                    return text_content[:3000]  # Limitar longitud
+        except Exception as e:
+            logger.debug(f"Error extrayendo contenido de {url}: {e}")
+            return ""
 
     async def _redact_article(self, article: dict, topic: str) -> dict:
         """Redacta un articulo con gpt-5-nano"""
         title = article.get("title", "")
         content = article.get("content") or article.get("description") or ""
         url = article.get("url", article.get("link", ""))
+        
+        # FILTRO: Descartar noticias con contenido muy corto (solo titulares)
+        # Si el RSS no tiene suficiente contenido, intentar extraerlo de la fuente
+        MIN_CONTENT_LENGTH = 400  # caracteres minimos
+        if len(content) < MIN_CONTENT_LENGTH and url:
+            logger.info(f"📥 Contenido corto ({len(content)} chars), intentando extraer de la fuente...")
+            fetched_content = await self._fetch_article_content(url)
+            if fetched_content and len(fetched_content) >= MIN_CONTENT_LENGTH:
+                content = fetched_content
+                logger.info(f"   ✅ Extraído: {len(content)} chars")
+            else:
+                logger.info(f"⏭️ Descartando '{title[:40]}...' - contenido insuficiente")
+                return None
+        elif len(content) < MIN_CONTENT_LENGTH:
+            logger.info(f"⏭️ Descartando '{title[:40]}...' - contenido muy corto ({len(content)} chars)")
+            return None
         
         # Intentar obtener imagen del articulo o via Open Graph
         image = article.get("image_url", article.get("urlToImage", ""))
@@ -569,12 +851,15 @@ class HourlyProcessor:
            - Si la noticia habla de X, habla de X, no de "{topic}"
         
         3. FORMATO E IDIOMA:
-           - IDIOMA: Espanol peninsular (NO latinoamericano)
+           - IDIOMA: Español peninsular
+           - Traduce CUALQUIER cita o texto en idioma extranjero al español
+           - TODO el contenido debe estar en español
            - Titulo con emoji al principio (max 12 palabras)
-           - Resumen de 20-30 palabras
-           - Noticia de 100-250 palabras (2-3 parrafos con etiquetas <p>)
-           - Minimo 2 frases en <b>negrita</b> (frases importantes del contenido original)
-           - Tono periodistico informativo
+           - Resumen de 15-25 palabras
+           - Noticia de 300-450 palabras (3-4 parrafos con etiquetas <p>)
+           - Desarrolla cada punto con detalle, profundiza en el contexto
+           - Minimo 3 frases en <b>negrita</b> (frases importantes del contenido original)
+           - Tono periodistico informativo y profesional
         
         Responde JSON:
         {{
@@ -589,7 +874,7 @@ class HourlyProcessor:
                 model=self.model,
                 messages=[{"role": "user", "content": prompt}],
             )
-            result = json.loads(response.choices[0].message.content)
+            result = _extract_json(response.choices[0].message.content)
             
             return {
                 "fecha_inventariado": datetime.now().isoformat(),

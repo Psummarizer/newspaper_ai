@@ -1,0 +1,2863 @@
+{
+  "tested_at": "2026-01-10T11:11:14.795799",
+  "total_sources": 354,
+  "summary": {
+    "ok": 315,
+    "empty": 11,
+    "http_error": 19,
+    "timeout": 0,
+    "error": 9
+  },
+  "details": {
+    "ok": [
+      {
+        "name": "El País - España",
+        "category": "Política",
+        "url": "https://feeds.elpais.com/mrss-s/pages/ep/site/elpais.com/section/espana/portada",
+        "status": "OK",
+        "http_code": 200,
+        "items": 19
+      },
+      {
+        "name": "El Mundo - España",
+        "category": "Política",
+        "url": "https://e00-elmundo.uecdn.es/elmundo/rss/espana.xml",
+        "status": "OK",
+        "http_code": 200,
+        "items": 56
+      },
+      {
+        "name": "ABC - España",
+        "category": "Política",
+        "url": "https://www.abc.es/rss/2.0/espana/",
+        "status": "OK",
+        "http_code": 200,
+        "items": 25
+      },
+      {
+        "name": "La Vanguardia - Política",
+        "category": "Política",
+        "url": "https://www.lavanguardia.com/rss/politica.xml",
+        "status": "OK",
+        "http_code": 200,
+        "items": 100
+      },
+      {
+        "name": "ElDiario.es - Política",
+        "category": "Política",
+        "url": "https://www.eldiario.es/rss/politica/",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "El Confidencial - España",
+        "category": "Política",
+        "url": "https://rss.elconfidencial.com/espana/",
+        "status": "OK",
+        "http_code": 200,
+        "items": 15
+      },
+      {
+        "name": "20 Minutos - Nacional",
+        "category": "Política",
+        "url": "https://www.20minutos.es/rss/nacional/",
+        "status": "OK",
+        "http_code": 200,
+        "items": 32
+      },
+      {
+        "name": "Público",
+        "category": "Política",
+        "url": "https://periodicoclm.publico.es/rss/",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "Europa Press - Nacional",
+        "category": "Política",
+        "url": "https://www.europapress.es/rss/rss.aspx?ch=00066",
+        "status": "OK",
+        "http_code": 200,
+        "items": 10
+      },
+      {
+        "name": "El Español - España",
+        "category": "Política",
+        "url": "https://www.elespanol.com/rss/espana/",
+        "status": "OK",
+        "http_code": 200,
+        "items": 30
+      },
+      {
+        "name": "RTVE Noticias - España",
+        "category": "Política",
+        "url": "https://api2.rtve.es/rss/temas_noticias.xml",
+        "status": "OK",
+        "http_code": 200,
+        "items": 40
+      },
+      {
+        "name": "La Razón - Política",
+        "category": "Política",
+        "url": "https://www.larazon.es/rss/politica.xml",
+        "status": "OK",
+        "http_code": 200,
+        "items": 15
+      },
+      {
+        "name": "El Periódico - Política",
+        "category": "Política",
+        "url": "https://www.elperiodico.com/es/rss/politica/rss.xml",
+        "status": "OK",
+        "http_code": 200,
+        "items": 50
+      },
+      {
+        "name": "El Independiente - Política",
+        "category": "Política",
+        "url": "https://www.elindependiente.com/politica/feed/",
+        "status": "OK",
+        "http_code": 200,
+        "items": 50
+      },
+      {
+        "name": "OkDiario - España",
+        "category": "Política",
+        "url": "https://okdiario.com/feed",
+        "status": "OK",
+        "http_code": 200,
+        "items": 50
+      },
+      {
+        "name": "La Voz de Galicia - España",
+        "category": "Política",
+        "url": "https://www.lavozdegalicia.es/index.xml",
+        "status": "OK",
+        "http_code": 200,
+        "items": 112
+      },
+      {
+        "name": "El Faro de Vigo - Política",
+        "category": "Política",
+        "url": "https://www.farodevigo.es/rss/section/1227371",
+        "status": "OK",
+        "http_code": 200,
+        "items": 1
+      },
+      {
+        "name": "La Nueva España - Política",
+        "category": "Política",
+        "url": "https://www.lne.es/rss/section/3120",
+        "status": "OK",
+        "http_code": 200,
+        "items": 10
+      },
+      {
+        "name": "El Correo - Política",
+        "category": "Política",
+        "url": "https://www.elcorreo.com/rss/2.0/portada/",
+        "status": "OK",
+        "http_code": 200,
+        "items": 100
+      },
+      {
+        "name": "Politico Europe",
+        "category": "Geopolítica",
+        "url": "https://www.politico.eu/feed/",
+        "status": "OK",
+        "http_code": 200,
+        "items": 10
+      },
+      {
+        "name": "Foreign Affairs",
+        "category": "Geopolítica",
+        "url": "https://www.foreignaffairs.com/rss.xml",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "Foreign Policy",
+        "category": "Geopolítica",
+        "url": "https://foreignpolicy.com/feed/",
+        "status": "OK",
+        "http_code": 200,
+        "items": 25
+      },
+      {
+        "name": "The Economist – International",
+        "category": "Geopolítica",
+        "url": "https://www.economist.com/international/rss.xml",
+        "status": "OK",
+        "http_code": 200,
+        "items": 300
+      },
+      {
+        "name": "BBC World News",
+        "category": "Geopolítica",
+        "url": "http://feeds.bbci.co.uk/news/world/rss.xml",
+        "status": "OK",
+        "http_code": 200,
+        "items": 29
+      },
+      {
+        "name": "Le Monde – International",
+        "category": "Geopolítica",
+        "url": "https://www.lemonde.fr/international/rss_full.xml",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "Der Spiegel – Ausland",
+        "category": "Geopolítica",
+        "url": "https://www.spiegel.de/international/index.rss",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "El País – Internacional",
+        "category": "Geopolítica",
+        "url": "https://feeds.elpais.com/mrss-s/pages/ep/site/elpais.com/section/internacional/portada",
+        "status": "OK",
+        "http_code": 200,
+        "items": 22
+      },
+      {
+        "name": "El Mundo – Internacional",
+        "category": "Geopolítica",
+        "url": "https://e00-elmundo.uecdn.es/elmundo/rss/internacional.xml",
+        "status": "OK",
+        "http_code": 200,
+        "items": 39
+      },
+      {
+        "name": "Reuters World News",
+        "category": "Geopolítica",
+        "url": "https://news.google.com/rss/search?q=site%3Areuters.com&hl=en-US&gl=US&ceid=US%3Aen",
+        "status": "OK",
+        "http_code": 200,
+        "items": 100
+      },
+      {
+        "name": "CNN World",
+        "category": "Geopolítica",
+        "url": "http://rss.cnn.com/rss/edition_world.rss",
+        "status": "OK",
+        "http_code": 200,
+        "items": 29
+      },
+      {
+        "name": "The Guardian – World",
+        "category": "Geopolítica",
+        "url": "https://www.theguardian.com/world/rss",
+        "status": "OK",
+        "http_code": 200,
+        "items": 45
+      },
+      {
+        "name": "The New York Times – World",
+        "category": "Geopolítica",
+        "url": "https://rss.nytimes.com/services/xml/rss/nyt/World.xml",
+        "status": "OK",
+        "http_code": 200,
+        "items": 58
+      },
+      {
+        "name": "The Atlantic – Politics & Global",
+        "category": "Geopolítica",
+        "url": "https://www.theatlantic.com/feed/all/",
+        "status": "OK",
+        "http_code": 200,
+        "items": 25
+      },
+      {
+        "name": "South China Morning Post – China & World",
+        "category": "Geopolítica",
+        "url": "https://www.scmp.com/rss/91/feed",
+        "status": "OK",
+        "http_code": 200,
+        "items": 50
+      },
+      {
+        "name": "The Times of India – World",
+        "category": "Geopolítica",
+        "url": "https://timesofindia.indiatimes.com/rssfeeds/296589292.cms",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "El Confidencial – Mundo",
+        "category": "Geopolítica",
+        "url": "https://rss.elconfidencial.com/mundo/",
+        "status": "OK",
+        "http_code": 200,
+        "items": 15
+      },
+      {
+        "name": "La Vanguardia – Internacional",
+        "category": "Geopolítica",
+        "url": "https://www.lavanguardia.com/rss/internacional.xml",
+        "status": "OK",
+        "http_code": 200,
+        "items": 100
+      },
+      {
+        "name": "ABC – Internacional",
+        "category": "Geopolítica",
+        "url": "https://www.abc.es/rss/2.0/internacional/",
+        "status": "OK",
+        "http_code": 200,
+        "items": 25
+      },
+      {
+        "name": "France 24 – World",
+        "category": "Geopolítica",
+        "url": "https://www.france24.com/en/rss",
+        "status": "OK",
+        "http_code": 200,
+        "items": 23
+      },
+      {
+        "name": "European Council on Foreign Relations (ECFR)",
+        "category": "Geopolítica",
+        "url": "https://ecfr.eu/feed/",
+        "status": "OK",
+        "http_code": 200,
+        "items": 25
+      },
+      {
+        "name": "Expansión",
+        "category": "Economía y Finanzas",
+        "url": "https://e00-expansion.uecdn.es/rss/economia.xml",
+        "status": "OK",
+        "http_code": 200,
+        "items": 50
+      },
+      {
+        "name": "Cinco Días",
+        "category": "Economía y Finanzas",
+        "url": "https://feeds.elpais.com/mrss-s/list/ep/site/cincodias.elpais.com/section/economia",
+        "status": "OK",
+        "http_code": 200,
+        "items": 25
+      },
+      {
+        "name": "El Confidencial - Economía",
+        "category": "Economía y Finanzas",
+        "url": "https://rss.elconfidencial.com/economia/",
+        "status": "OK",
+        "http_code": 200,
+        "items": 6
+      },
+      {
+        "name": "La Vanguardia - Economía",
+        "category": "Economía y Finanzas",
+        "url": "https://www.lavanguardia.com/rss/economia.xml",
+        "status": "OK",
+        "http_code": 200,
+        "items": 100
+      },
+      {
+        "name": "ABC - Economía",
+        "category": "Economía y Finanzas",
+        "url": "https://www.abc.es/rss/2.0/economia/",
+        "status": "OK",
+        "http_code": 200,
+        "items": 25
+      },
+      {
+        "name": "Business Insider España",
+        "category": "Economía y Finanzas",
+        "url": "https://www.businessinsider.es/rss",
+        "status": "OK",
+        "http_code": 200,
+        "items": 60
+      },
+      {
+        "name": "Financial Times",
+        "category": "Economía y Finanzas",
+        "url": "https://www.ft.com/?format=rss",
+        "status": "OK",
+        "http_code": 200,
+        "items": 12
+      },
+      {
+        "name": "Bloomberg",
+        "category": "Economía y Finanzas",
+        "url": "https://news.google.com/rss/search?q=when:24h+allinurl:bloomberg.com&hl=en-US&gl=US&ceid=US:en",
+        "status": "OK",
+        "http_code": 200,
+        "items": 100
+      },
+      {
+        "name": "Reuters – Finance",
+        "category": "Economía y Finanzas",
+        "url": "https://news.google.com/rss/search?q=site%3Areuters.com&hl=en-US&gl=US&ceid=US%3Aen",
+        "status": "OK",
+        "http_code": 200,
+        "items": 100
+      },
+      {
+        "name": "The Wall Street Journal",
+        "category": "Economía y Finanzas",
+        "url": "https://feeds.a.dj.com/rss/RSSMarketsMain.xml",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "The Economist – Finance",
+        "category": "Economía y Finanzas",
+        "url": "https://www.economist.com/finance-and-economics/rss.xml",
+        "status": "OK",
+        "http_code": 200,
+        "items": 300
+      },
+      {
+        "name": "CNBC",
+        "category": "Economía y Finanzas",
+        "url": "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=20910258",
+        "status": "OK",
+        "http_code": 200,
+        "items": 30
+      },
+      {
+        "name": "MarketWatch",
+        "category": "Economía y Finanzas",
+        "url": "https://www.marketwatch.com/rss/topstories",
+        "status": "OK",
+        "http_code": 200,
+        "items": 10
+      },
+      {
+        "name": "Handelsblatt",
+        "category": "Economía y Finanzas",
+        "url": "https://www.handelsblatt.com/contentexport/feed/schlagzeilen",
+        "status": "OK",
+        "http_code": 200,
+        "items": 50
+      },
+      {
+        "name": "Forbes – Finance",
+        "category": "Economía y Finanzas",
+        "url": "https://www.forbes.com/innovation/feed2",
+        "status": "OK",
+        "http_code": 200,
+        "items": 25
+      },
+      {
+        "name": "Expansión - Empresas",
+        "category": "Negocios y Empresas",
+        "url": "https://e00-expansion.uecdn.es/rss/empresas.xml",
+        "status": "OK",
+        "http_code": 200,
+        "items": 49
+      },
+      {
+        "name": "Cinco Días - Empresas",
+        "category": "Negocios y Empresas",
+        "url": "https://feeds.elpais.com/mrss-s/list/ep/site/cincodias.elpais.com/section/companias",
+        "status": "OK",
+        "http_code": 200,
+        "items": 25
+      },
+      {
+        "name": "El Confidencial - Empresas",
+        "category": "Negocios y Empresas",
+        "url": "https://rss.elconfidencial.com/empresas/",
+        "status": "OK",
+        "http_code": 200,
+        "items": 15
+      },
+      {
+        "name": "Harvard Business Review",
+        "category": "Negocios y Empresas",
+        "url": "https://news.harvard.edu/gazette/section/business-economy/feed/",
+        "status": "OK",
+        "http_code": 200,
+        "items": 50
+      },
+      {
+        "name": "Business Insider",
+        "category": "Negocios y Empresas",
+        "url": "https://www.businessinsider.com/rss",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "Forbes – Business",
+        "category": "Negocios y Empresas",
+        "url": "https://www.forbes.com/business/feed/",
+        "status": "OK",
+        "http_code": 200,
+        "items": 25
+      },
+      {
+        "name": "Inc. Magazine",
+        "category": "Negocios y Empresas",
+        "url": "https://www.inc.com/rss",
+        "status": "OK",
+        "http_code": 200,
+        "items": 38
+      },
+      {
+        "name": "Fast Company",
+        "category": "Negocios y Empresas",
+        "url": "https://www.fastcompany.com/rss",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "Financial Times – Companies",
+        "category": "Negocios y Empresas",
+        "url": "https://www.ft.com/companies?format=rss",
+        "status": "OK",
+        "http_code": 200,
+        "items": 25
+      },
+      {
+        "name": "The Wall Street Journal – Business",
+        "category": "Negocios y Empresas",
+        "url": "https://feeds.a.dj.com/rss/WSJcomUSBusiness.xml",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "Xataka",
+        "category": "Tecnología y Digital",
+        "url": "https://www.xataka.com/feedburner.xml",
+        "status": "OK",
+        "http_code": 200,
+        "items": 26
+      },
+      {
+        "name": "Genbeta",
+        "category": "Tecnología y Digital",
+        "url": "https://www.genbeta.com/feedburner.xml",
+        "status": "OK",
+        "http_code": 200,
+        "items": 16
+      },
+      {
+        "name": "Hipertextual",
+        "category": "Tecnología y Digital",
+        "url": "https://hipertextual.com/feed",
+        "status": "OK",
+        "http_code": 200,
+        "items": 15
+      },
+      {
+        "name": "Applesfera",
+        "category": "Tecnología y Digital",
+        "url": "https://www.applesfera.com/feedburner.xml",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "El País - Tecnología",
+        "category": "Tecnología y Digital",
+        "url": "https://feeds.elpais.com/mrss-s/pages/ep/site/elpais.com/section/tecnologia/portada",
+        "status": "OK",
+        "http_code": 200,
+        "items": 15
+      },
+      {
+        "name": "ADSLZone",
+        "category": "Tecnología y Digital",
+        "url": "https://www.adslzone.net/feed/",
+        "status": "OK",
+        "http_code": 200,
+        "items": 15
+      },
+      {
+        "name": "TechCrunch",
+        "category": "Tecnología y Digital",
+        "url": "https://techcrunch.com/feed/",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "The Verge",
+        "category": "Tecnología y Digital",
+        "url": "https://www.theverge.com/rss/index.xml",
+        "status": "OK",
+        "http_code": 200,
+        "items": 10
+      },
+      {
+        "name": "Wired",
+        "category": "Tecnología y Digital",
+        "url": "https://www.wired.com/feed/rss",
+        "status": "OK",
+        "http_code": 200,
+        "items": 50
+      },
+      {
+        "name": "Ars Technica",
+        "category": "Tecnología y Digital",
+        "url": "https://feeds.arstechnica.com/arstechnica/index",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "MIT Technology Review",
+        "category": "Tecnología y Digital",
+        "url": "https://www.technologyreview.com/feed/",
+        "status": "OK",
+        "http_code": 200,
+        "items": 10
+      },
+      {
+        "name": "Engadget",
+        "category": "Tecnología y Digital",
+        "url": "https://www.engadget.com/rss.xml",
+        "status": "OK",
+        "http_code": 200,
+        "items": 50
+      },
+      {
+        "name": "ZDNet",
+        "category": "Tecnología y Digital",
+        "url": "https://www.zdnet.com/news/rss.xml",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "El País - Ciencia",
+        "category": "Ciencia e Investigación",
+        "url": "https://feeds.elpais.com/mrss-s/pages/ep/site/elpais.com/section/ciencia/portada",
+        "status": "OK",
+        "http_code": 200,
+        "items": 39
+      },
+      {
+        "name": "El Mundo - Ciencia",
+        "category": "Ciencia e Investigación",
+        "url": "https://e00-elmundo.uecdn.es/elmundo/rss/ciencia.xml",
+        "status": "OK",
+        "http_code": 200,
+        "items": 1
+      },
+      {
+        "name": "ABC - Ciencia",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.abc.es/rss/2.0/ciencia/",
+        "status": "OK",
+        "http_code": 200,
+        "items": 25
+      },
+      {
+        "name": "National Geographic ES",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.nationalgeographic.com.es/feeds/rss",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "Muy Interesante",
+        "category": "Ciencia e Investigación",
+        "url": "http://feeds.feedburner.com/Muyinteresantees",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "Scientific American",
+        "category": "Ciencia e Investigación",
+        "url": "http://rss.sciam.com/basic-science",
+        "status": "OK",
+        "http_code": 200,
+        "items": 25
+      },
+      {
+        "name": "New Scientist",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.newscientist.com/feed/home/",
+        "status": "OK",
+        "http_code": 200,
+        "items": 100
+      },
+      {
+        "name": "National Geographic ES",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.nationalgeographic.com.es/feeds/rss",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "Live Science",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.livescience.com/feeds/all",
+        "status": "OK",
+        "http_code": 200,
+        "items": 50
+      },
+      {
+        "name": "Science Daily",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.sciencedaily.com/rss/top/science.xml",
+        "status": "OK",
+        "http_code": 200,
+        "items": 60
+      },
+      {
+        "name": "National Geographic – Ciencia",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.nationalgeographic.com.es/feeds/rss",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "Science Daily",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.sciencedaily.com/rss/all.xml",
+        "status": "OK",
+        "http_code": 200,
+        "items": 60
+      },
+      {
+        "name": "Frontiers – AI",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.frontiersin.org/journals/artificial-intelligence/rss",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "BBC Science",
+        "category": "Ciencia e Investigación",
+        "url": "http://feeds.bbci.co.uk/news/science_and_environment/rss.xml",
+        "status": "OK",
+        "http_code": 200,
+        "items": 61
+      },
+      {
+        "name": "BBC Health",
+        "category": "Ciencia e Investigación",
+        "url": "http://feeds.bbci.co.uk/news/health/rss.xml",
+        "status": "OK",
+        "http_code": 200,
+        "items": 122
+      },
+      {
+        "name": "Universe Today",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.universetoday.com/feed/",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "Space.com",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.space.com/feeds/all",
+        "status": "OK",
+        "http_code": 200,
+        "items": 50
+      },
+      {
+        "name": "Frontiers in Aging",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.frontiersin.org/journals/aging/rss",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "Frontiers in Aging Neuroscience",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.frontiersin.org/journals/aging-neuroscience/rss",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "Frontiers in Agronomy",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.frontiersin.org/journals/agronomy/rss",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "Frontiers in Allergy",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.frontiersin.org/journals/allergy/rss",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "Frontiers in Analytical Science",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.frontiersin.org/journals/analytical-science/rss",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "Frontiers in Animal Science",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.frontiersin.org/journals/animal-science/rss",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "Frontiers in Applied Mathematics and Statistics",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.frontiersin.org/journals/applied-mathematics-and-statistics/rss",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "Frontiers in Artificial Intelligence",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.frontiersin.org/journals/artificial-intelligence/rss",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "Frontiers in Astronomy and Space Sciences",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.frontiersin.org/journals/astronomy-and-space-sciences/rss",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "Frontiers in Behavioral Neuroscience",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.frontiersin.org/journals/behavioral-neuroscience/rss",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "Frontiers in Big Data",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.frontiersin.org/journals/big-data/rss",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "Frontiers in Bioengineering and Biotechnology",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.frontiersin.org/journals/bioengineering-and-biotechnology/rss",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "Frontiers in Bioinformatics",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.frontiersin.org/journals/bioinformatics/rss",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "Frontiers in Biomaterials Science",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.frontiersin.org/journals/biomaterials-science/rss",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "Frontiers in Blockchain",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.frontiersin.org/journals/blockchain/rss",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "Frontiers in Built Environment",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.frontiersin.org/journals/built-environment/rss",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "Frontiers in Cardiovascular Medicine",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.frontiersin.org/journals/cardiovascular-medicine/rss",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "Frontiers in Catalysis",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.frontiersin.org/journals/catalysis/rss",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "Frontiers in Cell and Developmental Biology",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.frontiersin.org/journals/cell-and-developmental-biology/rss",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "Frontiers in Cellular and Infection Microbiology",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.frontiersin.org/journals/cellular-and-infection-microbiology/rss",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "Frontiers in Cellular Neuroscience",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.frontiersin.org/journals/cellular-neuroscience/rss",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "Frontiers in Chemical Engineering",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.frontiersin.org/journals/chemical-engineering/rss",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "Frontiers in Chemistry",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.frontiersin.org/journals/chemistry/rss",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "Frontiers in Climate",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.frontiersin.org/journals/climate/rss",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "Frontiers in Clinical Diabetes and Healthcare",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.frontiersin.org/journals/clinical-diabetes-and-healthcare/rss",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "Frontiers in Conservation Science",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.frontiersin.org/journals/conservation-science/rss",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "Frontiers in Control Engineering",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.frontiersin.org/journals/control-engineering/rss",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "Frontiers in Communication",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.frontiersin.org/journals/communication/rss",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "Frontiers in Communications and Networks",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.frontiersin.org/journals/communications-and-networks/rss",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "Frontiers in Computational Neuroscience",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.frontiersin.org/journals/computational-neuroscience/rss",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "Frontiers in Computer Science",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.frontiersin.org/journals/computer-science/rss",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "Frontiers in Dental Medicine",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.frontiersin.org/journals/dental-medicine/rss",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "Frontiers in Digital Health",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.frontiersin.org/journals/digital-health/rss",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "Frontiers in Drug Delivery",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.frontiersin.org/journals/drug-delivery/rss",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "Frontiers in Drug Discovery",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.frontiersin.org/journals/drug-discovery/rss",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "Frontiers in Drug Safety and Regulation",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.frontiersin.org/journals/drug-safety-and-regulation/rss",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "Frontiers in Earth Science",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.frontiersin.org/journals/earth-science/rss",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "Frontiers in Ecology and Evolution",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.frontiersin.org/journals/ecology-and-evolution/rss",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "Frontiers in Education",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.frontiersin.org/journals/education/rss",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "Frontiers in Electronics",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.frontiersin.org/journals/electronics/rss",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "Frontiers in Electronic Materials",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.frontiersin.org/journals/electronic-materials/rss",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "Frontiers in Endocrinology",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.frontiersin.org/journals/endocrinology/rss",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "Frontiers in Energy Research",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.frontiersin.org/journals/energy-research/rss",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "Frontiers in Environmental Science",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.frontiersin.org/journals/environmental-science/rss",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "Frontiers in Environmental Chemistry",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.frontiersin.org/journals/environmental-chemistry/rss",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "Frontiers in Epidemiology",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.frontiersin.org/journals/epidemiology/rss",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "Frontiers in Fungal Biology",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.frontiersin.org/journals/fungal-biology/rss",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "Frontiers in Food Science and Technology",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.frontiersin.org/journals/food-science-and-technology/rss",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "Frontiers in Forests and Global Change",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.frontiersin.org/journals/forests-and-global-change/rss",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "Frontiers in Future Transportation",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.frontiersin.org/journals/future-transportation/rss",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "Frontiers in Gastroenterology",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.frontiersin.org/journals/gastroenterology/rss",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "Frontiers in Genetics",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.frontiersin.org/journals/genetics/rss",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "Frontiers in Genome Editing",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.frontiersin.org/journals/genome-editing/rss",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "Frontiers in Global Women's Health",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.frontiersin.org/journals/global-womens-health/rss",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "Frontiers in Health Services",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.frontiersin.org/journals/health-services/rss",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "Frontiers in Human Dynamics",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.frontiersin.org/journals/human-dynamics/rss",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "Frontiers in Human Neuroscience",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.frontiersin.org/journals/human-neuroscience/rss",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "Frontiers in Immunology",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.frontiersin.org/journals/immunology/rss",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "Frontiers in Insect Science",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.frontiersin.org/journals/insect-science/rss",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "Frontiers in Integrative Neuroscience",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.frontiersin.org/journals/integrative-neuroscience/rss",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "Frontiers in Manufacturing Technology",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.frontiersin.org/journals/manufacturing-technology/rss",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "Frontiers in Marine Science",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.frontiersin.org/journals/marine-science/rss",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "Frontiers in Materials",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.frontiersin.org/journals/materials/rss",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "Frontiers in Mechanical Engineering",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.frontiersin.org/journals/mechanical-engineering/rss",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "Frontiers in Medical Technology",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.frontiersin.org/journals/medical-technology/rss",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "Frontiers in Medicine",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.frontiersin.org/journals/medicine/rss",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "Frontiers in Microbiology",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.frontiersin.org/journals/microbiology/rss",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "Frontiers in Molecular Biosciences",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.frontiersin.org/journals/molecular-biosciences/rss",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "Frontiers in Molecular Medicine",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.frontiersin.org/journals/molecular-medicine/rss",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "Frontiers in Molecular Neuroscience",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.frontiersin.org/journals/molecular-neuroscience/rss",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "Frontiers in Nanotechnology",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.frontiersin.org/journals/nanotechnology/rss",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "Frontiers in Nephrology",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.frontiersin.org/journals/nephrology/rss",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "Frontiers in Network Physiology",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.frontiersin.org/journals/network-physiology/rss",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "Frontiers in Neural Circuits",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.frontiersin.org/journals/neural-circuits/rss",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "Frontiers in Neuroanatomy",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.frontiersin.org/journals/neuroanatomy/rss",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "Frontiers in Neuroergonomics",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.frontiersin.org/journals/neuroergonomics/rss",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "Frontiers in Neuroinformatics",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.frontiersin.org/journals/neuroinformatics/rss",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "Frontiers in Neuroimaging",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.frontiersin.org/journals/neuroimaging/rss",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "Frontiers in Neurology",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.frontiersin.org/journals/neurology/rss",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "Frontiers in Neurorobotics",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.frontiersin.org/journals/neurorobotics/rss",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "Frontiers in Neuroscience",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.frontiersin.org/journals/neuroscience/rss",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "Frontiers in Nuclear Medicine",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.frontiersin.org/journals/nuclear-medicine/rss",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "Frontiers in Nutrition",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.frontiersin.org/journals/nutrition/rss",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "Frontiers in Oncology",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.frontiersin.org/journals/oncology/rss",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "Frontiers in Ophthalmology",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.frontiersin.org/journals/ophthalmology/rss",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "Frontiers in Oral Health",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.frontiersin.org/journals/oral-health/rss",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "Frontiers in Pain Research",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.frontiersin.org/journals/pain-research/rss",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "Frontiers in Pediatrics",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.frontiersin.org/journals/pediatrics/rss",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "Frontiers in Pharmacology",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.frontiersin.org/journals/pharmacology/rss",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "Frontiers in Photonics",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.frontiersin.org/journals/photonics/rss",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "Frontiers in Physics",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.frontiersin.org/journals/physics/rss",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "Frontiers in Physiology",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.frontiersin.org/journals/physiology/rss",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "Frontiers in Plant Science",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.frontiersin.org/journals/plant-science/rss",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "Frontiers in Political Science",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.frontiersin.org/journals/political-science/rss",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "Frontiers in Psychiatry",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.frontiersin.org/journals/psychiatry/rss",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "Frontiers in Psychology",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.frontiersin.org/journals/psychology/rss",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "Frontiers in Public Health",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.frontiersin.org/journals/public-health/rss",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "Frontiers in Radiology",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.frontiersin.org/journals/radiology/rss",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "Frontiers in Rehabilitation Sciences",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.frontiersin.org/journals/rehabilitation-sciences/rss",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "Frontiers in Reproductive Health",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.frontiersin.org/journals/reproductive-health/rss",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "Frontiers in Research Metrics and Analytics",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.frontiersin.org/journals/research-metrics-and-analytics/rss",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "Frontiers in Robotics and AI",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.frontiersin.org/journals/robotics-and-ai/rss",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "Frontiers in Remote Sensing",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.frontiersin.org/journals/remote-sensing/rss",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "Frontiers in Sensors",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.frontiersin.org/journals/sensors/rss",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "Frontiers in Signal Processing",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.frontiersin.org/journals/signal-processing/rss",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "Frontiers in Sociology",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.frontiersin.org/journals/sociology/rss",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "Frontiers in Soft Matter",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.frontiersin.org/journals/soft-matter/rss",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "Frontiers in Soil Science",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.frontiersin.org/journals/soil-science/rss",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "Frontiers in Space Technologies",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.frontiersin.org/journals/space-technologies/rss",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "Frontiers in Sports and Active Living",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.frontiersin.org/journals/sports-and-active-living/rss",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "Frontiers in Surgery",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.frontiersin.org/journals/surgery/rss",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "Frontiers in Sustainability",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.frontiersin.org/journals/sustainability/rss",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "Frontiers in Sustainable Cities",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.frontiersin.org/journals/sustainable-cities/rss",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "Frontiers in Sustainable Food Systems",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.frontiersin.org/journals/sustainable-food-systems/rss",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "Frontiers in Synaptic Neuroscience",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.frontiersin.org/journals/synaptic-neuroscience/rss",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "Frontiers in Systems Biology",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.frontiersin.org/journals/systems-biology/rss",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "Frontiers in Systems Neuroscience",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.frontiersin.org/journals/systems-neuroscience/rss",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "Frontiers in Thermal Engineering",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.frontiersin.org/journals/thermal-engineering/rss",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "Frontiers in Tropical Diseases",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.frontiersin.org/journals/tropical-diseases/rss",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "Frontiers in Toxicology",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.frontiersin.org/journals/toxicology/rss",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "Frontiers in Urology",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.frontiersin.org/journals/urology/rss",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "Frontiers in Veterinary Science",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.frontiersin.org/journals/veterinary-science/rss",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "Frontiers in Virology",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.frontiersin.org/journals/virology/rss",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "Frontiers in Virtual Reality",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.frontiersin.org/journals/virtual-reality/rss",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "Frontiers in Water",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.frontiersin.org/journals/water/rss",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "Science Daily – Space",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.sciencedaily.com/rss/space_time.xml",
+        "status": "OK",
+        "http_code": 200,
+        "items": 60
+      },
+      {
+        "name": "Science Daily – Matter Energy",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.sciencedaily.com/rss/matter_energy.xml",
+        "status": "OK",
+        "http_code": 200,
+        "items": 60
+      },
+      {
+        "name": "Science Daily – Computers Math",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.sciencedaily.com/rss/computers_math.xml",
+        "status": "OK",
+        "http_code": 200,
+        "items": 60
+      },
+      {
+        "name": "Science Daily – Health Medicine",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.sciencedaily.com/rss/health_medicine.xml",
+        "status": "OK",
+        "http_code": 200,
+        "items": 60
+      },
+      {
+        "name": "Science Daily – Mind & Brain",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.sciencedaily.com/rss/mind_brain.xml",
+        "status": "OK",
+        "http_code": 200,
+        "items": 60
+      },
+      {
+        "name": "Science Daily – Living Well",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.sciencedaily.com/rss/living_well.xml",
+        "status": "OK",
+        "http_code": 200,
+        "items": 60
+      },
+      {
+        "name": "Marca",
+        "category": "Deporte",
+        "url": "https://e00-marca.uecdn.es/rss/portada.xml",
+        "status": "OK",
+        "http_code": 200,
+        "items": 62
+      },
+      {
+        "name": "AS",
+        "category": "Deporte",
+        "url": "https://feeds.as.com/mrss-s/pages/as/site/as.com/portada/",
+        "status": "OK",
+        "http_code": 200,
+        "items": 63
+      },
+      {
+        "name": "El País - Deportes",
+        "category": "Deporte",
+        "url": "https://feeds.elpais.com/mrss-s/pages/ep/site/elpais.com/section/deportes/portada",
+        "status": "OK",
+        "http_code": 200,
+        "items": 30
+      },
+      {
+        "name": "RTVE - Deportes",
+        "category": "Deporte",
+        "url": "https://api2.rtve.es/rss/temas_deportes.xml",
+        "status": "OK",
+        "http_code": 200,
+        "items": 40
+      },
+      {
+        "name": "Marca – Fútbol",
+        "category": "Deporte",
+        "url": "https://e00-marca.uecdn.es/rss/futbol.xml",
+        "status": "OK",
+        "http_code": 200,
+        "items": 47
+      },
+      {
+        "name": "Marca – Baloncesto",
+        "category": "Deporte",
+        "url": "https://e00-marca.uecdn.es/rss/baloncesto.xml",
+        "status": "OK",
+        "http_code": 200,
+        "items": 15
+      },
+      {
+        "name": "Marca – Tenis",
+        "category": "Deporte",
+        "url": "https://e00-marca.uecdn.es/rss/tenis.xml",
+        "status": "OK",
+        "http_code": 200,
+        "items": 49
+      },
+      {
+        "name": "AS – Fútbol",
+        "category": "Deporte",
+        "url": "https://feeds.as.com/mrss-s/pages/as/site/as.com/section/futbol/portada/",
+        "status": "OK",
+        "http_code": 200,
+        "items": 30
+      },
+      {
+        "name": "AS – Baloncesto",
+        "category": "Deporte",
+        "url": "https://feeds.as.com/mrss-s/pages/as/site/as.com/section/baloncesto/portada/",
+        "status": "OK",
+        "http_code": 200,
+        "items": 33
+      },
+      {
+        "name": "AS – Motor",
+        "category": "Deporte",
+        "url": "https://feeds.as.com/mrss-s/pages/as/site/as.com/section/motor/portada/",
+        "status": "OK",
+        "http_code": 200,
+        "items": 27
+      },
+      {
+        "name": "AS – Tenis",
+        "category": "Deporte",
+        "url": "https://feeds.as.com/mrss-s/pages/as/site/as.com/section/tenis/portada/",
+        "status": "OK",
+        "http_code": 200,
+        "items": 28
+      },
+      {
+        "name": "AS – Más Deporte",
+        "category": "Deporte",
+        "url": "https://feeds.as.com/mrss-s/pages/as/site/as.com/section/masdeporte/portada/",
+        "status": "OK",
+        "http_code": 200,
+        "items": 29
+      },
+      {
+        "name": "BBC Sport – Football",
+        "category": "Deporte",
+        "url": "http://feeds.bbci.co.uk/sport/football/rss.xml",
+        "status": "OK",
+        "http_code": 200,
+        "items": 84
+      },
+      {
+        "name": "BBC Sport – Tennis",
+        "category": "Deporte",
+        "url": "http://feeds.bbci.co.uk/sport/tennis/rss.xml",
+        "status": "OK",
+        "http_code": 200,
+        "items": 52
+      },
+      {
+        "name": "BBC Sport – Formula 1",
+        "category": "Deporte",
+        "url": "http://feeds.bbci.co.uk/sport/formula1/rss.xml",
+        "status": "OK",
+        "http_code": 200,
+        "items": 54
+      },
+      {
+        "name": "ESPN – Soccer",
+        "category": "Deporte",
+        "url": "https://www.espn.com/espn/rss/soccer/news",
+        "status": "OK",
+        "http_code": 200,
+        "items": 17
+      },
+      {
+        "name": "ESPN – Basketball",
+        "category": "Deporte",
+        "url": "https://www.espn.com/espn/rss/nba/news",
+        "status": "OK",
+        "http_code": 200,
+        "items": 14
+      },
+      {
+        "name": "ESPN – Formula 1",
+        "category": "Deporte",
+        "url": "https://www.espn.com/espn/rss/f1/news",
+        "status": "OK",
+        "http_code": 200,
+        "items": 19
+      },
+      {
+        "name": "El País – Cultura",
+        "category": "Cultura y Entretenimiento",
+        "url": "https://feeds.elpais.com/mrss-s/pages/ep/site/elpais.com/section/cultura/portada",
+        "status": "OK",
+        "http_code": 200,
+        "items": 32
+      },
+      {
+        "name": "ABC – Cultura",
+        "category": "Cultura y Entretenimiento",
+        "url": "https://www.abc.es/rss/2.0/cultura/",
+        "status": "OK",
+        "http_code": 200,
+        "items": 25
+      },
+      {
+        "name": "El Mundo – Cultura",
+        "category": "Cultura y Entretenimiento",
+        "url": "https://e00-elmundo.uecdn.es/elmundo/rss/cultura.xml",
+        "status": "OK",
+        "http_code": 200,
+        "items": 51
+      },
+      {
+        "name": "La Vanguardia – Cultura",
+        "category": "Cultura y Entretenimiento",
+        "url": "https://www.lavanguardia.com/rss/cultura.xml",
+        "status": "OK",
+        "http_code": 200,
+        "items": 100
+      },
+      {
+        "name": "RTVE – Cultura",
+        "category": "Cultura y Entretenimiento",
+        "url": "https://api2.rtve.es/rss/temas_cultura.xml",
+        "status": "OK",
+        "http_code": 200,
+        "items": 180
+      },
+      {
+        "name": "SensaCine España",
+        "category": "Cultura y Entretenimiento",
+        "url": "https://www.sensacine.com/rss/noticias.xml",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "Mondo Sonoro",
+        "category": "Cultura y Entretenimiento",
+        "url": "https://www.mondosonoro.com/feed/",
+        "status": "OK",
+        "http_code": 200,
+        "items": 10
+      },
+      {
+        "name": "Ruta 66",
+        "category": "Cultura y Entretenimiento",
+        "url": "https://www.ruta66.es/feed/",
+        "status": "OK",
+        "http_code": 200,
+        "items": 10
+      },
+      {
+        "name": "El Hype – Música y Cultura",
+        "category": "Cultura y Entretenimiento",
+        "url": "https://www.elhype.com/rss/",
+        "status": "OK",
+        "http_code": 200,
+        "items": 10
+      },
+      {
+        "name": "Hoyesarte",
+        "category": "Cultura y Entretenimiento",
+        "url": "https://hoyesarte.com/feed/",
+        "status": "OK",
+        "http_code": 200,
+        "items": 10
+      },
+      {
+        "name": "Revista Godot – Cine",
+        "category": "Cultura y Entretenimiento",
+        "url": "https://revistagodot.com/feed/",
+        "status": "OK",
+        "http_code": 200,
+        "items": 12
+      },
+      {
+        "name": "Revista Yorokobu",
+        "category": "Cultura y Entretenimiento",
+        "url": "https://www.yorokobu.es/feed/",
+        "status": "OK",
+        "http_code": 200,
+        "items": 10
+      },
+      {
+        "name": "Revista Neo2",
+        "category": "Cultura y Entretenimiento",
+        "url": "https://neo2.com/feed/",
+        "status": "OK",
+        "http_code": 200,
+        "items": 14
+      },
+      {
+        "name": "Jot Down Magazine",
+        "category": "Cultura y Entretenimiento",
+        "url": "https://www.jotdown.es/feed/",
+        "status": "OK",
+        "http_code": 200,
+        "items": 10
+      },
+      {
+        "name": "Cultura Colectiva (Blog)",
+        "category": "Cultura y Entretenimiento",
+        "url": "https://www.culturacolectiva.com/feed",
+        "status": "OK",
+        "http_code": 200,
+        "items": 60
+      },
+      {
+        "name": "El País – Sociedad",
+        "category": "Sociedad",
+        "url": "https://feeds.elpais.com/mrss-s/pages/ep/site/elpais.com/section/sociedad/portada",
+        "status": "OK",
+        "http_code": 200,
+        "items": 21
+      },
+      {
+        "name": "ABC – Sociedad",
+        "category": "Sociedad",
+        "url": "https://www.abc.es/rss/2.0/sociedad/",
+        "status": "OK",
+        "http_code": 200,
+        "items": 25
+      },
+      {
+        "name": "La Vanguardia – Sociedad",
+        "category": "Sociedad",
+        "url": "https://www.lavanguardia.com/rss/sociedad.xml",
+        "status": "OK",
+        "http_code": 200,
+        "items": 99
+      },
+      {
+        "name": "Heraldo de Aragón – Sociedad",
+        "category": "Sociedad",
+        "url": "https://www.heraldo.es/rss/sociedad.xml",
+        "status": "OK",
+        "http_code": 200,
+        "items": 25
+      },
+      {
+        "name": "El Confidencial – Sociedad",
+        "category": "Sociedad",
+        "url": "https://www.elconfidencial.com/rss/sociedad.xml",
+        "status": "OK",
+        "http_code": 200,
+        "items": 15
+      },
+      {
+        "name": "Infocop – Psicología y Sociedad",
+        "category": "Sociedad",
+        "url": "https://www.infocop.es/feed/",
+        "status": "OK",
+        "http_code": 200,
+        "items": 10
+      },
+      {
+        "name": "El País – Clima",
+        "category": "Medio Ambiente y Clima",
+        "url": "https://feeds.elpais.com/mrss-s/pages/ep/site/elpais.com/section/clima-y-medio-ambiente/portada",
+        "status": "OK",
+        "http_code": 200,
+        "items": 19
+      },
+      {
+        "name": "EFE Verde",
+        "category": "Medio Ambiente y Clima",
+        "url": "https://efeverde.com/feed/",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "Ballena Blanca – ElDiario.es",
+        "category": "Medio Ambiente y Clima",
+        "url": "https://www.eldiario.es/rss/ballenablanca/",
+        "status": "OK",
+        "http_code": 200,
+        "items": 24
+      },
+      {
+        "name": "Revista Quercus",
+        "category": "Medio Ambiente y Clima",
+        "url": "https://quercus.es/feed/",
+        "status": "OK",
+        "http_code": 200,
+        "items": 4
+      },
+      {
+        "name": "The Guardian – Environment",
+        "category": "Medio Ambiente y Clima",
+        "url": "https://www.theguardian.com/environment/rss",
+        "status": "OK",
+        "http_code": 200,
+        "items": 25
+      },
+      {
+        "name": "Climate Home News",
+        "category": "Medio Ambiente y Clima",
+        "url": "https://www.climatechangenews.com/feed/",
+        "status": "OK",
+        "http_code": 200,
+        "items": 40
+      },
+      {
+        "name": "El Mundo – Salud",
+        "category": "Salud y Bienestar",
+        "url": "https://e00-elmundo.uecdn.es/elmundosalud/rss/portada.xml",
+        "status": "OK",
+        "http_code": 200,
+        "items": 1
+      },
+      {
+        "name": "El País – Salud",
+        "category": "Salud y Bienestar",
+        "url": "https://feeds.elpais.com/mrss-s/pages/ep/site/elpais.com/section/salud-y-bienestar/portada",
+        "status": "OK",
+        "http_code": 200,
+        "items": 35
+      },
+      {
+        "name": "Vitónica",
+        "category": "Salud y Bienestar",
+        "url": "https://www.vitonica.com/feedburner.xml",
+        "status": "OK",
+        "http_code": 200,
+        "items": 16
+      },
+      {
+        "name": "ConSalud.es",
+        "category": "Salud y Bienestar",
+        "url": "https://www.consalud.es/rss/noticias.xml",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "Psicología y Mente",
+        "category": "Salud y Bienestar",
+        "url": "https://psicologiaymente.com/feed",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "ABC Salud",
+        "category": "Salud y Bienestar",
+        "url": "https://www.abc.es/rss/2.0/bienestar/",
+        "status": "OK",
+        "http_code": 200,
+        "items": 25
+      },
+      {
+        "name": "Confilegal",
+        "category": "Justicia y Legal",
+        "url": "https://confilegal.com/feed/",
+        "status": "OK",
+        "http_code": 200,
+        "items": 10
+      },
+      {
+        "name": "El Confidencial – Jurídico",
+        "category": "Justicia y Legal",
+        "url": "https://rss.elconfidencial.com/juridico/",
+        "status": "OK",
+        "http_code": 200,
+        "items": 3
+      },
+      {
+        "name": "Expansión – Jurídico",
+        "category": "Justicia y Legal",
+        "url": "https://e00-expansion.uecdn.es/rss/juridico.xml",
+        "status": "OK",
+        "http_code": 200,
+        "items": 56
+      },
+      {
+        "name": "Diario Jurídico",
+        "category": "Justicia y Legal",
+        "url": "https://www.diariojuridico.com/feed/",
+        "status": "OK",
+        "http_code": 200,
+        "items": 10
+      },
+      {
+        "name": "Legal Today",
+        "category": "Justicia y Legal",
+        "url": "https://www.legaltoday.com/feed/",
+        "status": "OK",
+        "http_code": 200,
+        "items": 10
+      },
+      {
+        "name": "Lawyerpress",
+        "category": "Justicia y Legal",
+        "url": "https://www.lawyerpress.com/feed/",
+        "status": "OK",
+        "http_code": 200,
+        "items": 10
+      },
+      {
+        "name": "Autofácil",
+        "category": "Transporte y Movilidad",
+        "url": "https://www.autofacil.es/feed/",
+        "status": "OK",
+        "http_code": 200,
+        "items": 10
+      },
+      {
+        "name": "Coches.net",
+        "category": "Transporte y Movilidad",
+        "url": "https://www.coches.net/noticias/rss/?idTipo=4",
+        "status": "OK",
+        "http_code": 200,
+        "items": 10
+      },
+      {
+        "name": "Motor1 España",
+        "category": "Transporte y Movilidad",
+        "url": "https://es.motor1.com/rss/articles/all/",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "Viajeros Urbanos",
+        "category": "Transporte y Movilidad",
+        "url": "https://eco-viajes.publico.es/rss/",
+        "status": "OK",
+        "http_code": 200,
+        "items": 10
+      },
+      {
+        "name": "Motorpasión",
+        "category": "Transporte y Movilidad",
+        "url": "https://www.motorpasion.com/feedburner.xml",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "Aviación Digital",
+        "category": "Transporte y Movilidad",
+        "url": "https://www.aviaciondigital.com/feed/",
+        "status": "OK",
+        "http_code": 200,
+        "items": 15
+      },
+      {
+        "name": "Fly News",
+        "category": "Transporte y Movilidad",
+        "url": "https://www.fly-news.es/feed/",
+        "status": "OK",
+        "http_code": 200,
+        "items": 14
+      },
+      {
+        "name": "El Periódico de la Energía",
+        "category": "Energía",
+        "url": "https://elperiodicodelaenergia.com/feed/",
+        "status": "OK",
+        "http_code": 200,
+        "items": 50
+      },
+      {
+        "name": "Energías Renovables",
+        "category": "Energía",
+        "url": "https://www.energias-renovables.com/rss/rss.php",
+        "status": "OK",
+        "http_code": 200,
+        "items": 10
+      },
+      {
+        "name": "PV Tech",
+        "category": "Energía",
+        "url": "https://www.pv-tech.org/feed/",
+        "status": "OK",
+        "http_code": 200,
+        "items": 50
+      },
+      {
+        "name": "Windpower Monthly",
+        "category": "Energía",
+        "url": "https://www.windpowermonthly.com/rss",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "Energía Estratégica",
+        "category": "Energía",
+        "url": "https://www.energiaestrategica.com/feed/",
+        "status": "OK",
+        "http_code": 200,
+        "items": 10
+      },
+      {
+        "name": "Fotocasa Blog",
+        "category": "Inmobiliario y Construcción",
+        "url": "https://www.fotocasa.es/blog/feed/",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "El Confidencial - Vivienda",
+        "category": "Inmobiliario y Construcción",
+        "url": "https://rss.elconfidencial.com/vivienda/",
+        "status": "OK",
+        "http_code": 200,
+        "items": 15
+      },
+      {
+        "name": "Inmodiario",
+        "category": "Inmobiliario y Construcción",
+        "url": "https://www.inmodiario.com/feed/",
+        "status": "OK",
+        "http_code": 200,
+        "items": 10
+      },
+      {
+        "name": "Construible",
+        "category": "Inmobiliario y Construcción",
+        "url": "https://www.construible.es/rss/",
+        "status": "OK",
+        "http_code": 200,
+        "items": 10
+      },
+      {
+        "name": "EFE Agro",
+        "category": "Agricultura y Alimentación",
+        "url": "https://efeagro.com/feed/",
+        "status": "OK",
+        "http_code": 200,
+        "items": 10
+      },
+      {
+        "name": "Food Retail",
+        "category": "Agricultura y Alimentación",
+        "url": "https://www.foodretail.es/rss",
+        "status": "OK",
+        "http_code": 200,
+        "items": 16
+      },
+      {
+        "name": "El País - Educación",
+        "category": "Educación y Conocimiento",
+        "url": "https://feeds.elpais.com/mrss-s/pages/ep/site/elpais.com/section/educacion/portada",
+        "status": "OK",
+        "http_code": 200,
+        "items": 25
+      },
+      {
+        "name": "Educación 3.0",
+        "category": "Educación y Conocimiento",
+        "url": "https://www.educaciontrespuntocero.com/feed/",
+        "status": "OK",
+        "http_code": 200,
+        "items": 10
+      },
+      {
+        "name": "Magisnet",
+        "category": "Educación y Conocimiento",
+        "url": "https://www.magisnet.com/feed/",
+        "status": "OK",
+        "http_code": 200,
+        "items": 10
+      },
+      {
+        "name": "El País - Estilo",
+        "category": "Consumo y Estilo de Vida",
+        "url": "https://feeds.elpais.com/mrss-s/pages/ep/site/elpais.com/section/estilo/portada",
+        "status": "OK",
+        "http_code": 200,
+        "items": 43
+      },
+      {
+        "name": "Vogue España",
+        "category": "Consumo y Estilo de Vida",
+        "url": "https://www.vogue.es/feed/rss",
+        "status": "OK",
+        "http_code": 200,
+        "items": 50
+      },
+      {
+        "name": "Elle España",
+        "category": "Consumo y Estilo de Vida",
+        "url": "https://www.elle.com/es/rss/all.xml",
+        "status": "OK",
+        "http_code": 200,
+        "items": 50
+      },
+      {
+        "name": "Trendencias",
+        "category": "Consumo y Estilo de Vida",
+        "url": "https://www.trendencias.com/feedburner.xml",
+        "status": "OK",
+        "http_code": 200,
+        "items": 16
+      },
+      {
+        "name": "ElDiario.es - Tecnología",
+        "category": "Cultura Digital y Sociedad de la Información",
+        "url": "https://www.eldiario.es/rss/tecnologia/",
+        "status": "OK",
+        "http_code": 200,
+        "items": 20
+      },
+      {
+        "name": "Genbeta",
+        "category": "Cultura Digital y Sociedad de la Información",
+        "url": "https://www.genbeta.com/feedburner.xml",
+        "status": "OK",
+        "http_code": 200,
+        "items": 16
+      },
+      {
+        "name": "Xataka",
+        "category": "Cultura Digital y Sociedad de la Información",
+        "url": "https://www.xataka.com/feedburner.xml",
+        "status": "OK",
+        "http_code": 200,
+        "items": 26
+      },
+      {
+        "name": "Hipertextual",
+        "category": "Cultura Digital y Sociedad de la Información",
+        "url": "https://hipertextual.com/feed",
+        "status": "OK",
+        "http_code": 200,
+        "items": 15
+      },
+      {
+        "name": "El País - Planeta Futuro",
+        "category": "Filantropía e Impacto Social",
+        "url": "https://feeds.elpais.com/mrss-s/pages/ep/site/elpais.com/section/planeta-futuro/portada",
+        "status": "OK",
+        "http_code": 200,
+        "items": 58
+      },
+      {
+        "name": "ElDiario.es - Desalambre",
+        "category": "Filantropía e Impacto Social",
+        "url": "https://www.eldiario.es/rss/desalambre/",
+        "status": "OK",
+        "http_code": 200,
+        "items": 28
+      },
+      {
+        "name": "Fundación Hazloposible",
+        "category": "Filantropía e Impacto Social",
+        "url": "https://www.hazloposible.org/feed/",
+        "status": "OK",
+        "http_code": 200,
+        "items": 12
+      }
+    ],
+    "empty": [
+      {
+        "name": "Diario de Sevilla - Política",
+        "category": "Política",
+        "url": "https://www.diariodesevilla.es/feeds/",
+        "status": "EMPTY",
+        "http_code": 200,
+        "items": 0
+      },
+      {
+        "name": "Nikkei Asia – Politics",
+        "category": "Geopolítica",
+        "url": "https://asia.nikkei.com/rss/feed/nar",
+        "status": "EMPTY",
+        "http_code": 200,
+        "items": 0
+      },
+      {
+        "name": "DW – World",
+        "category": "Geopolítica",
+        "url": "https://rss.dw.com/rdf/rss-en-world",
+        "status": "EMPTY",
+        "http_code": 200,
+        "items": 0
+      },
+      {
+        "name": "Bolsamanía",
+        "category": "Economía y Finanzas",
+        "url": "https://www.bolsamania.com/rss/feed/noticias.xml",
+        "status": "EMPTY",
+        "http_code": 200,
+        "items": 0
+      },
+      {
+        "name": "Nikkei Asia",
+        "category": "Economía y Finanzas",
+        "url": "https://asia.nikkei.com/rss/feed/nar",
+        "status": "EMPTY",
+        "http_code": 200,
+        "items": 0
+      },
+      {
+        "name": "Entrepreneur",
+        "category": "Negocios y Empresas",
+        "url": "https://www.entrepreneur.com/latest.rss",
+        "status": "EMPTY",
+        "http_code": 200,
+        "items": 0
+      },
+      {
+        "name": "Nature",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.nature.com/nature.rss",
+        "status": "EMPTY",
+        "http_code": 200,
+        "items": 0
+      },
+      {
+        "name": "Science",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.sciencemag.org/rss/news_current.xml",
+        "status": "EMPTY",
+        "http_code": 200,
+        "items": 0
+      },
+      {
+        "name": "Nature – News",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.nature.com/nature.rss",
+        "status": "EMPTY",
+        "http_code": 200,
+        "items": 0
+      },
+      {
+        "name": "Sport",
+        "category": "Deporte",
+        "url": "https://www.sport.es/es/rss/last_news/rss.xml",
+        "status": "EMPTY",
+        "http_code": 200,
+        "items": 0
+      },
+      {
+        "name": "Autobild España",
+        "category": "Transporte y Movilidad",
+        "url": "https://www.autobild.de/sonderseite/rss_uebersicht-20710445.html",
+        "status": "EMPTY",
+        "http_code": 200,
+        "items": 0
+      }
+    ],
+    "http_error": [
+      {
+        "name": "El Punt Avui - Política",
+        "category": "Política",
+        "url": "https://www.elpuntavui.cat/feed/politica.xml",
+        "status": "HTTP_ERROR",
+        "http_code": 404,
+        "items": 0
+      },
+      {
+        "name": "Al Jazeera - World",
+        "category": "Geopolítica",
+        "url": "https://www.aljazeera.com/xml/rss/all.xml",
+        "status": "HTTP_ERROR",
+        "http_code": 403,
+        "items": 0
+      },
+      {
+        "name": "AP News – World",
+        "category": "Geopolítica",
+        "url": "https://apnews.com/index.rss",
+        "status": "HTTP_ERROR",
+        "http_code": 401,
+        "items": 0
+      },
+      {
+        "name": "El Economista",
+        "category": "Economía y Finanzas",
+        "url": "https://www.eleconomista.es/rss/rss-seleccion-ee.php",
+        "status": "HTTP_ERROR",
+        "http_code": 403,
+        "items": 0
+      },
+      {
+        "name": "Les Échos",
+        "category": "Economía y Finanzas",
+        "url": "https://services.lesechos.fr/rss/les-echos-economie.xml?_gl=1*1j125ad*_gcl_au*Nzc1MDU2ODU3LjE3NjQwNzQ5NDE.",
+        "status": "HTTP_ERROR",
+        "http_code": 403,
+        "items": 0
+      },
+      {
+        "name": "Les Échos – Entreprises",
+        "category": "Negocios y Empresas",
+        "url": "https://services.lesechos.fr/rss/les-echos-entreprises.xml?_gl=1*1ssjmqb*_gcl_au*Nzc1MDU2ODU3LjE3NjQwNzQ5NDE.",
+        "status": "HTTP_ERROR",
+        "http_code": 403,
+        "items": 0
+      },
+      {
+        "name": "Phys.org",
+        "category": "Ciencia e Investigación",
+        "url": "https://phys.org/rss-feed/science-news/",
+        "status": "HTTP_ERROR",
+        "http_code": 400,
+        "items": 0
+      },
+      {
+        "name": "PLOS ONE",
+        "category": "Ciencia e Investigación",
+        "url": "https://journals.plos.org/plosone/article/feed",
+        "status": "HTTP_ERROR",
+        "http_code": 404,
+        "items": 0
+      },
+      {
+        "name": "Muy Interesante – Universo",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.muyinteresante.es/rss/universo",
+        "status": "HTTP_ERROR",
+        "http_code": 403,
+        "items": 0
+      },
+      {
+        "name": "Muy Interesante – Biología",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.muyinteresante.es/rss/biologia",
+        "status": "HTTP_ERROR",
+        "http_code": 403,
+        "items": 0
+      },
+      {
+        "name": "Muy Interesante – Tecnología",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.muyinteresante.es/rss/tecnologia",
+        "status": "HTTP_ERROR",
+        "http_code": 403,
+        "items": 0
+      },
+      {
+        "name": "Phys.org",
+        "category": "Ciencia e Investigación",
+        "url": "https://phys.org/rss-feed/science-news/",
+        "status": "HTTP_ERROR",
+        "http_code": 400,
+        "items": 0
+      },
+      {
+        "name": "Phys.org – Physics",
+        "category": "Ciencia e Investigación",
+        "url": "https://phys.org/rss-feed/physics-news/",
+        "status": "HTTP_ERROR",
+        "http_code": 400,
+        "items": 0
+      },
+      {
+        "name": "Phys.org – Biology",
+        "category": "Ciencia e Investigación",
+        "url": "https://phys.org/rss-feed/biology-news/",
+        "status": "HTTP_ERROR",
+        "http_code": 400,
+        "items": 0
+      },
+      {
+        "name": "Phys.org – Space",
+        "category": "Ciencia e Investigación",
+        "url": "https://phys.org/rss-feed/space-news/",
+        "status": "HTTP_ERROR",
+        "http_code": 400,
+        "items": 0
+      },
+      {
+        "name": "Science Magazine – Environment",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.sciencemag.org/rss/news/environment.xml",
+        "status": "HTTP_ERROR",
+        "http_code": 410,
+        "items": 0
+      },
+      {
+        "name": "Astronomy.com",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.astronomy.com/feed/",
+        "status": "HTTP_ERROR",
+        "http_code": 403,
+        "items": 0
+      },
+      {
+        "name": "Medical News Today",
+        "category": "Salud y Bienestar",
+        "url": "https://www.medicalnewstoday.com/rss",
+        "status": "HTTP_ERROR",
+        "http_code": 404,
+        "items": 0
+      },
+      {
+        "name": "Forocoches",
+        "category": "Transporte y Movilidad",
+        "url": "https://www.forocoches.com/foro/rss.php",
+        "status": "HTTP_ERROR",
+        "http_code": 404,
+        "items": 0
+      }
+    ],
+    "timeout": [],
+    "error": [
+      {
+        "name": "Canarias7 - Política",
+        "category": "Política",
+        "url": "https://www3.gobiernodecanarias.org/noticias/feed/",
+        "status": "ERROR",
+        "http_code": null,
+        "items": 0,
+        "error": "Cannot connect to host www3.gobiernodecanarias.org:443 ssl:True [SSLCertVerificationError: (1, '[SSL"
+      },
+      {
+        "name": "Agencia SINC - Ciencia",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.agenciasinc.es/feed/Ciencia",
+        "status": "ERROR",
+        "http_code": null,
+        "items": 0,
+        "error": "Cannot connect to host www.agenciasinc.es:443 ssl:True [SSLCertVerificationError: (1, '[SSL: CERTIFI"
+      },
+      {
+        "name": "Agencia SINC - Innovación",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.agenciasinc.es/feed/Innova",
+        "status": "ERROR",
+        "http_code": null,
+        "items": 0,
+        "error": "Cannot connect to host www.agenciasinc.es:443 ssl:True [SSLCertVerificationError: (1, '[SSL: CERTIFI"
+      },
+      {
+        "name": "Agencia SINC",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.agenciasinc.es/es/rss/feed/Noticias",
+        "status": "ERROR",
+        "http_code": null,
+        "items": 0,
+        "error": "Cannot connect to host www.agenciasinc.es:443 ssl:True [SSLCertVerificationError: (1, '[SSL: CERTIFI"
+      },
+      {
+        "name": "Agencia SINC – Salud",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.agenciasinc.es/feed/Salud",
+        "status": "ERROR",
+        "http_code": null,
+        "items": 0,
+        "error": "Cannot connect to host www.agenciasinc.es:443 ssl:True [SSLCertVerificationError: (1, '[SSL: CERTIFI"
+      },
+      {
+        "name": "Agencia SINC – Medio Ambiente",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.agenciasinc.es/feed/Tierra",
+        "status": "ERROR",
+        "http_code": null,
+        "items": 0,
+        "error": "Cannot connect to host www.agenciasinc.es:443 ssl:True [SSLCertVerificationError: (1, '[SSL: CERTIFI"
+      },
+      {
+        "name": "Agencia SINC – Tecnología",
+        "category": "Ciencia e Investigación",
+        "url": "https://www.agenciasinc.es/feed/Tecnologia",
+        "status": "ERROR",
+        "http_code": null,
+        "items": 0,
+        "error": "Cannot connect to host www.agenciasinc.es:443 ssl:True [SSLCertVerificationError: (1, '[SSL: CERTIFI"
+      },
+      {
+        "name": "Blog de Ciudadanía Activa",
+        "category": "Sociedad",
+        "url": "https://ciudadaniaactiva.org/feed/",
+        "status": "ERROR",
+        "http_code": null,
+        "items": 0,
+        "error": "Cannot connect to host ciudadaniaactiva.org:443 ssl:True [SSLCertVerificationError: (1, \"[SSL: CERTI"
+      },
+      {
+        "name": "Noticias Jurídicas",
+        "category": "Justicia y Legal",
+        "url": "https://noticias.juridicas.com/feeds/rss.xml",
+        "status": "ERROR",
+        "http_code": null,
+        "items": 0,
+        "error": "Cannot connect to host noticias.juridicas.com:443 ssl:True [SSLCertVerificationError: (1, '[SSL: CER"
+      }
+    ]
+  }
+}
