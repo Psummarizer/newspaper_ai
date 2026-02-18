@@ -218,6 +218,7 @@ async def full_pipeline():
         print("💻 Modo Local. Usando usuario de prueba.")
         user_list = [{
             "email": "amartinhernan@gmail.com",
+            "country": "España",
             "Language": "es",
             "Topics": "Política Española, Geopolítica, Tecnología, Real Madrid, Formula 1"
         }]

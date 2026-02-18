@@ -68,11 +68,15 @@ class ContentProcessorAgent:
         Misión: Identificar qué noticias están **DIRECTAMENTE** relacionadas con el tema: "{topic}".
         
         CRITERIO DE RELEVANCIA Y CALIDAD:
-        1. **Relevancia Temática**:
+        1. **Relevancia Temática:
             - La noticia debe tratar SUSTANCIALMENTE sobre "{topic}".
             - Si el tema es "Real Madrid", descarta "Fútbol General".
         
-        2. **Carácter INFORMATIVO (CRÍTICO)**:
+        2. **Impacto e Importancia**:
+            - Prioriza: Grandes avances, cambios regulatorios, fusiones/adquisiciones clave, resultados científicos.
+            - Descarta: Anécdotas menores, rumores sin base, declaraciones irrelevantes.
+
+        . **Carácter INFORMATIVO (CRÍTICO)**:
             - SOLO admite noticias puramente informativas, análisis o reportajes periodísticos.
             - **DESCARTA INMEDIATAMENTE**:
                 - Contenido publicitario, publirreportajes ("advertorials") o notas de prensa de marcas.
@@ -80,14 +84,14 @@ class ContentProcessorAgent:
                 - Contenido ambiguo que mezcla información con promoción comercial clara.
                 - Clickbait obvio o contenido de muy baja calidad.
 
-        3. **Nivel Tecnológico vs Gadgets (CRÍTICO para Tech/IA/Cloud)**:
+        4. **Nivel Tecnológico vs Gadgets (CRÍTICO para Tech/IA/Cloud)**:
             - Si el topic es técnico (IA, Cloud, Quantum, Tecnología):
                 - **BUSCAMOS**: Avances en investigación, impacto industrial, infraestructura, regulación, modelos fundamentales, estrategia empresarial.
                 - **DESCARTAR**: Reviews de productos de consumo (móviles, laptops, relojes, proyectores, smart home), "mejores gadgets", o actualizaciones menores de apps de consumidor final.
                 - **REGLA**: Si es un "gadget" o hardware de consumo, FUERA.
                 - Ejemplo: "Nueva arquitectura de chips Blackwell" -> SI. "Review del nuevo proyector IA" -> NO.
 
-        Tu trabajo es filtrar ruido y spam. Solo deja pasar información de valor para el usuario.
+        Tu trabajo es filtrar ruido y spam. Solo deja pasar información de valor sustancial para el usuario.
         
         SALIDA JSON: {{ "valid_ids": [0, 2] }}
         """
@@ -157,15 +161,25 @@ class ContentProcessorAgent:
             content_clean = art.get('content', '')[:6000].replace("\n", " ") 
             context_text += f"-- NOTICIA {i+1} --\nID: {i}\nTÍTULO: {art.get('title')}\nCONTENIDO: {content_clean}\nLINK: {art.get('url')}\nIMAGEN: {art.get('image_url')}\n\n"
 
+        # Detección de necesidad de tono divulgativo
+        is_divulgative = any(k in category_name for k in ["Tecnología", "Digital", "Ciencia", "Investigación"])
+        divulgative_instruction = ""
+        if is_divulgative:
+             divulgative_instruction = "7. **TONO DIVULGATIVO (OBLIGATORIO)**: Estás escribiendo para un público general curioso, no para expertos. Evita tecnicismos innecesarios o EXPLÍCALOS de forma sencilla. Haz el texto accesible y didáctico."
+
         system_prompt = f"""
         Eres el Editor Jefe de una Newsletter Premium. Vas a redactar la sección: "{category_name}".
-        Idioma de salida STRICTO: {language}.
+        Idioma de salida STRICTO: {language} (Español Peninsular de España).
 
         OBJETIVO:
         Sintetizar las noticias proporcionadas en un conjunto de artículos PROFUNDOS y cohesivos.
         
         REGLAS DE ORO (CRÍTICAS):
-        1. **IDIOMA**: Los títulos DEBEN estar únicamente en {language}.
+        1. **IDIOMA PENINSULAR**: 
+           - Escribe EXCLUSIVAMENTE en Español de España (Castellano Neutro). 
+           - **PROHIBIDO** usar términos latinoamericanos.
+           - MAL: "Costo", "Computadora", "Celular", "Video" (sin tilde), "Chequear", "Renta".
+           - BIEN: "Coste", "Ordenador", "Móvil", "Vídeo", "Comprobar", "Alquiler".
         2. **PROFUNDIDAD Y ESTRUCTURA**:
            - Escribe AL MENOS 2 PÁRRAFOS separados. Usa punto y aparte.
            - NO escribas un bloque de texto gigante. Separa ideas.
@@ -175,10 +189,17 @@ class ContentProcessorAgent:
         4. **ESTILO**: Justifica el texto narrativamente. Tono periodístico serio y profesional.
         5. **FUENTES**: Incluye todas las fuentes originales.
         6. **IMAGEN**: Si la noticia tiene imagen, inclúyela DEBAJO del título usando <img src="..."> con estilo centrado y limitado (max-width:240px, max-height:160px).
+        {divulgative_instruction}
+        8. **CONTEXTO EXPLÍCITO (CRÍTICO)**:
+           - NUNCA asumas contexto.
+           - Nombrar SIEMPRE la ciudad, país, empresa o persona específica.
+           - MAL: "La ciudad aprobó...", "La compañía lanzó..."
+           - BIEN: "Madrid aprobó...", "Google lanzó..."
+           - Si la noticia habla del tiempo en "la región", especifica QUÉ región.
         
         FORMATO HTML (ESTRICTO) POR NOTICIA:
         <div class="news-item" category="{category_name}">
-            <h3>EMOJI + TÍTULO IMPACTANTE (En {language})</h3>
+            <h3>EMOJI + TÍTULO DESCRIPTIVO Y ATERRIZADO (Sujeto + Acción)</h3>
             <div style="margin-bottom: 12px; text-align: center;">
                  <img src="URL_IMAGEN" alt="Título" style="max-width: 240px; max-height: 160px; width: auto; height: auto; object-fit: cover; border-radius: 8px; display: inline-block;">
             </div>
@@ -304,7 +325,7 @@ class ContentProcessorAgent:
         CRITERIOS:
         1. Variedad de temas (Política, Tech, Deportes, Economía...).
         2. Impacto y Relevancia (Noticias 'grandes').
-        3. IDIOMA: Todo en {language}.
+        3. IDIOMA: Todo en {language} (Español PENINSULAR/ESPAÑA. Usa 'costes', 'móvil', 'vídeo').
         4. **SIN DUPLICADOS (CRÍTICO)**: 
            - Si hay varias noticias sobre el MISMO evento (ej: "Real Madrid gana" y "Llull récord en el mismo partido"), ELIGE SOLO UNA (la más completa).
            - Si hay varias sobre "Grok/X problemas", ELIGE SOLO UNA. 
@@ -316,7 +337,7 @@ class ContentProcessorAgent:
                 {{
                     "original_id": 0,
                     "headline": "Título Impactante (Max 5 palabras).",
-                    "summary": "Texto del resumen directo sin prefijos.",
+                    "summary": "Texto del resumen directo sin prefijos (ESPAÑOL DE ESPAÑA).",
                     "category": "Política",
                     "emoji": "🏛️"
                 }},
@@ -328,6 +349,7 @@ class ContentProcessorAgent:
         - **DESTACADA (1ª noticia del array)**: Resumen de 28 palabras exactas. NO pongas "RESUMEN DESTACADA:", solo el texto.
         - **RESTO**: Resumen de 10-15 palabras. NO pongas "RESUMEN NORMAL:", solo el texto.
         - **ESTILO**: Frases completas y con gancho.
+        - **LENGUAJE**: Nada de "costos" ni "celulares".
         - NO IMÁGENES.
         """
 

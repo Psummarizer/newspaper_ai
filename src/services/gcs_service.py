@@ -55,7 +55,31 @@ class GCSService:
         except Exception as e:
             self.logger.error(f"Error delete: {e}")
             return False
-    
+    # =========================================================================
+    # GENERIC JSON METHODS
+    # =========================================================================
+    def get_json_file(self, filename: str) -> dict:
+        """Lee un archivo JSON genérico desde el bucket."""
+        if not self.bucket: return {}
+        try:
+            blob = self.bucket.blob(filename)
+            if not blob.exists(): return {}
+            return json.loads(blob.download_as_text())
+        except Exception as e:
+            self.logger.error(f"Error leyendo {filename}: {e}")
+            return {}
+
+    def save_json_file(self, filename: str, data: dict) -> bool:
+        """Guarda un dict como JSON en el bucket."""
+        if not self.bucket: return False
+        try:
+            blob = self.bucket.blob(filename)
+            blob.upload_from_string(json.dumps(data, ensure_ascii=False, indent=2), content_type="application/json")
+            return True
+        except Exception as e:
+            self.logger.error(f"Error guardando {filename}: {e}")
+            return False
+            
     # =========================================================================
     # SOURCES
     # =========================================================================

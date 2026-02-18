@@ -35,8 +35,21 @@ async def generate_and_send():
         return
 
     # 2. Fetch Subscribers
+    logger.info("📡 Obteniendo suscriptores de Firestore...")
     sub_ref = fb_service.db.collection("AINewspaper")
-    docs = sub_ref.stream()
+    
+    # Añadimos timeout explícito (5 min) para evitar DeadlineExceeded
+    try:
+        # FIX: Convert stream to list immediately to avoid Timeout during long processing loop
+        # (Firestore streams time out if the loop is slow)
+        docs_stream = sub_ref.stream(timeout=300)
+        docs = list(docs_stream)
+        logger.info(f"📄 Suscriptores a procesar: {len(docs)}")
+        
+    except Exception as e:
+        logger.error(f"❌ Error crítico obteniendo suscriptores (posible Timeout): {e}")
+        return
+    
     
     processed_count = 0
     
@@ -47,8 +60,19 @@ async def generate_and_send():
         email = doc.id
         sub_data = doc.to_dict()
         
-        # User Topics path: 'Topics' field
-        user_topics_list = sub_data.get("Topics") or sub_data.get("topics", [])
+        # User Topics: 'topic' (New Map), 'Topics' (Legacy Str), 'topics' (Legacy List)
+        raw_topics = sub_data.get("topic") or sub_data.get("Topics") or sub_data.get("topics", [])
+        
+        user_topics_list = []
+        if isinstance(raw_topics, dict):
+            # New Schema: Keys are the aliases (e.g. {"AI": "Tech News", "F1": "Alonso"})
+            user_topics_list = list(raw_topics.keys())
+        elif isinstance(raw_topics, list):
+            user_topics_list = raw_topics
+        elif isinstance(raw_topics, str):
+            # Legacy string format "AI, F1"
+             clean_str = raw_topics.replace("[", "").replace("]", "").replace("'", "").replace('"', "")
+             user_topics_list = [t.strip() for t in clean_str.split(',') if t.strip()]
         language = sub_data.get("Language") or sub_data.get("language", "es")
         
         # CHECK 1: is_active flag
@@ -90,11 +114,14 @@ async def generate_and_send():
         logger.info(f"⏳ Procesando usuario: {email} (Coste: {cost}, Créditos: {current_credits})")
         
         # 4. Run Orchestrator
+        # 4. Run Orchestrator
         user_input = {
             "email": email,
             "Topics": user_topics_list,
             "Language": language,
-            "forbidden_sources": sub_data.get("forbidden_sources", "")
+            "forbidden_sources": sub_data.get("forbidden_sources", ""),
+            "news_podcast": sub_data.get("news_podcast") or sub_data.get("NewsPodcast"),
+            "preferences": sub_data.get("preferences") or sub_data.get("Preferences", {})
         }
         
         # Run!

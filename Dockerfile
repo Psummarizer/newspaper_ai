@@ -12,6 +12,17 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Instalar Chromium, Driver y FFmpeg (Audio + Selenium)
+RUN apt-get update && apt-get install -y \
+    chromium \
+    chromium-driver \
+    ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
+
+# Configurar variables de entorno para Selenium
+ENV CHROME_BIN=/usr/bin/chromium
+ENV CHROMEDRIVER_PATH=/usr/bin/chromedriver
+
 # Copiar archivo de entorno
 COPY .env .
 
@@ -19,6 +30,7 @@ COPY .env .
 COPY src/ src/
 COPY scripts/ scripts/
 COPY data/ data/
+COPY assets/ assets/
 # Copiar main.py a la raíz o asegurar path
 # En este caso, main.py está en src/main.py, pero el WORKDIR es /app
 # Docker espera ejecutar desde ahí.

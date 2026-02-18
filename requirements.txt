@@ -10,7 +10,12 @@ redis>=5.0.1
 python-dotenv>=1.0.1
 tenacity>=8.2.3
 google-cloud-pubsub>=2.19.0
-google-cloud-firestore>=2.14.0
+google-cloud-firestore>=2.19.0
+google-cloud-storage>=2.10.0
+google-api-core>=2.10.0
+grpcio>=1.60.0
+grpcio-status>=1.60.0
+google-cloud-texttospeech
 ddgs
 sqlalchemy>=2.0.25
 asyncpg>=0.29.0
@@ -23,4 +28,5 @@ feedparser
 aiosqlite
 aiohttp
 firebase-admin>=6.2.0
-google-cloud-storage>=2.10.0
+edge-tts>=7.0.0
+selenium>=4.10.0

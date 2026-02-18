@@ -129,23 +129,62 @@ def build_front_page(headlines: list) -> str:
     if len(words) > 28:
         featured_summary = " ".join(words[:28]) + "..."
     
+    # Imagen de fondo (Prioridad: Imagen noticia -> Imagen categoría -> General)
+    bg_image = featured.get('image_url')
+    if not bg_image:
+        bg_image = CATEGORY_IMAGES.get(featured_category, CATEGORY_IMAGES["General"])
+    
+    # URL escapada (por si acaso tiene espacios)
+    bg_image = bg_image.replace(" ", "%20")
+
+    # VML para Outlook
+    vml_content = f"""
+    <!--[if mso]>
+    <v:rect xmlns:v="urn:schemas-microsoft-com:vml" fill="true" stroke="false" style="width:600px;height:400px;">
+    <v:fill type="frame" src="{bg_image}" color="#000000" />
+    <v:textbox inset="0,0,0,0">
+    <![endif]-->
+    """
+    
+    vml_end = """
+    <!--[if mso]>
+    </v:textbox>
+    </v:rect>
+    <![endif]-->
+    """
+
     featured_html = f'''
-    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color: {BG_CARD}; border: 2px solid {ACCENT}; margin-bottom: 12px;">
-        <tr>
-            <td style="padding: 16px;">
-                <p style="margin: 0 0 8px 0; font-size: 10px; color: {ACCENT}; text-transform: uppercase; letter-spacing: 0.5px; font-weight: bold;">
-                    {featured_emoji} {featured_category} — DESTACADA
-                </p>
-                <p style="margin: 0 0 8px 0; font-size: 20px; font-weight: bold; color: {TEXT_PRIMARY}; line-height: 1.2;">
-                    {featured_title}
-                </p>
-                <p style="margin: 0; font-size: 14px; color: {TEXT_SECONDARY}; line-height: 1.4;">
-                    {featured_summary}
-                </p>
-            </td>
-        </tr>
-    </table>
+    {vml_content}
+    {vml_content}
+    <div style="position: relative; width: 100%; max-width: 600px;">
+        <!-- IMAGEN REAL (Mejor soporte que background-image) -->
+        <img src="{bg_image}" alt="{featured_title}" width="600" style="display: block; width: 100%; height: auto; border-radius: 8px 8px 0 0; min-height: 300px; object-fit: cover;">
+        
+        <!-- Gradient inferior overlay -->
+        <div style="position: absolute; bottom: 0; left: 0; width: 100%; height: 60%; background: linear-gradient(to top, rgba(0,0,0,0.9) 0%, rgba(0,0,0,0) 100%); border-radius: 0 0 8px 8px;"></div>
+        
+        <!-- Contenido Texto (Z-index superior) -->
+        <div style="position: absolute; bottom: 0; left: 0; width: 100%; padding: 30px; box-sizing: border-box; z-index: 10;">
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+                <tr>
+                    <td>
+                        <span style="background-color: {ACCENT}; color: #ffffff; padding: 4px 10px; font-size: 11px; font-weight: bold; text-transform: uppercase; border-radius: 4px; letter-spacing: 1px; box-shadow: 0 2px 4px rgba(0,0,0,0.3);">
+                            {featured_emoji} {featured_category}
+                        </span>
+                        <h1 style="margin: 15px 0 10px 0; color: #ffffff; font-size: 26px; line-height: 1.2; font-weight: 800; text-shadow: 0 2px 8px rgba(0,0,0,0.8); font-family: Helvetica, Arial, sans-serif;">
+                            {featured_title}
+                        </h1>
+                        <p style="margin: 0; color: #f0f0f0; font-size: 16px; line-height: 1.5; font-weight: 500; text-shadow: 0 1px 4px rgba(0,0,0,0.8);">
+                            {featured_summary}
+                        </p>
+                    </td>
+                </tr>
+            </table>
+        </div>
+    </div>
+    {vml_end}
     '''
+
     
     # Resto de noticias agrupadas por categoría
     remaining = headlines[1:]

@@ -4168,5 +4168,113 @@
     "base_url": "https://www.elblogsalmon.com",
     "language": "es",
     "country": "ES"
+  },
+  {
+    "category": "Deporte",
+    "name": "Marca - Portada",
+    "domain": "marca.com",
+    "rss_url": "https://e00-marca.uecdn.es/rss/portada.xml",
+    "base_url": "https://www.marca.com",
+    "language": "es",
+    "country": "ES"
+  },
+  {
+    "category": "Deporte",
+    "name": "Marca - Real Madrid",
+    "domain": "marca.com",
+    "rss_url": "https://e00-marca.uecdn.es/rss/futbol/real-madrid.xml",
+    "base_url": "https://www.marca.com/futbol/real-madrid.html",
+    "language": "es",
+    "country": "ES"
+  },
+  {
+    "category": "Deporte",
+    "name": "Marca - Barcelona",
+    "domain": "marca.com",
+    "rss_url": "https://e00-marca.uecdn.es/rss/futbol/barcelona.xml",
+    "base_url": "https://www.marca.com/futbol/barcelona.html",
+    "language": "es",
+    "country": "ES"
+  },
+  {
+    "category": "Deporte",
+    "name": "Marca - F1",
+    "domain": "marca.com",
+    "rss_url": "https://e00-marca.uecdn.es/rss/motor/formula1.xml",
+    "base_url": "https://www.marca.com/motor/formula1.html",
+    "language": "es",
+    "country": "ES"
+  },
+  {
+    "category": "Deporte",
+    "name": "AS - Portada",
+    "domain": "as.com",
+    "rss_url": "https://as.com/rss/tags/ultimas_noticias.xml",
+    "base_url": "https://as.com",
+    "language": "es",
+    "country": "ES"
+  },
+  {
+    "category": "Deporte",
+    "name": "AS - Real Madrid",
+    "domain": "as.com",
+    "rss_url": "https://as.com/rss/futbol/primera/equipos/real_madrid.xml",
+    "base_url": "https://as.com/futbol/primera/equipos/real_madrid",
+    "language": "es",
+    "country": "ES"
+  },
+  {
+    "category": "Deporte",
+    "name": "AS - Barcelona",
+    "domain": "as.com",
+    "rss_url": "https://as.com/rss/futbol/primera/equipos/barcelona.xml",
+    "base_url": "https://as.com/futbol/primera/equipos/barcelona",
+    "language": "es",
+    "country": "ES"
+  },
+  {
+    "category": "Deporte",
+    "name": "Mundo Deportivo - Portada",
+    "domain": "mundodeportivo.com",
+    "rss_url": "https://www.mundodeportivo.com/rss/home",
+    "base_url": "https://www.mundodeportivo.com",
+    "language": "es",
+    "country": "ES"
+  },
+  {
+    "category": "Deporte",
+    "name": "Mundo Deportivo - Real Madrid",
+    "domain": "mundodeportivo.com",
+    "rss_url": "https://www.mundodeportivo.com/rss/futbol/real-madrid",
+    "base_url": "https://www.mundodeportivo.com/futbol/real-madrid",
+    "language": "es",
+    "country": "ES"
+  },
+  {
+    "category": "Deporte",
+    "name": "Sport - Portada",
+    "domain": "sport.es",
+    "rss_url": "https://www.sport.es/es/rss/last_news/rss.xml",
+    "base_url": "https://www.sport.es",
+    "language": "es",
+    "country": "ES"
+  },
+  {
+    "category": "Deporte",
+    "name": "Sport - Real Madrid",
+    "domain": "sport.es",
+    "rss_url": "https://www.sport.es/es/rss/real-madrid/rss.xml",
+    "base_url": "https://www.sport.es/es/real-madrid/",
+    "language": "es",
+    "country": "ES"
+  },
+  {
+    "category": "Deporte",
+    "name": "Defensa Central",
+    "domain": "defensacentral.com",
+    "rss_url": "https://www.defensacentral.com/rss/",
+    "base_url": "https://www.defensacentral.com",
+    "language": "es",
+    "country": "ES"
   }
 ]

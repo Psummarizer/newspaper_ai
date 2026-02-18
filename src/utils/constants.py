@@ -22,3 +22,30 @@ CATEGORIES_LIST = [
     "Cultura Digital y Sociedad de la Información",
     "Filantropía e Impacto Social"
 ]
+
+# Palabras clave por categoría para scoring de relevancia
+CATEGORY_KEYWORDS = {
+    "Política": ["gobierno", "ley", "elección", "ministerio", "parlamento"],
+    "Geopolítica": ["conflicto", "relaciones internacionales", "sanciones", "alianzas", "estrategia"],
+    "Internacional": ["mundial", "global", "ONU", "acuerdos", "crisis"],
+    "Economía y Finanzas": ["inflación", "PIB", "mercado", "bolsa", "crisis"],
+    "Negocios y Empresas": ["empresa", "fusión", "adquisición", "startup", "inversión"],
+    "Justicia y Legal": ["tribunal", "juicio", "ley", "derechos", "sentencia"],
+    "Transporte y Movilidad": ["tráfico", "vehículo", "infraestructura", "transporte público", "movilidad"],
+    "Industria": ["producción", "manufactura", "planta", "sector industrial", "automatización"],
+    "Energía": ["energía", "petróleo", "gas", "renovable", "crisis energética"],
+    "Tecnología y Digital": ["innovación", "IA", "software", "hardware", "ciberseguridad"],
+    "Ciencia e Investigación": ["estudio", "descubrimiento", "investigación", "laboratorio", "ciencia"],
+    "Deporte": ["resultado", "partido", "fichaje", "gol", "torneo"],
+    "Salud y Bienestar": ["salud", "bienestar", "pandemia", "vacuna", "tratamiento"],
+    "Inmobiliario y Construcción": ["propiedad", "construcción", "hipoteca", "edificio", "urbanismo"],
+    "Agricultura y Alimentación": ["cosecha", "agricultura", "alimento", "sostenibilidad", "seguridad alimentaria"],
+    "Educación y Conocimiento": ["educación", "universidad", "formación", "cursos", "investigación"],
+    "Sociedad": ["cultura", "comunidad", "derechos humanos", "demografía", "tendencias"],
+    "Cultura y Entretenimiento": ["evento", "festival", "cine", "música", "arte"],
+    "Consumo y Estilo de Vida": ["consumo", "moda", "estilo", "tendencia", "producto"],
+    "Medio Ambiente y Clima": ["clima", "cambio climático", "sostenibilidad", "contaminación", "ecología"],
+    "Cultura Digital y Sociedad de la Información": ["redes sociales", "digital", "información", "cibercultura", "privacidad"],
+    "Filantropía e Impacto Social": ["filantropía", "impacto social", "ONG", "responsabilidad", "solidaridad"]
+}
+

@@ -60,7 +60,7 @@ if (-not $SERVICE_URL) {
 # 5.1 Ingesta cada 12 horas (8:00 AM y 8:00 PM Madrid)
 Write-Host "   -> Configurando 'newsletter-ingest-job' (8AM y 8PM)..."
 gcloud scheduler jobs create http newsletter-ingest-job `
-    --schedule="0 7,20 * * *" `
+    --schedule="30 5,20 * * *" `
     --uri="$SERVICE_URL/ingest" `
     --http-method=POST `
     --location=$REGION `
@@ -70,7 +70,7 @@ gcloud scheduler jobs create http newsletter-ingest-job `
 
 if ($LASTEXITCODE -ne 0) {
     gcloud scheduler jobs update http newsletter-ingest-job `
-        --schedule="0 7,20 * * *" `
+        --schedule="30 5,20 * * *" `
         --uri="$SERVICE_URL/ingest" `
         --http-method=POST `
         --location=$REGION `
@@ -81,7 +81,7 @@ if ($LASTEXITCODE -ne 0) {
 # 5.2 Generación Diaria (Daily 8:30 AM Madrid)
 Write-Host "   -> Configurando 'newsletter-send-job' (Daily 8:30 AM)..."
 gcloud scheduler jobs create http newsletter-send-job `
-    --schedule="30 8 * * *" `
+    --schedule="45 6 * * *" `
     --uri="$SERVICE_URL/send-newsletter" `
     --http-method=POST `
     --location=$REGION `
@@ -91,7 +91,7 @@ gcloud scheduler jobs create http newsletter-send-job `
 
 if ($LASTEXITCODE -ne 0) {
     gcloud scheduler jobs update http newsletter-send-job `
-        --schedule="30 8 * * *" `
+        --schedule="45 6 * * *" `
         --uri="$SERVICE_URL/send-newsletter" `
         --http-method=POST `
         --location=$REGION `

@@ -57,9 +57,21 @@ class HourlyProcessor:
         self.redacted_cache = {}  # {"url": redacted_news_dict}
         self.category_news_cache = {}  # {"Deporte": [redacted_news_list]}
         self.existing_news = {}  # {normalized_title: {"news": news_dict, "topic_id": str}}
+        self.existing_urls = set() # {url} para de-duplicación estricta
         
     async def run(self):
         logger.info("🚀 Inicio Pipeline Horario (OPTIMIZADO)")
+        
+        # 0. Load State for Dynamic Window
+        self.last_run_time = None
+        state = self.gcs.get_json_file("ingest_state.json")
+        if state and state.get("last_run_finished"):
+            try:
+                self.last_run_time = datetime.fromisoformat(state.get("last_run_finished"))
+                ago = datetime.now() - self.last_run_time
+                logger.info(f"🕒 Última ejecución: {self.last_run_time} (hace {ago})")
+            except Exception as e:
+                logger.warning(f"Error parseando last_run_time: {e}")
         
         # 0. INGESTA RSS
         await self._ingest_all_rss()
@@ -70,7 +82,8 @@ class HourlyProcessor:
             logger.info(f"🧹 Eliminados {removed_articles} artículos antiguos (>7 días)")
         
         # 1. Obtener todos los aliases únicos de Firebase
-        all_aliases = self._get_all_topics_from_firebase()
+        all_aliases_tuples = self._get_all_topics_from_firebase()
+        all_aliases = [t[0] for t in all_aliases_tuples]
         logger.info(f"📋 Aliases de usuarios encontrados: {len(all_aliases)}")
         
         # 2. Cargar topics.json actual
@@ -83,7 +96,7 @@ class HourlyProcessor:
             logger.info(f"🧹 Eliminadas {removed_news} noticias antiguas (>7 días) de topics")
         
         # 3. Sincronizar aliases con topics (LLM matching semántico)
-        topics_data = await self._sync_aliases_with_topics(all_aliases, topics_data)
+        topics_data = await self._sync_aliases_with_topics(all_aliases_tuples, topics_data)
         logger.info(f"🔄 Topics después de sincronización: {len(topics_data)}")
         
         # Cargar noticias existentes para deduplicación semántica
@@ -92,8 +105,24 @@ class HourlyProcessor:
         # 4. Procesar Topics EN PARALELO (con límite)
         semaphore = asyncio.Semaphore(MAX_CONCURRENT_TOPICS)
         
-        # Procesar cada topic (las keys de topics_data después de sincronización)
-        topic_names = [topics_data[tid].get("name", tid) for tid in topics_data.keys()]
+        # FILTRO DE ACTIVIDAD: Solo procesar topics que tengan al menos un alias ACTIVO
+        # (Esto evita procesar topics de usuarios que han cancelado)
+        active_aliases_set = set(all_aliases) # all_aliases now only contains active users' topics
+        topic_names = []
+        
+        for tid, info in topics_data.items():
+            t_candidates = info.get("aliases", []) + [info.get("name", "")]
+            # Normalizar para comparación
+            is_active = False
+            for cand in t_candidates:
+                if cand in active_aliases_set:
+                    is_active = True
+                    break
+            
+            if is_active:
+                topic_names.append(info.get("name", tid))
+            else:
+                logger.info(f"💤 Topic '{info.get('name')}' SALTADO (Inactivo/Sin usuarios)")
         logger.info(f"📰 Procesando {len(topic_names)} topics...")
         
         async def process_topic_wrapper(topic_name):
@@ -101,14 +130,26 @@ class HourlyProcessor:
                 return await self._process_single_topic(topic_name, topics_data)
         
         tasks = [process_topic_wrapper(topic) for topic in topic_names]
-        results = await asyncio.gather(*tasks, return_exceptions=True)
         
-        # Consolidar resultados
-        for result in results:
-            if isinstance(result, dict):
-                topic_id = result.get("topic_id")
-                if topic_id:
-                    topics_data[topic_id] = result.get("data")
+        # PROCESAMIENTO INCREMENTAL Y GUARDADO
+        # Usamos as_completed para ir guardando conforme terminan los topics
+        # Esto previene que un timeout total nos deje sin NADA de datos.
+        msg_counter = 0
+        for future in asyncio.as_completed(tasks):
+            try:
+                result = await future
+                if isinstance(result, dict):
+                    topic_id = result.get("topic_id")
+                    if topic_id:
+                        topics_data[topic_id] = result.get("data")
+                        msg_counter += 1
+                        
+                        # Guardar cada 1 topic (o ajustar si es mucho I/O, pero GCS aguanta)
+                        # Para máxima seguridad: Guardar SIEMPRE
+                        logger.info(f"💾 Guardado incremental ({msg_counter}/{len(topic_names)}): {topic_id}")
+                        self._save_topics_json(topics_data)
+            except Exception as e:
+                logger.error(f"❌ Error en topic task: {e}")
         
         # 4. Guardar topics.json
         self._save_topics_json(topics_data)
@@ -118,10 +159,21 @@ class HourlyProcessor:
         total_redacted = sum(1 for v in self.redacted_cache.values() if v)
         logger.info(f"📊 Stats: {total_redacted} noticias redactadas, {len(self.existing_news)} en cache de dedup")
         
+        # 5. Guardar estado de finalización
+        self.gcs.save_json_file("ingest_state.json", {
+            "last_run_finished": datetime.now().isoformat()
+        })
+        logger.info("💾 Estado guardado (ingest_state.json)")
+        
     def _load_existing_news(self, topics_data: dict):
         """Carga noticias existentes para deduplicación semántica (con referencia completa)"""
         for topic_id, topic_info in topics_data.items():
             for idx, news in enumerate(topic_info.get("noticias", [])):
+                
+                # Check sources URLs
+                for src in news.get("fuentes", []):
+                    if src: self.existing_urls.add(src)
+                
                 title = news.get("titulo", "")
                 if title:
                     normalized = self._normalize_title(title)
@@ -130,7 +182,7 @@ class HourlyProcessor:
                         "topic_id": topic_id,
                         "index": idx
                     }
-        logger.info(f"📚 Cargadas {len(self.existing_news)} noticias para deduplicación")
+        logger.info(f"📚 Cargadas {len(self.existing_news)} noticias para deduplicación (URLs conocidas: {len(self.existing_urls)})")
                     
     def _normalize_title(self, title: str) -> str:
         """Normaliza título para comparación (quita emojis, espacios, etc.)"""
@@ -178,7 +230,8 @@ class HourlyProcessor:
         logger.info(f"📥 {topic_name}: {len(candidates)} candidatos nuevos")
         
         # Filtrar relevantes
-        relevant = await self._filter_relevant(topic_name, candidates) if candidates else []
+        user_contexts = topic_info.get("user_contexts", [])
+        relevant = await self._filter_relevant(topic_name, candidates, user_contexts) if candidates else []
         logger.info(f"✅ {topic_name}: {len(relevant)} relevantes")
         
         # Redactar noticias nuevas (con deduplicación)
@@ -256,13 +309,15 @@ class HourlyProcessor:
                 common = len(words_a & words_b)
                 similarity = common / max(len(words_a), len(words_b))
                 
-                if similarity > 0.6:
+                # LOWER THRESHOLD from 0.6 to 0.35 to catch more sources for same event
+                # e.g. "Madrid gana Supercopa" vs "Real Madrid campeón de Supercopa"
+                if similarity > 0.35:
                     # Fusionar fuentes
                     for src in news_b.get("fuentes", []):
                         if src and src not in sources_a:
                             sources_a.append(src)
                     used_indices.add(j)
-                    logger.info(f"🔗 Fusionadas fuentes: {news_a.get('titulo', '')[:40]}... ({len(sources_a)} fuentes)")
+                    logger.info(f"🔗 Fusionadas fuentes (sim={similarity:.2f}): {news_a.get('titulo', '')[:40]}... ({len(sources_a)} fuentes)")
             
             # Actualizar fuentes y añadir
             news_a["fuentes"] = sources_a[:5]  # Max 5 fuentes
@@ -285,9 +340,16 @@ class HourlyProcessor:
         title = article.get("title", "")
         content = article.get("content", "")
         
-        # Check 1: URL ya procesada
+        # Check 1: URL ya procesada (Cache efímera O Histórica)
         if url in self.redacted_cache:
             return self.redacted_cache[url]
+        
+        if url in self.existing_urls:
+            # Ya existe en el histórico -> Es un DUPLICADO exacto
+            # Retornamos None para que no se vuelva a añadir (ni siquiera gastamos LLM en dedup check)
+            logger.info(f"⏭️ URL ya existente (Histórico): {url[:40]}...")
+            self.redacted_cache[url] = None 
+            return None
         
         # Check 2: Deduplicación semántica con detección de actualizaciones
         dedup_result = await self._check_duplicate_or_update(title, content)
@@ -356,9 +418,9 @@ class HourlyProcessor:
     async def _check_duplicate_or_update(self, new_title: str, new_content: str) -> dict:
         """
         Detecta si la noticia es:
-        - 'duplicate': Misma noticia, sin info nueva → SKIP
-        - 'update': Misma noticia pero con MÁS información → REEMPLAZAR
-        - 'different': Noticia diferente → REDACTAR
+        - 'duplicate': Misma noticia, sin info nueva -> SKIP
+        - 'update': Misma noticia pero con MÁS información (Resultados, Confirmaciones) -> REEMPLAZAR
+        - 'different': Noticia diferente -> REDACTAR
         
         Returns: {"status": str, "matched_key": str or None}
         """
@@ -374,25 +436,51 @@ class HourlyProcessor:
         if len(self.existing_news) < 3:
             return {"status": "different", "matched_key": None}
         
-        # Tomar muestra de títulos existentes
-        sample_keys = list(self.existing_news.keys())[:15]
-        titles_text = "\n".join([f"ID_{i}: {k}" for i, k in enumerate(sample_keys)])
+        # Tomar muestra de títulos existentes CON RESUMEN (Contexto enriquecido)
+        sample_keys = list(self.existing_news.keys())
+        # Limitar a las últimas 15 para no saturar el prompt, priorizando las más recientes si hay logica temporal
+        sample_keys = sample_keys[:15]
+        
+        titles_text = ""
+        for i, k in enumerate(sample_keys):
+            news_item = self.existing_news[k].get("news", {})
+            existing_title = news_item.get("titulo", k)
+            existing_summary = news_item.get("resumen", "")[:300].replace("\n", " ")
+            titles_text += f"ID_{i}:\nTÍTULO: {existing_title}\nRESUMEN: {existing_summary}\n---\n"
         
         prompt = f"""
-        Detecta si esta NOTICIA NUEVA habla del MISMO TEMA/EVENTO que alguna existente.
-        
+        Actúa como un Editor Jefe Inteligente.
+        Tu tarea es detectar si una NOTICIA NUEVA se solapa con alguna YA EXISTENTE.
+
         NOTICIA NUEVA:
         Titulo: {new_title}
         Contenido: {new_content[:500]}
         
-        NOTICIAS YA PROCESADAS:
+        NOTICIAS YA PROCESADAS (Contexto):
         {titles_text}
         
-        CRITERIO:
-        - "duplicate" si la noticia nueva cubre el MISMO evento, anuncio, producto o persona que alguna existente (aunque use palabras diferentes)
-        - "different" solo si es un tema COMPLETAMENTE distinto
+        INSTRUCCIONES DE LÓGICA (STRICT):
+        Debes comparar la NOTICIA NUEVA con cada ID existente y decidir:
+
+        1. DUPLICATE (Duplicado):
+           - Se refiere al MISMO evento, anuncio, declaración o hecho principal.
+           - Aunque cambie la fuente, el enfoque o algunas palabras, la información central es la misma.
+           - Ejemplo abstracto: "X anuncia Y" vs "Y es anunciado por X". -> DUPLICATE.
+
+        2. UPDATE (Actualización / Obsolescencia):
+           - La NOTICIA NUEVA contiene información POSTERIOR que hace obsoleta a la anterior.
+           - Casos típicos:
+             * PREVIA vs RESULTADO (El partido se jugó y hay marcador).
+             * RUMOR vs CONFIRMACIÓN (Oficialización de un fichaje o medida).
+             * INICIO vs DESENLACE (Una reunión empezó vs Terminó con acuerdo).
+           - Si la nueva noticia aporta el RESULTADO FINAL o un estado MÁS AVANZADO -> UPDATE.
+
+        3. DIFFERENT (Diferente):
+           - Hechos distintos, personas distintas, o eventos sin relación directa.
+           - Si son dos partidos diferentes de la misma jornada -> DIFFERENT.
         
-        Responde JSON: {{"status": "duplicate/different", "matched_id": 0 o null}}
+        SALIDA ESPERADA (JSON):
+        {{"status": "duplicate" | "update" | "different", "matched_id": <numero_id_existente> | null}}
         """
         
         try:
@@ -405,7 +493,7 @@ class HourlyProcessor:
             matched_id = result.get("matched_id")
             
             matched_key = None
-            if matched_id is not None and 0 <= matched_id < len(sample_keys):
+            if matched_id is not None and isinstance(matched_id, int) and 0 <= matched_id < len(sample_keys):
                 matched_key = sample_keys[matched_id]
             
             return {"status": status, "matched_key": matched_key}
@@ -442,18 +530,39 @@ class HourlyProcessor:
     # =========================================================================
     
     def _get_all_topics_from_firebase(self) -> list:
-        """Lee todos los aliases únicos de usuarios en AINewspaper"""
-        aliases_set = set()
+        """Lee todos los aliases únicos de usuarios ACTIVOS en AINewspaper. Retorna [(alias, description), ...]"""
+        aliases_tuples = set()
         docs = self.fb.db.collection("AINewspaper").stream()
         for doc in docs:
             data = doc.to_dict()
+            
+            # FILTRO: Solo usuarios activos
+            if data.get("is_active") is False:
+                continue
+            
+            # NEW SCHEMA: 'topic' is a Map<Alias, Description>
+            # Check 'topic' OR 'topics' in case the user named it either way (Map preference)
+            topic_map = data.get("topic") or data.get("topics")
+            if isinstance(topic_map, dict):
+                for alias, desc in topic_map.items():
+                    if alias and alias.strip():
+                        aliases_tuples.add((alias.strip(), str(desc or "").strip()))
+                continue
+
+            # Fallback: legacy fields (list/string)
             user_topics = data.get("Topics") or data.get("topics", [])
             if isinstance(user_topics, str):
                 user_topics = [t.strip() for t in user_topics.replace("[", "").replace("]", "").replace("'", "").replace('"', "").split(",")]
-            for t in user_topics:
-                if t.strip():
-                    aliases_set.add(t.strip())
-        return list(aliases_set)
+            elif isinstance(user_topics, dict): 
+                # Should have been caught above, but if it came from explicit 'Topics' dict
+                pass
+
+            if isinstance(user_topics, list):
+                for t in user_topics:
+                    if isinstance(t, str) and t.strip():
+                        aliases_tuples.add((t.strip(), ""))
+        
+        return list(aliases_tuples)
     
     async def _match_alias_to_topic(self, alias: str, existing_topics: dict) -> str:
         """
@@ -511,50 +620,67 @@ class HourlyProcessor:
             logger.warning(f"Error en matching LLM para '{alias}': {e}")
             return None
     
-    async def _sync_aliases_with_topics(self, user_aliases: list, topics_data: dict) -> dict:
+    async def _sync_aliases_with_topics(self, user_aliases_tuples: list, topics_data: dict) -> dict:
         """
-        Sincroniza aliases de usuarios con topics existentes.
-        - Si el alias es sinónimo de un topic → lo añade a sus aliases
-        - Si el alias es nuevo → crea un topic nuevo
+        Sincroniza aliases de usuarios (y sus contextos) con topics existentes.
+        - Agrega descripciones de usuarios al campo 'user_contexts' del topic.
+        - Crea topics nuevos si no existen.
         """
-        for alias in user_aliases:
-            # Buscar si este alias ya está en algún topic
+        # RESET user_contexts for all topics (to ensure freshness from active users)
+        for t_info in topics_data.values():
+            t_info["user_contexts"] = []
+
+        for alias, desc in user_aliases_tuples:
             found = False
+            
+            # 1. Buscar si el alias ya existe en algún topic
+            matched_topic = None
             for topic_id, topic_info in topics_data.items():
+                # Check exact alias match
                 if alias in topic_info.get("aliases", []):
+                    matched_topic = topic_info
                     found = True
                     break
+                # Check topic name match
                 if alias.lower() == topic_info.get("name", "").lower():
+                    matched_topic = topic_info
                     found = True
-                    # Asegurar que el alias está en la lista
                     if alias not in topic_info.get("aliases", []):
                         topic_info.setdefault("aliases", []).append(alias)
                     break
             
-            if found:
-                continue
+            # 2. Si no encontrado, intentar MATCH SEMÁNTICO (LLM)
+            if not found:
+                matched_topic_name = await self._match_alias_to_topic(alias, topics_data)
+                
+                if matched_topic_name:
+                    for topic_id, topic_info in topics_data.items():
+                        if topic_info.get("name") == matched_topic_name:
+                            topic_info.setdefault("aliases", []).append(alias)
+                            matched_topic = topic_info
+                            logger.info(f"🔗 Alias '{alias}' añadido a topic '{matched_topic_name}'")
+                            found = True
+                            break
             
-            # Alias no encontrado - usar LLM para matching semántico
-            matched_topic_name = await self._match_alias_to_topic(alias, topics_data)
-            
-            if matched_topic_name:
-                # Añadir alias al topic existente
-                for topic_id, topic_info in topics_data.items():
-                    if topic_info.get("name") == matched_topic_name:
-                        topic_info.setdefault("aliases", []).append(alias)
-                        logger.info(f"🔗 Alias '{alias}' añadido a topic '{matched_topic_name}'")
-                        break
-            else:
-                # Crear topic nuevo
+            # 3. Si sigue sin encontrar, CREAR NUEVO
+            if not found:
                 topic_id = alias.lower().replace(" ", "_")
                 topics_data[topic_id] = {
                     "name": alias,
                     "aliases": [alias],
                     "categories": [],
-                    "noticias": []
+                    "noticias": [],
+                    "user_contexts": []
                 }
+                matched_topic = topics_data[topic_id]
                 logger.info(f"➕ Nuevo topic creado para alias '{alias}'")
-        
+            
+            # 4. AGREGAR CONTEXTO DE USUARIO (Si existe descripción)
+            if matched_topic and desc:
+                # Evitar duplicados exactos de contexto
+                if desc not in matched_topic.get("user_contexts", []):
+                    matched_topic.setdefault("user_contexts", []).append(desc)
+
         return topics_data
     
     def _normalize_id(self, name: str) -> str:
@@ -567,14 +693,15 @@ class HourlyProcessor:
     def _load_topics_json(self) -> dict:
         """Carga topics.json de GCS o local"""
         try:
-            content = self.gcs.get_file_content("topics.json")
-            if content:
-                data = json.loads(content)
+            # Fix: Use get_topics() which returns parsed JSON (list or dict)
+            data = self.gcs.get_topics()
+            if data:
                 if isinstance(data, list):
                     return {self._normalize_id(t.get("name", t.get("id", ""))): t for t in data}
                 return data
-        except:
-            pass
+        except Exception as e:
+            logger.error(f"❌ Error cargando topics desde GCS: {e}")
+        
         # Fallback local
         local_path = os.path.join(os.path.dirname(__file__), "..", "data", "topics.json")
         if os.path.exists(local_path):
@@ -617,10 +744,23 @@ class HourlyProcessor:
             return ["General", "Sociedad"]
     
     def _get_articles_for_categories(self, categories: list) -> list:
-        """Busca artículos de las últimas 2h en GCS para esas categorías"""
+        """Busca artículos en GCS dinámicamente según la última ejecución"""
+        
+        # Calcular ventana dinámica
+        hours_limit = 24.0 # Default si no hay estado previo
+        if hasattr(self, 'last_run_time') and self.last_run_time:
+            delta = datetime.now() - self.last_run_time
+            hours_limit = delta.total_seconds() / 3600
+            hours_limit += 0.5 # Buffer de 30 mins
+            
+            # Cap limits
+            hours_limit = max(0.1, min(hours_limit, 48.0)) # Min 6 min, Max 48h
+            
+        logger.info(f"📡 Buscando artículos (Ventana dinámica: {hours_limit:.2f}h)...")
+
         all_articles = []
         for cat in categories:
-            articles = self.gcs.get_articles_by_category(cat, hours_limit=2)
+            articles = self.gcs.get_articles_by_category(cat, hours_limit=hours_limit)
             all_articles.extend(articles)
         # Deduplicar por URL
         seen = set()
@@ -632,7 +772,7 @@ class HourlyProcessor:
                 unique.append(a)
         return unique
     
-    async def _filter_relevant(self, topic: str, articles: list) -> list:
+    async def _filter_relevant(self, topic: str, articles: list, user_contexts: list = None) -> list:
         """Filtra artículos relevantes con gpt-5-nano"""
         if not articles:
             return []
@@ -657,17 +797,42 @@ class HourlyProcessor:
             logger.info(f"⏰ {topic}: 0 artículos frescos (todos > 48h)")
             return []
         
-        articles = fresh_articles[:30]
+        # Increase limit to allow more candidates for merging
+        articles = fresh_articles[:60]
         
         articles_text = ""
         for i, a in enumerate(articles):
             snippet = (a.get("content") or a.get("description") or "")[:200]
-            articles_text += f"ID {i}: {a.get('title')} | {snippet}\n"
+            # INCLUIR FUENTE PARA QUE EL LLM PUEDA FILTRAR POR MEDIO SI EL USUARIO LO PIDE
+            source = a.get("source_name", "Desconocido")
+            articles_text += f"ID {i}: [FUENTE: {source}] {a.get('title')} | {snippet}\n"
         
+        # Build User Context String for Optimized Filtering
+        context_str = ""
+        if user_contexts:
+             # Clean and deduplicate contexts
+             cleaned_contexts = [str(c).strip() for c in user_contexts if c and len(str(c).strip()) > 3]
+             # Get unique contexts
+             cleaned_contexts = list(set(cleaned_contexts))
+             
+             if cleaned_contexts:
+                 # Limit to avoid huge prompts
+                 list_str = "\n".join([f"- {c}" for c in cleaned_contexts[:20]]) 
+                 context_str = (
+                     f"\n⚠️ INTERESES ESPECÍFICOS DE LOS USUARIOS (CRÍTICO PARA AHORRO DE COSTES):\n"
+                     f"{list_str}\n"
+                     f"INSTRUCCIÓN DE FILTRADO: Solo selecciona noticias que RELEVANTES para estos intereses específicos.\n"
+                     f"SI UNA NOTICIA ES DEL TEMA '{topic}' PERO NO ENCAJA CON NINGÚN INTERÉS ESPECÍFICO, DESCÁRTALA (excepto Breaking News masivo).\n"
+                 )
+
         prompt = f"""
         Eres un FILTRO DE RELEVANCIA inteligente para el topic: "{topic}".
-        
+        {context_str}
         Tu trabajo: Identificar noticias RELACIONADAS con "{topic}".
+        
+        INSTRUCCIÓN SOBRE FUENTES Y MEDIOS:
+        - Si el topic menciona explícitamente una fuente (ej: "Política de El Confidencial"), SELECCIONA SOLO noticias de esa fuente.
+        - Si el topic es genérico, ignora la fuente y céntrate en el contenido.
         
         ENFOQUE PARA TOPICS CIENTÍFICOS/TÉCNICOS (ej: física cuántica, IA, blockchain):
         - SÉ INCLUSIVO: acepta investigaciones, papers, descubrimientos, avances
@@ -677,7 +842,7 @@ class HourlyProcessor:
         
         ENFOQUE PARA TOPICS DE ENTRETENIMIENTO/DEPORTE (ej: F1, Real Madrid):
         - Acepta noticias del equipo, competición, fichajes, partidos, declaraciones
-        - Acepta contenido relacionado (F1 → carreras, pilotos, equipos, FIA, circuitos)
+        - Acepta contenido relacionado (ej: F1 → carreras, pilotos, equipos, FIA, circuitos)
         
         RECHAZAR SIEMPRE:
         - Contenido publicitario/promocional/patrocinado
@@ -833,40 +998,42 @@ class HourlyProcessor:
         all_sources = list(dict.fromkeys(all_sources))[:5]  # Max 5 fuentes
         
         prompt = f"""
-        Eres un periodista. Redacta esta noticia.
+        Eres un periodista experto. Redacta esta noticia DE CERO con tus propias palabras.
         
         Titulo original: {title}
         Contenido original: {content[:2000]}
         
-        REGLAS CRITICAS (OBLIGATORIAS):
+        REGLAS CRITICAS DE REDACCIÓN (OBLIGATORIAS):
         
-        1. USA SOLO INFORMACION DEL CONTENIDO ORIGINAL
-           - NO inventes datos, cifras, fechas o hechos que no esten en el texto
-           - NO agregues contexto que no aparezca en la noticia original
-           - NO fuerces conexiones con temas externos
-           - Si el contenido es corto, tu redaccion tambien debe serlo
+        1. 🚫 PROHIBIDO COPIAR Y PEGAR:
+           - NO copies frases literales de la fuente.
+           - Reescribe TODO el contenido con tu propio estilo.
         
-        2. NO MENCIONES el topic "{topic}" si la noticia no lo menciona explicitamente
-           - Redacta la noticia TAL COMO ES, no la adaptes a un tema
-           - Si la noticia habla de X, habla de X, no de "{topic}"
+        2. 🚫 LIMPIEZA DE "BASURA" PERIODÍSTICA:
+           - ELIMINA prefijos del título como "EN DIRECTO", "Última Hora", "Noticia", etc. Crea un título NUEVO y atractivo.
+           - ELIMINA del cuerpo frases como "En una videoconferencia desde...", "Según informa el diario...", "Desde la redacción de...".
+           - Redacta solo los HECHOS, sin meta-referencias a cómo se obtuvo la noticia.
         
         3. FORMATO E IDIOMA:
-           - IDIOMA: Español peninsular
-           - Traduce CUALQUIER cita o texto en idioma extranjero al español
-           - TODO el contenido debe estar en español
-           - Titulo con emoji al principio (max 12 palabras)
-           - Resumen de 15-25 palabras
-           - Noticia de 300-450 palabras (3-4 parrafos con etiquetas <p>)
-           - Desarrolla cada punto con detalle, profundiza en el contexto
-           - Minimo 3 frases en <b>negrita</b> (frases importantes del contenido original)
-           - Tono periodistico informativo y profesional
-        
+           - IDIOMA: Español peninsular. Traduce todo.
+           - TÍTULO: Aterrizado, descriptivo y claro. Que se sepa EL SUJETO y LA ACCIÓN. (Ej: "Apple lanza el nuevo iPhone" en vez de "El nuevo dispositivo ya está aquí"). Emoji al principio.
+           - RESUMEN: Exactamente entre 10 y 25 palabras.
+           - NOTICIA: 150-250 palabras. Divide en parrafos con etiquetas <p>.
+           - ESTILO: Informativo, directo y profesional.
+           - IMPORTANTE: Usa <b>negrita</b> para 3 frases clave.
+
+        4. 🛡️ FILTRO ANTI-AMBIGÜEDAD (CRÍTICO):
+           - Si la noticia habla de "la compañía", "el servicio", "la actualización" PERO NO NOMBRA explícitamente a quién se refiere (ej: falta el nombre de la empresa o producto), ¡DESCÁRTALA!
+           - Si la noticia depende de un contexto externo que no está en el texto ("Como dijimos ayer..."), ¡DESCÁRTALA!
+           - PARA DESCARTAR: Responde con un JSON vacío: {{}}
+
         Responde JSON:
         {{
-          "titulo": "Emoji Titulo aqui",
+          "titulo": "Emoji Título Descriptivo",
           "resumen": "Resumen breve...",
-          "noticia": "<p>Parrafo 1...</p><p>Parrafo 2...</p>"
+          "noticia": "<p>Contenido...</p>"
         }}
+        o {{}} si es inválida.
         """
         
         try:
@@ -875,10 +1042,15 @@ class HourlyProcessor:
                 messages=[{"role": "user", "content": prompt}],
             )
             result = _extract_json(response.choices[0].message.content)
+
+            # VALIDACIÓN: Si devolvió JSON vacío o sin título, descartar.
+            if not result or not result.get("titulo"):
+                logger.info(f"⏭️ Descartando '{title[:40]}...' - AMBIGUA o INVÁLIDA (Filtro LLM)")
+                return None
             
             return {
                 "fecha_inventariado": datetime.now().isoformat(),
-                "titulo": result.get("titulo", f"📰 {title}"),
+                "titulo": result.get("titulo"),
                 "resumen": result.get("resumen", ""),
                 "noticia": result.get("noticia", ""),
                 "imagen_url": image,

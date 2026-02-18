@@ -1,0 +1,15 @@
+{
+    "provider": "google",
+    "edge_voices": {
+        "Host 1": "es-ES-AlvaroNeural",
+        "Host 2": "es-ES-XimenaNeural"
+    },
+    "google_voices": {
+        "Host 1": "es-ES-Chirp-HD-D",
+        "Host 2": "es-ES-Chirp-HD-F"
+    },
+    "provider_options": [
+        "edge",
+        "google"
+    ]
+}

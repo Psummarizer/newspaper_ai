@@ -46,23 +46,51 @@ class FirebaseService:
                 raw_topics = data.get("Topics") or data.get("topics")
                 topics_list = []
                 if isinstance(raw_topics, str):
-                    # Split by comma or semicolon
-                    topics_list = [t.strip() for t in raw_topics.replace(';', ',').split(',') if t.strip()]
+                    # Split by comma, but preserve content inside parentheses
+                    # E.g., "Política, Tecnologia (IA; Cloud; Blockchain), Real Madrid" 
+                    # should become ["Política", "Tecnologia (IA; Cloud; Blockchain)", "Real Madrid"]
+                    import re
+                    # Split by comma only when NOT inside parentheses
+                    topics_list = []
+                    depth = 0
+                    current = ""
+                    for char in raw_topics:
+                        if char == '(':
+                            depth += 1
+                            current += char
+                        elif char == ')':
+                            depth -= 1
+                            current += char
+                        elif char == ',' and depth == 0:
+                            if current.strip():
+                                topics_list.append(current.strip())
+                            current = ""
+                        else:
+                            current += char
+                    if current.strip():
+                        topics_list.append(current.strip())
                 elif isinstance(raw_topics, list):
                     topics_list = raw_topics
                 
-                # Add normalized fields for internal use
+                # Fetch credits from 'users' collection
+                credits_val = {"current": 0}
+                try:
+                    user_doc = self.db.collection("users").document(email).get()
+                    if user_doc.exists:
+                        u_data = user_doc.to_dict()
+                        credits_val = u_data.get("credits", {"current": 0})
+                except Exception as e:
+                    self.logger.warning(f"Could not fetch credits for {email}: {e}")
+
                 user_obj = {
                     "email": email,
                     "is_active": data.get("is_active", True),
                     "topics": topics_list,
                     "language": data.get("Language", "es"),
-                    "credits": data.get("credits", {"current": 0}) # Assuming credits might live here or we join them later? 
-                                                                   # Previous code fetched credits from 'users' collection.
-                                                                   # User implies AINewspaper is the main one. 
-                                                                   # But verify_schema.py checked 'users' for credits...
-                                                                   # Let's assume AINewspaper is the source of truth for TOPICS.
-                                                                   # We might need to handle credits separately if they are in 'users'.
+                    "credits": credits_val,
+                    "news_podcast": data.get("news_podcast") or data.get("NewsPodcast"),  # Support both cases
+                    "preferences": data.get("preferences") or data.get("Preferences", {}),
+                    "forbidden_sources": data.get("forbidden_sources", [])
                 }
                 users.append(user_obj)
             return users
@@ -92,6 +120,21 @@ class FirebaseService:
         except Exception as e:
             self.logger.error(f"Error fetching user topics: {e}")
             return set()
+
+    def get_user_forbidden_sources(self, user_id: str) -> list:
+        """Recupera la lista de fuentes prohibidas para un usuario específico."""
+        if not self.db: return []
+        try:
+            # Try to fetch by user ID (email)
+            doc_ref = self.db.collection("AINewspaper").document(user_id)
+            doc = doc_ref.get()
+            if doc.exists:
+                data = doc.to_dict()
+                return data.get("forbidden_sources", [])
+            return []
+        except Exception as e:
+            self.logger.error(f"Error fetching forbidden sources for {user_id}: {e}")
+            return []
 
     def get_active_sources(self):
         if not self.db: return []

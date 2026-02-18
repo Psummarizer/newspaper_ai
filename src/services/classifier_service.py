@@ -110,3 +110,61 @@ class ClassifierService:
             self.logger.error(f"❌ Error en clasificación por lotes: {e}")
             # En caso de error, devolvemos vacío y el ingestor asignará 'General' por defecto
             return {}
+
+    # ---------------------------------------------------------
+    # MÉTODO 3: Usado por el ORCHESTRATOR (Re-clasificación Smart)
+    # ---------------------------------------------------------
+    async def reclassify_article(self, title: str, summary: str, user_country: str) -> str:
+        """
+        Re-evalúa la categoría de una noticia seleccionada.
+        Reglas especiales:
+        - Si es 'Política': Chequear si es local del user_country. Si no, mover a 'Internacional' o 'Geopolítica'.
+        - Buscar mejor encaje en CATEGORIES_LIST.
+        """
+        
+        # Prompt más específico
+        system_prompt = f"""
+        Eres un Editor Jefe experto en categorización.
+        Tienes la siguiente lista de categorías oficiales:
+        {json.dumps(CATEGORIES_LIST, ensure_ascii=False)}
+
+        Información del Usuario:
+        - País de Residencia: "{user_country}"
+
+        REGLA DE ORO DE POLÍTICA:
+        - La categoría "Política" es EXCLUSIVA para política interna de {user_country}.
+        - Si la noticia es política pero de OTRO país, DEBES clasificarla como "Internacional" o "Geopolítica".
+        
+        Tu tarea:
+        Analiza el título y resumen de la noticia y asigna la MEJOR categoría de la lista.
+        
+        Responde SOLO un JSON con el formato: {{"category": "Nombre Exacto"}}
+        """
+
+        user_content = f"Título: {title}\nResumen: {summary}"
+
+        try:
+            response = await self.client.chat.completions.create(
+                model="gpt-5-nano",
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_content}
+                ],
+                response_format={"type": "json_object"}
+            )
+            
+            content = response.choices[0].message.content.strip()
+            result = json.loads(content)
+            category = result.get("category")
+            
+            if category in CATEGORIES_LIST:
+                return category
+            
+            # Fallback si devuelve algo fuera de lista (a veces pasa)
+            if category == "Política Internacional": return "Internacional"
+            
+            return None # Dejar que el orchestrator use la original si falla o no está en lista
+            
+        except Exception as e:
+            self.logger.error(f"Error re-clasificando artículo '{title[:20]}...': {e}")
+            return None
