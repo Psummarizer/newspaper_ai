@@ -60,11 +60,11 @@ class NewsPodcastService:
 
         self.google_client = None
         
-        if self.provider == "google":
+        if self.provider in ("google", "gemini_tts"):
             try:
                 from google.cloud import texttospeech
                 self.google_client = texttospeech.TextToSpeechClient()
-                logger.info("✅ Cliente Google Cloud TTS inicializado.")
+                logger.info(f"✅ Cliente Google Cloud TTS inicializado (provider: {self.provider}).")
             except Exception as e:
                 logger.error(f"❌ Error inicializando Google TTS (falta librería o credenciales): {e}")
                 self.provider = "edge" # Fallback
@@ -128,26 +128,31 @@ class NewsPodcastService:
 
     async def _generate_audio(self, script: str, output_path: str) -> bool:
         """
-        Genera el audio del podcast usando configuración HÍBRIDA (Edge + Google).
+        Genera el audio del podcast. Soporta: gemini_tts, google, openai, edge.
         """
-        # Parsear el guión en segmentos
+        # --- GEMINI TTS: Multi-speaker en una sola llamada ---
+        if self.provider == "gemini_tts":
+            return await self._generate_audio_gemini_tts(script, output_path)
+        
+        # --- LEGACY: segment-by-segment para google/openai/edge ---
         segments = []
         lines = script.strip().split("\n")
         
         # Determinar voces según proveedor
         if self.provider == "google":
             voices_map = self.tts_config.get("google_voices", {
-                # "Host 1": "es-ES-Neural2-F", # Male
-                # "Host 2": "es-ES-Neural2-H"  # Female
-                # "Host 1": "es-ES-Chirp3-HD-Algenib", # Male
-                # "Host 2": "es-ES-Chirp3-HD-Gacrux"  # Female
-                "Host 1": "es-ES-Chirp-HD-D", # Male
-                "Host 2": "es-ES-Chirp-HD-F"  # Female
+                "Host 1": "es-ES-Neural2-F",
+                "Host 2": "es-ES-Neural2-C"
+            })
+        elif self.provider == "openai":
+            voices_map = self.tts_config.get("openai_voices", {
+                "Host 1": "echo",
+                "Host 2": "nova"
             })
         else:
              voices_map = self.tts_config.get("edge_voices", {
                  "Host 1": "es-ES-AlvaroNeural",
-                 "Host 2": "es-ES-XimenaNeural"
+                 "Host 2": "es-ES-ElviraNeural"
              })
 
         logger.info(f"🎙️ Generando audio con proveedor: {self.provider.upper()}. Voces: {voices_map}")
@@ -178,10 +183,9 @@ class NewsPodcastService:
         
         logger.info(f"🎤 Generando {len(segments)} segmentos de audio...")
         
-        # Generar audio para cada segmento
         audio_files = []
         
-        # 1. INYECTAR INTRO MUSICAL (Si existe)
+        # INYECTAR INTRO MUSICAL (Si existe)
         root_dir = Path(__file__).parent.parent.parent
         intro_path = root_dir / "assets" / "intro.mp3"
         if intro_path.exists():
@@ -189,17 +193,15 @@ class NewsPodcastService:
             audio_files.append(str(intro_path))
         
         for i, (role, voice, text) in enumerate(segments):
-            # Use .wav for better intermediate quality, especially if using Linear16
             temp_path = self.temp_dir / f"segment_{i}.wav"
             success = False
             
             if self.provider == "google":
-                # Configuración específica para Elvira (Host 2) en Google
-                # AUMENTO DE ANTUSIASMO V2: Pitch +3.5st, Rate 1.18x
                 pitch = 3.5 if role == "Host 2" else 0.0
                 rate = 1.18 if role == "Host 2" else 1.25
-                # Force 44.1kHz to match intro music and avoid playback speed issues (Vader effect)
                 success = await self._generate_segment_google(text, voice, temp_path, pitch=pitch, rate=rate, sample_rate=44100)
+            elif self.provider == "openai":
+                success = await self._generate_segment_openai(text, voice, temp_path)
             else:
                 success = await self._generate_segment_edge(text, voice, temp_path)
                 
@@ -212,8 +214,150 @@ class NewsPodcastService:
         if not audio_files:
             return False
 
-        # Concatenar todos los segmentos
         return self._concatenate_audio(audio_files, output_path)
+
+    async def _generate_audio_gemini_tts(self, script: str, output_path: str) -> bool:
+        """
+        Genera audio con Gemini 2.5 Flash TTS multi-speaker via REST API (v1beta1).
+        Usa las credenciales del cliente TTS existente para evitar problemas SSL con google.auth.
+        """
+        try:
+            import requests
+            import base64
+            from google.cloud import texttospeech
+            
+            # Ensure google_client is initialized (it has working creds)
+            if not self.google_client:
+                self.google_client = texttospeech.TextToSpeechClient()
+            
+            # Extract access token from the existing client's transport credentials
+            creds = self.google_client._transport._credentials
+            if hasattr(creds, 'token') and not creds.token:
+                import google.auth.transport.requests as auth_requests
+                creds.refresh(auth_requests.Request())
+            
+            token = creds.token
+            if not token:
+                raise Exception("No se pudo obtener token de autenticación del cliente TTS existente")
+            
+            gemini_voices = self.tts_config.get("gemini_tts_voices", {
+                "Alvaro": "Zephyr",
+                "Elvira": "Aoede"
+            })
+            
+            # Parse script into speaker turns
+            all_turns = []
+            for line in script.strip().split("\n"):
+                line = line.strip()
+                if not line:
+                    continue
+                if line.startswith("ÁLVARO:"):
+                    text = line.replace("ÁLVARO:", "").strip()
+                    if text:
+                        all_turns.append({"speaker": "Alvaro", "text": text})
+                elif line.startswith("ELVIRA:"):
+                    text = line.replace("ELVIRA:", "").strip()
+                    if text:
+                        all_turns.append({"speaker": "Elvira", "text": text})
+            
+            if not all_turns:
+                logger.error("No se encontraron turnos válidos para Gemini TTS")
+                return False
+            
+            # Split turns into chunks that fit under ~3500 bytes
+            MAX_CHUNK_BYTES = 3500
+            chunks = []
+            current_chunk = []
+            current_bytes = 0
+            
+            for turn in all_turns:
+                turn_bytes = len(turn["text"].encode("utf-8")) + len(turn["speaker"]) + 10
+                if current_bytes + turn_bytes > MAX_CHUNK_BYTES and current_chunk:
+                    chunks.append(current_chunk)
+                    current_chunk = []
+                    current_bytes = 0
+                current_chunk.append(turn)
+                current_bytes += turn_bytes
+            
+            if current_chunk:
+                chunks.append(current_chunk)
+            
+            logger.info(f"🎙️ Gemini TTS REST: {len(all_turns)} turnos en {len(chunks)} chunks. Voces: {gemini_voices}")
+            
+            # REST API endpoint (v1beta1 required for Gemini voices)
+            url = "https://texttospeech.googleapis.com/v1beta1/text:synthesize"
+            headers = {
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "application/json"
+            }
+            
+            audio_files = []
+            
+            # Prepend intro music
+            root_dir = Path(__file__).parent.parent.parent
+            intro_path = root_dir / "assets" / "intro.mp3"
+            if intro_path.exists():
+                logger.info(f"🎵 Añadiendo intro musical: {intro_path}")
+                audio_files.append(str(intro_path))
+            
+            for i, chunk_turns in enumerate(chunks):
+                logger.info(f"   ⏳ Sintetizando chunk {i+1}/{len(chunks)} ({len(chunk_turns)} turnos)...")
+                
+                body = {
+                    "input": {
+                        "multiSpeakerMarkup": {
+                            "turns": [
+                                {"speaker": t["speaker"], "text": t["text"]}
+                                for t in chunk_turns
+                            ]
+                        }
+                    },
+                    "voice": {
+                        "languageCode": "es-ES",
+                        "name": "es-ES-Gemini-2.5-Flash-TTS",
+                        "multiSpeakerVoiceConfig": {
+                            "speakerVoiceConfigs": [
+                                {
+                                    "speakerAlias": "Alvaro",
+                                    "speakerId": gemini_voices.get("Alvaro", "Zephyr")
+                                },
+                                {
+                                    "speakerAlias": "Elvira",
+                                    "speakerId": gemini_voices.get("Elvira", "Aoede")
+                                }
+                            ]
+                        }
+                    },
+                    "audioConfig": {
+                        "audioEncoding": "MP3",
+                        "sampleRateHertz": 24000
+                    }
+                }
+                
+                response = requests.post(url, json=body, headers=headers, timeout=60)
+                
+                if response.status_code != 200:
+                    error_detail = response.json().get("error", {}).get("message", response.text[:200])
+                    raise Exception(f"API error {response.status_code}: {error_detail}")
+                
+                audio_b64 = response.json().get("audioContent", "")
+                audio_bytes = base64.b64decode(audio_b64)
+                
+                chunk_path = self.temp_dir / f"gemini_chunk_{i}.mp3"
+                with open(chunk_path, "wb") as f:
+                    f.write(audio_bytes)
+                audio_files.append(str(chunk_path))
+                logger.info(f"   ✅ Chunk {i+1} generado ({len(audio_bytes)} bytes)")
+            
+            logger.info(f"   🔗 Concatenando {len(audio_files)} archivos de audio...")
+            return self._concatenate_audio(audio_files, output_path)
+                
+        except Exception as e:
+            logger.error(f"❌ Error Gemini TTS: {e}")
+            logger.info("   Intentando fallback a Google Neural2...")
+            # Fallback: use legacy segment-by-segment with Google Neural2
+            self.provider = "google"
+            return await self._generate_audio(script, output_path)
 
     async def _generate_segment_edge(self, text: str, voice: str, output_path: Path) -> bool:
         try:
@@ -223,6 +367,24 @@ class NewsPodcastService:
             return True
         except Exception as e:
             logger.error(f"Error EdgeTTS: {e}")
+            return False
+
+    async def _generate_segment_openai(self, text: str, voice_name: str, output_path: Path) -> bool:
+        try:
+            # Requires openai >= 1.0.0
+            response = await self.client.audio.speech.create(
+                model="tts-1", # tts-1 is fast and very realistic, tts-1-hd is higher quality but slower
+                voice=voice_name,
+                input=text,
+                response_format="wav" # WAV ensures perfect concatenation with ffmpeg
+            )
+            # stream_to_file is synchronous, so we run it in a thread if strictly needed, 
+            # or just do the straightforward memory write which is fine for small segments.
+            with open(output_path, "wb") as f:
+                f.write(response.content)
+            return True
+        except Exception as e:
+            logger.error(f"Error OpenAI TTS: {e}")
             return False
 
     async def _generate_segment_google(self, text: str, voice_name: str, output_path: Path, pitch: float = 0.0, rate: float = 1.10, sample_rate: int = 44100) -> bool:

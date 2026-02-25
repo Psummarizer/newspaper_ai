@@ -37,9 +37,21 @@ async def main():
         },
         {
             "topic": "Economía",
-            "titulo": "El Banco Central Europeo mantiene los tipos de interés",
-            "resumen": "Christine Lagarde anuncia que la inflación está controlada pero advierte sobre la volatilidad geopolítica. Los mercados reaccionan con moderado optimismo.",
+            "titulo": "El Banco Central Europeo mantiene los tipos de interés en el 4%",
+            "resumen": "Christine Lagarde anuncia que la inflación está controlada pero advierte sobre la volatilidad geopolítica y recomienda cautela antes de iniciar un ciclo de bajadas de tipos agresivo. Los mercados reaccionan con moderado optimismo.",
             "source_name": "Financial Times"
+        },
+        {
+            "topic": "Ciencia",
+            "titulo": "Descubren agua en estado líquido en un exoplaneta cercano",
+            "resumen": "El telescopio James Webb ha detectado vapor de agua y firmas térmicas que sugieren un océano global en K2-18b, un planeta en la zona habitable de su estrella a 120 años luz de la Tierra.",
+            "source_name": "Nature"
+        },
+        {
+            "topic": "Deportes",
+            "titulo": "España aprueba nueva ley de regulación para los Esports",
+            "resumen": "El congreso ha aprobado una histórica ley que reconoce a los jugadores de deportes electrónicos como atletas profesionales, dándoles cobertura fiscal y protección laboral inédita en la Unión Europea.",
+            "source_name": "Marca"
         }
     ]
 

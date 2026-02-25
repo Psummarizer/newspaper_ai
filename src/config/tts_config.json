@@ -1,15 +1,25 @@
 {
-    "provider": "google",
+    "provider": "gemini_tts",
     "edge_voices": {
         "Host 1": "es-ES-AlvaroNeural",
-        "Host 2": "es-ES-XimenaNeural"
+        "Host 2": "es-ES-ElviraNeural"
     },
     "google_voices": {
-        "Host 1": "es-ES-Chirp-HD-D",
-        "Host 2": "es-ES-Chirp-HD-F"
+        "Host 1": "es-ES-Neural2-F",
+        "Host 2": "es-ES-Neural2-C"
+    },
+    "gemini_tts_voices": {
+        "Alvaro": "Zephyr",
+        "Elvira": "Aoede"
+    },
+    "openai_voices": {
+        "Host 1": "echo",
+        "Host 2": "nova"
     },
     "provider_options": [
+        "gemini_tts",
         "edge",
-        "google"
+        "google",
+        "openai"
     ]
 }
