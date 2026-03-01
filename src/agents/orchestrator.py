@@ -21,7 +21,7 @@ except ImportError:
 
 from src.services.classifier_service import ClassifierService
 from src.agents.content_processor import ContentProcessorAgent
-from src.utils.html_builder import build_newsletter_html, build_front_page, build_section_html
+from src.utils.html_builder import build_newsletter_html, build_front_page, build_section_html, build_mid_banner
 from src.services.email_service import EmailService
 from src.services.firebase_service import FirebaseService
 from src.services.gcs_service import GCSService
@@ -511,7 +511,7 @@ class Orchestrator:
         sorted_cats = [c for c in ordered_cats if c in all_current_cats] + [c for c in all_current_cats if c not in ordered_cats]
         print(f"   ✅ Categorías ordenadas: {sorted_cats}")
 
-        for cat in sorted_cats:
+        for cat_idx, cat in enumerate(sorted_cats):
             articles_dict = category_map[cat]
             if not articles_dict: continue
             
@@ -527,6 +527,12 @@ class Orchestrator:
                 section_box = build_section_html(display_title, section_body)
                 final_html_parts.append(section_box)
                 print(f"   ✅ Sección '{cat}' generada ({len(items_html)} noticias)")
+                
+                # Insertar banner promocional a mitad del contenido
+                mid_point = max(1, len(sorted_cats) // 2)
+                if cat_idx == mid_point - 1:
+                    final_html_parts.append(build_mid_banner())
+                    print("   🌐 Banner promocional insertado")
 
         # --- FASE 3: PODCAST (SI ACTIVADO) ---
         podcast_rss_link = None
@@ -554,24 +560,28 @@ class Orchestrator:
                  topics_news_for_podcast[cat] = []
                  for art in articles_dict.values():
                       # Reconstruir formato esperado por podcast_service
-                      # art tiene keys: title, content, url, category...
+                      # art tiene keys: title, content, url, category, image_url...
                       topics_news_for_podcast[cat].append({
                           "titulo": art["title"],
                           "resumen": art["content"], # art['content'] viene de news.get('resumen')
-                          "fuente": art["url"]
+                          "fuente": art["url"],
+                          "imagen_url": art.get("image_url"),  # para portada del podcast
                       })
              print(f"   ✅ Podcast sincronizado: {sum(len(l) for l in topics_news_for_podcast.values())} noticias en {len(topics_news_for_podcast)} categorías.")
              
         if p_enabled:
             print(f"\n🎙️ Generando podcast de noticias...")
             try:
-                podcast_service = NewsPodcastService()
+                podcast_service = NewsPodcastService(language=user_lang)
                 user_id = user_data.get('id', user_email.split('@')[0])
-                audio_path = await podcast_service.generate_for_topics(user_id, topics_news_for_podcast)
-                if audio_path:
+                podcast_result = await podcast_service.generate_for_topics(user_id, topics_news_for_podcast)
+                if podcast_result:
+                    audio_path, cover_image_url = podcast_result
                     print(f"   ✅ Podcast generado: {audio_path}")
+                    if cover_image_url:
+                        print(f"   🖼️ Portada: {cover_image_url}")
                     # Subir a Castos y obtener RSS URL
-                    podcast_rss_link = await podcast_service.upload_to_castos(user_id, audio_path)
+                    podcast_rss_link = await podcast_service.upload_to_castos(user_id, audio_path, cover_image_url=cover_image_url)
                     if podcast_rss_link:
                         print(f"   🔗 RSS disponible: {podcast_rss_link}")
                 else:

@@ -5,7 +5,7 @@ import re
 import asyncio
 from typing import Dict, Any, List
 from urllib.parse import urlparse
-from openai import AsyncOpenAI
+from src.services.llm_factory import LLMFactory
 
 def _extract_json(text: str) -> dict:
     """Extract JSON from LLM response that may contain markdown code blocks."""
@@ -19,10 +19,9 @@ def _extract_json(text: str) -> dict:
 class ContentProcessorAgent:
     def __init__(self, mock_mode: bool = False):
         self.logger = logging.getLogger(__name__)
-        self.client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-        # Using nano models as per recent project config
-        self.model_fast = "gpt-5-nano"
-        self.model_quality = "gpt-4o-mini" # Nano returning 0 chars, reverting to reliable mini
+        # Cargamos el cliente y los modelos activos (fast y quality) del Factory
+        self.client, self.model_fast = LLMFactory.get_client("fast")
+        _, self.model_quality = LLMFactory.get_client("quality")
         self.mock_mode = mock_mode
 
     # ---------------------------------------------------------
@@ -315,42 +314,51 @@ class ContentProcessorAgent:
             snippet = art.get('content', '')[:200].replace("\n", " ")
             articles_input += f"ID {i}: [{art.get('category')}] {art.get('title')} | {snippet}\n"
 
+        # Resolve language name for the prompt
+        try:
+            from src.services.llm_factory import LLMFactory
+            lang_cfg = LLMFactory.get_language_config(language)
+            lang_name = lang_cfg.get("name", "Spanish")
+        except Exception:
+            lang_name = "Spanish"
+
         system_prompt = f"""
-        Eres el Editor Jefe de 'Briefing Diario AI'.
-        TIENES QUE ELEGIR LAS MEJORES NOTICIAS PARA LA PORTADA (Front Page).
+        You are the Editor-in-Chief of 'Daily Briefing AI'.
+        YOUR JOB: SELECT the best stories for the FRONT PAGE.
         
-        INPUT: Unas {len(all_articles)} noticias candidatas.
-        OUTPUT: JSON con las 3 a 7 noticias más importantes/impactantes.
+        ⚠️ CRITICAL LANGUAGE RULE: Write EVERY SINGLE WORD in {lang_name.upper()}.
+        This means: headline, summary, and category — all in {lang_name}. No exceptions.
         
-        CRITERIOS:
-        1. Variedad de temas (Política, Tech, Deportes, Economía...).
-        2. Impacto y Relevancia (Noticias 'grandes').
-        3. IDIOMA: Todo en {language} (Español PENINSULAR/ESPAÑA. Usa 'costes', 'móvil', 'vídeo').
-        4. **SIN DUPLICADOS (CRÍTICO)**: 
-           - Si hay varias noticias sobre el MISMO evento (ej: "Real Madrid gana" y "Llull récord en el mismo partido"), ELIGE SOLO UNA (la más completa).
-           - Si hay varias sobre "Grok/X problemas", ELIGE SOLO UNA. 
-           - NO pongas 2 noticias que hablen básicamente de lo mismo.
+        INPUT: {len(all_articles)} candidate news items.
+        OUTPUT: JSON with the 3 to 7 most important/impactful stories.
         
-        FORMATO OUTPUT JSON:
+        SELECTION CRITERIA:
+        1. Variety of topics (Politics, Tech, Sports, Economy...).
+        2. High impact and relevance (big news).
+        3. NO DUPLICATES (CRITICAL):
+           - If multiple stories cover the SAME event, choose only the most complete one.
+           - Never include 2 stories that cover basically the same thing.
+        
+        OUTPUT JSON FORMAT:
         {{
             "selected_stories": [
                 {{
                     "original_id": 0,
-                    "headline": "Título Impactante (Max 5 palabras).",
-                    "summary": "Texto del resumen directo sin prefijos (ESPAÑOL DE ESPAÑA).",
-                    "category": "Política",
+                    "headline": "Impactful headline in {lang_name} (Max 5 words).",
+                    "summary": "Direct summary text, no prefix, written in {lang_name}.",
+                    "category": "Category name in {lang_name}",
                     "emoji": "🏛️"
                 }},
                 ...
             ]
         }}
         
-        NOTA IMPORTANTE SOBRE RESÚMENES:
-        - **DESTACADA (1ª noticia del array)**: Resumen de 28 palabras exactas. NO pongas "RESUMEN DESTACADA:", solo el texto.
-        - **RESTO**: Resumen de 10-15 palabras. NO pongas "RESUMEN NORMAL:", solo el texto.
-        - **ESTILO**: Frases completas y con gancho.
-        - **LENGUAJE**: Nada de "costos" ni "celulares".
-        - NO IMÁGENES.
+        IMPORTANT NOTES ON SUMMARIES:
+        - **FEATURED (1st story in array)**: Exactly 28 words. No label prefix, just the text.
+        - **REST**: 10-15 words. No label prefix, just the text.
+        - **STYLE**: Complete sentences with a hook.
+        - ALL IN {lang_name.upper()}.
+        - NO IMAGES.
         """
 
         try:
@@ -375,7 +383,8 @@ class ContentProcessorAgent:
                         "summary": item.get("summary"),
                         "category": item.get("category"),
                         "emoji": item.get("emoji"),
-                        "original_url": original.get("url")
+                        "original_url": original.get("url"),
+                        "image_url": original.get("image_url"),  # portada del email
                     })
             
             self.logger.info(f"   ✅ Portada generada con {len(final_selection)} noticias.")

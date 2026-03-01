@@ -2,7 +2,7 @@ import logging
 import json
 import os
 from typing import List, Dict, Any
-from openai import AsyncOpenAI
+from src.services.llm_factory import LLMFactory
 from src.services.rss_service import RssService
 from src.crawlers.search_engine import SearchEngine
 
@@ -11,7 +11,7 @@ class CrawlerAgent:
         self.logger = logging.getLogger(__name__)
         self.rss_service = RssService()
         self.search_engine = SearchEngine()
-        self.client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+        self.client, self.model = LLMFactory.get_client("fast")
 
     async def _filter_with_llm(self, topic: str, articles: List[Dict]) -> List[Dict]:
         """
@@ -57,7 +57,7 @@ class CrawlerAgent:
         try:
             # 3. Llamada a la IA (Usamos JSON Mode para asegurar que no falle el parseo)
             response = await self.client.chat.completions.create(
-                model="gpt-5-nano",
+                model=self.model,
                 messages=[
                     {"role": "system", "content": "Eres un filtro de noticias inteligente que responde solo en JSON."},
                     {"role": "user", "content": prompt}

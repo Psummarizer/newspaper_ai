@@ -2,11 +2,11 @@ import json
 import logging
 import os
 from typing import List, Dict
-from openai import AsyncOpenAI
+from src.services.llm_factory import LLMFactory
 
 class TopicManager:
     def __init__(self):
-        self.client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+        self.client, self.model = LLMFactory.get_client("fast")
         self.logger = logging.getLogger(__name__)
 
     async def map_interests_to_categories(self, user_input: str, available_categories: List[str]) -> Dict[str, str]:
@@ -31,7 +31,7 @@ class TopicManager:
 
         try:
             response = await self.client.chat.completions.create(
-                model="gpt-5-nano",
+                model=self.model,
                 messages=[{"role": "system", "content": "Eres un clasificador JSON."},
                           {"role": "user", "content": prompt}],
                 response_format={"type": "json_object"},

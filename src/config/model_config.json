@@ -1,0 +1,296 @@
+{
+    "active_llm_provider": "gemini",
+    "active_tts_provider": "google",
+    "llm_providers": {
+        "openai": {
+            "fast_model": "gpt-5-nano",
+            "quality_model": "gpt-4o-mini",
+            "base_url": null
+        },
+        "gemini": {
+            "fast_model": "gemini-2.5-flash",
+            "quality_model": "gemini-2.5-flash",
+            "base_url": "https://generativelanguage.googleapis.com/v1beta/openai/"
+        }
+    },
+    "language_config": {
+        "es": {
+            "name": "Spanish",
+            "rtl": false,
+            "locale": "es-ES"
+        },
+        "en": {
+            "name": "English",
+            "rtl": false,
+            "locale": "en-US"
+        },
+        "fr": {
+            "name": "French",
+            "rtl": false,
+            "locale": "fr-FR"
+        },
+        "de": {
+            "name": "German",
+            "rtl": false,
+            "locale": "de-DE"
+        },
+        "nl": {
+            "name": "Dutch",
+            "rtl": false,
+            "locale": "nl-NL"
+        },
+        "el": {
+            "name": "Greek",
+            "rtl": false,
+            "locale": "el-GR"
+        },
+        "ru": {
+            "name": "Russian",
+            "rtl": false,
+            "locale": "ru-RU"
+        },
+        "ar": {
+            "name": "Arabic",
+            "rtl": true,
+            "locale": "ar-XA"
+        },
+        "hi": {
+            "name": "Hindi",
+            "rtl": false,
+            "locale": "hi-IN"
+        },
+        "ja": {
+            "name": "Japanese",
+            "rtl": false,
+            "locale": "ja-JP"
+        },
+        "zh": {
+            "name": "Chinese",
+            "rtl": false,
+            "locale": "cmn-CN"
+        },
+        "ir": {
+            "name": "Persian",
+            "rtl": true,
+            "locale": "fa-IR"
+        }
+    },
+    "tts_voices_by_language": {
+        "es": {
+            "google": {
+                "Host 1": "es-ES-Neural2-C",
+                "Host 2": "es-ES-Neural2-F"
+            },
+            "edge": {
+                "Host 1": "es-ES-AlvaroNeural",
+                "Host 2": "es-ES-ElviraNeural"
+            },
+            "openai": {
+                "Host 1": "echo",
+                "Host 2": "nova"
+            },
+            "gemini_tts": {
+                "Alvaro": "Zephyr",
+                "Elvira": "Aoede"
+            }
+        },
+        "en": {
+            "google": {
+                "Host 1": "en-US-Neural2-D",
+                "Host 2": "en-US-Neural2-F"
+            },
+            "edge": {
+                "Host 1": "en-US-GuyNeural",
+                "Host 2": "en-US-JennyNeural"
+            },
+            "openai": {
+                "Host 1": "echo",
+                "Host 2": "nova"
+            },
+            "gemini_tts": {
+                "Alvaro": "Zephyr",
+                "Elvira": "Aoede"
+            }
+        },
+        "fr": {
+            "google": {
+                "Host 1": "fr-FR-Neural2-D",
+                "Host 2": "fr-FR-Neural2-A"
+            },
+            "edge": {
+                "Host 1": "fr-FR-HenriNeural",
+                "Host 2": "fr-FR-DeniseNeural"
+            },
+            "openai": {
+                "Host 1": "echo",
+                "Host 2": "nova"
+            },
+            "gemini_tts": {
+                "Alvaro": "Zephyr",
+                "Elvira": "Aoede"
+            }
+        },
+        "de": {
+            "google": {
+                "Host 1": "de-DE-Neural2-D",
+                "Host 2": "de-DE-Neural2-F"
+            },
+            "edge": {
+                "Host 1": "de-DE-ConradNeural",
+                "Host 2": "de-DE-KatjaNeural"
+            },
+            "openai": {
+                "Host 1": "echo",
+                "Host 2": "nova"
+            },
+            "gemini_tts": {
+                "Alvaro": "Zephyr",
+                "Elvira": "Aoede"
+            }
+        },
+        "nl": {
+            "google": {
+                "Host 1": "nl-NL-Standard-D",
+                "Host 2": "nl-NL-Standard-A"
+            },
+            "edge": {
+                "Host 1": "nl-NL-MaartenNeural",
+                "Host 2": "nl-NL-FennaNeural"
+            },
+            "openai": {
+                "Host 1": "echo",
+                "Host 2": "nova"
+            },
+            "gemini_tts": {
+                "Alvaro": "Zephyr",
+                "Elvira": "Aoede"
+            }
+        },
+        "el": {
+            "google": {
+                "Host 1": "el-GR-Standard-B",
+                "Host 2": "el-GR-Standard-A"
+            },
+            "edge": {
+                "Host 1": "el-GR-NestorasNeural",
+                "Host 2": "el-GR-AthinaNeural"
+            },
+            "openai": {
+                "Host 1": "echo",
+                "Host 2": "nova"
+            },
+            "gemini_tts": {
+                "Alvaro": "Zephyr",
+                "Elvira": "Aoede"
+            }
+        },
+        "ru": {
+            "google": {
+                "Host 1": "ru-RU-Standard-D",
+                "Host 2": "ru-RU-Standard-A"
+            },
+            "edge": {
+                "Host 1": "ru-RU-DmitryNeural",
+                "Host 2": "ru-RU-SvetlanaNeural"
+            },
+            "openai": {
+                "Host 1": "echo",
+                "Host 2": "nova"
+            },
+            "gemini_tts": {
+                "Alvaro": "Zephyr",
+                "Elvira": "Aoede"
+            }
+        },
+        "ar": {
+            "google": {
+                "Host 1": "ar-XA-Neural2-B",
+                "Host 2": "ar-XA-Neural2-A"
+            },
+            "edge": {
+                "Host 1": "ar-SA-HamedNeural",
+                "Host 2": "ar-SA-ZariyahNeural"
+            },
+            "openai": {
+                "Host 1": "echo",
+                "Host 2": "nova"
+            },
+            "gemini_tts": {
+                "Alvaro": "Zephyr",
+                "Elvira": "Aoede"
+            }
+        },
+        "hi": {
+            "google": {
+                "Host 1": "hi-IN-Neural2-B",
+                "Host 2": "hi-IN-Neural2-A"
+            },
+            "edge": {
+                "Host 1": "hi-IN-MadhurNeural",
+                "Host 2": "hi-IN-SwaraNeural"
+            },
+            "openai": {
+                "Host 1": "echo",
+                "Host 2": "nova"
+            },
+            "gemini_tts": {
+                "Alvaro": "Zephyr",
+                "Elvira": "Aoede"
+            }
+        },
+        "ja": {
+            "google": {
+                "Host 1": "ja-JP-Neural2-C",
+                "Host 2": "ja-JP-Neural2-B"
+            },
+            "edge": {
+                "Host 1": "ja-JP-KeitaNeural",
+                "Host 2": "ja-JP-NanamiNeural"
+            },
+            "openai": {
+                "Host 1": "echo",
+                "Host 2": "nova"
+            },
+            "gemini_tts": {
+                "Alvaro": "Zephyr",
+                "Elvira": "Aoede"
+            }
+        },
+        "zh": {
+            "google": {
+                "Host 1": "cmn-CN-Neural2-B",
+                "Host 2": "cmn-CN-Neural2-A"
+            },
+            "edge": {
+                "Host 1": "zh-CN-YunxiNeural",
+                "Host 2": "zh-CN-XiaoxiaoNeural"
+            },
+            "openai": {
+                "Host 1": "echo",
+                "Host 2": "nova"
+            },
+            "gemini_tts": {
+                "Alvaro": "Zephyr",
+                "Elvira": "Aoede"
+            }
+        },
+        "ir": {
+            "google": {
+                "Host 1": "fa-IR-Standard-B",
+                "Host 2": "fa-IR-Standard-A"
+            },
+            "edge": {
+                "Host 1": "fa-IR-FaridNeural",
+                "Host 2": "fa-IR-DilaraNeural"
+            },
+            "openai": {
+                "Host 1": "echo",
+                "Host 2": "nova"
+            },
+            "gemini_tts": {
+                "Alvaro": "Zephyr",
+                "Elvira": "Aoede"
+            }
+        }
+    }
+}

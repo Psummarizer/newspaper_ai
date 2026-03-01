@@ -1,21 +1,20 @@
 import os
 import asyncio
 from dotenv import load_dotenv
-from openai import AsyncOpenAI
+from src.services.llm_factory import LLMFactory
 
 load_dotenv()
 
 class LLMService:
-    def __init__(self, provider="openai"):
+    def __init__(self, provider=None):
         self.provider = provider
-        if provider == "openai":
-            self.client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-            self.model = os.getenv("OPENAI_MODEL", "gpt-5-nano")
+        if provider != "mock":
+            self.client, self.model = LLMFactory.get_client("fast")
 
     # --- NUEVO MÉTODO ---
     async def close(self):
-        """Cierra la conexión con el cliente de OpenAI"""
-        if self.provider == "openai" and self.client:
+        """Cierra la conexión con el cliente LLM"""
+        if self.provider != "mock" and hasattr(self, 'client') and self.client:
             await self.client.close()
 
     async def summarize_text(self, text: str, language: str = "es") -> str:
@@ -23,12 +22,9 @@ class LLMService:
         if self.provider == "mock":
             return await self._mock_summary(text)
 
-        if self.provider == "openai":
-            return await self._openai_summary(text, language)
+        return await self._llm_summary(text, language)
 
-        return "Error: Provider not implemented"
-
-    async def _openai_summary(self, text: str, language: str) -> str:
+    async def _llm_summary(self, text: str, language: str) -> str:
         # (El resto del código sigue igual...)
         try:
             prompt = f"""
@@ -47,7 +43,7 @@ class LLMService:
             )
             return response.choices[0].message.content
         except Exception as e:
-            return f"❌ Error OpenAI: {str(e)}"
+            return f"❌ Error LLM: {str(e)}"
 
     async def _mock_summary(self, text: str) -> str:
         await asyncio.sleep(1)
@@ -159,7 +155,7 @@ class LLMService:
         
         try:
             response = await self.client.chat.completions.create(
-                model="gpt-5-nano",
+                model=self.model,
                 messages=[{"role": "user", "content": prompt}]
             )
             return response.choices[0].message.content.strip()

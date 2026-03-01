@@ -2,13 +2,13 @@ import os
 import logging
 import json
 from typing import List
-from openai import AsyncOpenAI
 from src.utils.constants import CATEGORIES_LIST
+from src.services.llm_factory import LLMFactory
 
 class ClassifierService:
     def __init__(self):
         self.logger = logging.getLogger(__name__)
-        self.client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+        self.client, self.model = LLMFactory.get_client("fast")
 
     # ---------------------------------------------------------
     # MÉTODO 1: Usado por el ORCHESTRATOR (Tema Usuario -> Categorías DB)
@@ -32,7 +32,7 @@ class ClassifierService:
 
         try:
             response = await self.client.chat.completions.create(
-                model="gpt-5-nano",
+                model=self.model,
                 messages=[{"role": "system", "content": system_prompt}],
             )
             content = response.choices[0].message.content.strip()
@@ -85,7 +85,7 @@ class ClassifierService:
 
         try:
             response = await self.client.chat.completions.create(
-                model="gpt-5-nano",
+                model=self.model,
                 messages=[
                     {"role": "system", "content": system_prompt}
                 ],
@@ -145,7 +145,7 @@ class ClassifierService:
 
         try:
             response = await self.client.chat.completions.create(
-                model="gpt-5-nano",
+                model=self.model,
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_content}

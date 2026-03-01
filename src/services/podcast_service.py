@@ -15,38 +15,30 @@ import subprocess
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
-from openai import AsyncOpenAI
+from src.services.llm_factory import LLMFactory
 from dotenv import load_dotenv
 
 load_dotenv()
 
 logger = logging.getLogger(__name__)
 
-# Voces Edge TTS para español
-VOICES = {
-    "ÁLVARO": "es-ES-AlvaroNeural",
-    "ELVIRA": "es-ES-ElviraNeural"
-}
 
 class NewsPodcastService:
     """Servicio para generar podcasts de noticias con diálogo."""
     
-    def __init__(self):
-        self.client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-        self.model = "gpt-5-nano"
+    def __init__(self, language: str = "es"):
+        self.language = language.lower().strip()
+        self.client, self.model = LLMFactory.get_client("fast")
         self.temp_dir = Path(tempfile.gettempdir()) / "news_podcast"
         self.temp_dir.mkdir(exist_ok=True)
         
-        # Load TTS Configuration
-        config_path = Path(__file__).parent.parent / "config" / "tts_config.json"
-        self.tts_config = {}
-        try:
-            with open(config_path, "r", encoding="utf-8") as f:
-                self.tts_config = json.load(f)
-        except Exception as e:
-            logger.warning(f"No tts_config.json found, defaulting to Edge TTS: {e}")
-            
-        self.provider = self.tts_config.get("provider", "edge")
+        # Load TTS Configuration for the requested language
+        tts_config_data = LLMFactory.get_tts_config(self.language)
+        self.tts_config = tts_config_data.get("voices", {})
+        self.provider = tts_config_data.get("provider", "edge")
+        self.lang_config = LLMFactory.get_language_config(self.language)
+        
+        logger.info(f"🌍 Podcast service iniciado. Idioma: {self.language} | TTS: {self.provider}")
         
         # --- PATH CONFIGURATION ---
         # Locate ffmpeg in sibling project
@@ -69,66 +61,142 @@ class NewsPodcastService:
                 logger.error(f"❌ Error inicializando Google TTS (falta librería o credenciales): {e}")
                 self.provider = "edge" # Fallback
 
-    async def generate_for_topics(self, user_id: str, topics_news: Dict[str, List[Dict]]) -> Optional[str]:
+    async def generate_for_topics(self, user_id: str, topics_news: Dict[str, List[Dict]]) -> Optional[tuple]:
         """
-        Genera un podcast completo a partir de un mapa de topics -> noticias.
+        Genera un podcast modular a partir de un mapa de topics -> noticias.
         
-        Args:
-            user_id: ID del usuario (para personalización)
-            topics_news: Dict { "Tecnología": [noticia1, noticia2], ... }
-            
+        Arquitectura v4:
+          1. El Engine genera segmentos independientes por noticia + intro/transiciones/outro.
+          2. Se genera audio por pieza (segmentos reutilizables).
+          3. Se concatena todo: intro + transición1 + seg1 + transición2 + seg2 + ... + outro.
+        
         Returns:
-            Ruta al archivo de audio generado (.mp3) o None si falla.
+            Tuple (audio_path: str, cover_image_url: str|None) o None si falla.
         """
         if not topics_news:
             logger.warning("No hay noticias para generar podcast.")
             return None
             
         # 1. Preparar lista de items para el Engine
+        # Guardar un mapa index -> imagen_url para poder recuperar la imagen de portada
         engine_items = []
+        image_url_by_index = {}  # indice provisional -> imagen_url
+        idx = 0
         for topic, news_list in topics_news.items():
             for n in news_list:
+                image_url_by_index[idx] = n.get('imagen_url')
                 engine_items.append({
                     "topic": topic,
                     "titulo": n.get('titulo', 'Sin título'),
                     "resumen": n.get('resumen', '') or n.get('noticia', '')[:800],
-                    "source_name": n.get('fuente', 'Desconocido')
+                    "source_name": n.get('fuente', 'Desconocido'),
+                    "_original_index": idx  # para recuperar la imagen tras selección
                 })
+                idx += 1
         
-        logger.info(f"📝 Generando guión PREMIUM (5-Fases) para {len(engine_items)} noticias...")
+        logger.info(f"📝 Generando podcast modular v4 para {len(engine_items)} noticias...")
         
         try:
-            # Importar Engine aquí para evitar ciclos si los hubiera
             from src.engine.podcast_script_engine import PodcastScriptEngine
             
-            engine = PodcastScriptEngine(self.client, self.model)
-            script = await engine.generate_script(engine_items)
+            engine = PodcastScriptEngine(self.client, self.model, language=self.language)
+            result = await engine.generate_script(engine_items)
             
-            if not script:
-                 logger.error("❌ El Engine devolvió un guión vacío.")
+            if not result or not result.get("segments"):
+                 logger.error("❌ El Engine no devolvió segmentos.")
                  return None
                  
-            logger.info("✅ Guión generado con éxito por PodcastScriptEngine.")
+            logger.info(f"✅ Engine devolvió {len(result['segments'])} segmentos + intro/transiciones/outro.")
             
         except Exception as e:
             logger.error(f"❌ Error crítico en PodcastScriptEngine: {e}")
             return None
 
-        # 3. Generar Audio
+        # Determinar imagen de portada: la de la noticia con más peso narrativo (segmento índice 1)
+        # El engine ya ordenó y reindexó, el segmento 1 es el más importante.
+        cover_image_url = None
+        segments = result.get("segments", [])
+        if segments:
+            # El segmento índice 1 es el top-scoring elegido por el engine
+            top_segment = next((s for s in segments if s.get("index") == 1), segments[0])
+            top_title = top_segment.get("title", "")
+            # Buscar en los items originales cuál tiene ese título y tiene imagen
+            for item in engine_items:
+                if item["titulo"] == top_title and image_url_by_index.get(item.get("_original_index")):
+                    cover_image_url = image_url_by_index[item["_original_index"]]
+                    logger.info(f"🖼️ Portada del podcast: '{top_title[:50]}' -> {cover_image_url}")
+                    break
+            # Fallback: buscar la primera noticia con imagen en el orden de selección
+            if not cover_image_url:
+                for seg in segments:
+                    for item in engine_items:
+                        if item["titulo"] == seg.get("title") and image_url_by_index.get(item.get("_original_index")):
+                            cover_image_url = image_url_by_index[item["_original_index"]]
+                            logger.info(f"🖼️ Portada (fallback): '{seg.get('title', '')[:50]}' -> {cover_image_url}")
+                            break
+                    if cover_image_url:
+                        break
+
+        # 2. Generar audio por pieza
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        audio_pieces = []  # Lista ordenada de archivos mp3 para concatenar
+        
+        # 2a. Intro (con música)
+        if result.get("intro_script"):
+            intro_path = str(self.temp_dir / f"intro_{timestamp}.mp3")
+            success = await self._generate_audio(result["intro_script"], intro_path, include_intro=True)
+            if success:
+                audio_pieces.append(intro_path)
+                logger.info("🎵 Intro audio generado.")
+        
+        # 2b. Segmentos + Transiciones intercalados
+        transitions = result.get("transitions", [])
+        
+        for i, segment in enumerate(segments):
+            # Transición antes de este segmento (excepto el primero)
+            if i > 0 and i - 1 < len(transitions) and transitions[i - 1]:
+                trans_path = str(self.temp_dir / f"trans_{i}_{timestamp}.mp3")
+                success = await self._generate_audio(transitions[i - 1], trans_path)
+                if success:
+                    audio_pieces.append(trans_path)
+            
+            # Audio del segmento
+            seg_path = str(self.temp_dir / f"seg_{segment['index']}_{timestamp}.mp3")
+            success = await self._generate_audio(segment["script"], seg_path)
+            if success:
+                audio_pieces.append(seg_path)
+                logger.info(f"📰 Segmento {segment['index']} audio generado: '{segment['title'][:40]}...'")
+            else:
+                logger.warning(f"⚠️ Fallo generando audio del segmento {segment['index']}")
+        
+        # 2c. Outro
+        if result.get("outro_script"):
+            outro_path = str(self.temp_dir / f"outro_{timestamp}.mp3")
+            success = await self._generate_audio(result["outro_script"], outro_path)
+            if success:
+                audio_pieces.append(outro_path)
+                logger.info("🎵 Outro audio generado.")
+        
+        if not audio_pieces:
+            logger.error("❌ No se generó ninguna pieza de audio.")
+            return None
+
+        # 3. Concatenar todas las piezas
         output_filename = f"podcast_{user_id}_{timestamp}.mp3"
         output_path = str(self.temp_dir / output_filename)
         
-        success = await self._generate_audio(script, output_path)
+        success = self._concatenate_audio(audio_pieces, output_path)
         
         if success:
-            return output_path
+            logger.info(f"✅ Podcast final generado: {output_path}")
+            return (output_path, cover_image_url)
         else:
             return None
 
-    async def _generate_audio(self, script: str, output_path: str) -> bool:
+    async def _generate_audio(self, script: str, output_path: str, include_intro: bool = False) -> bool:
         """
         Genera el audio del podcast. Soporta: gemini_tts, google, openai, edge.
+        include_intro: Si True, añade la música de intro al principio del audio.
         """
         # --- GEMINI TTS: Multi-speaker en una sola llamada ---
         if self.provider == "gemini_tts":
@@ -138,22 +206,11 @@ class NewsPodcastService:
         segments = []
         lines = script.strip().split("\n")
         
-        # Determinar voces según proveedor
-        if self.provider == "google":
-            voices_map = self.tts_config.get("google_voices", {
-                "Host 1": "es-ES-Neural2-F",
-                "Host 2": "es-ES-Neural2-C"
-            })
-        elif self.provider == "openai":
-            voices_map = self.tts_config.get("openai_voices", {
-                "Host 1": "echo",
-                "Host 2": "nova"
-            })
-        else:
-             voices_map = self.tts_config.get("edge_voices", {
-                 "Host 1": "es-ES-AlvaroNeural",
-                 "Host 2": "es-ES-ElviraNeural"
-             })
+        # Determinar voces: self.tts_config ya tiene las voces del idioma y proveedor correctos
+        voices_map = self.tts_config  # { "Host 1": "voice_name", "Host 2": "voice_name" }
+        if not voices_map:
+            # Fallback de emergencia
+            voices_map = {"Host 1": "es-ES-Neural2-C", "Host 2": "es-ES-Neural2-F"}
 
         logger.info(f"🎙️ Generando audio con proveedor: {self.provider.upper()}. Voces: {voices_map}")
 
@@ -165,14 +222,15 @@ class NewsPodcastService:
             text = None
             role = None
             
-            if line.startswith("ÁLVARO:"):
+            # Soportar tanto ÁLVARO/ELVIRA (ES) como HOST1/HOST2 (otros idiomas)
+            if line.startswith("ÁLVARO:") or line.upper().startswith("HOST1:"):
                 role = "Host 1"
                 voice = voices_map.get("Host 1")
-                text = line.replace("ÁLVARO:", "").strip()
-            elif line.startswith("ELVIRA:"):
+                text = line.split(":", 1)[1].strip()
+            elif line.startswith("ELVIRA:") or line.upper().startswith("HOST2:"):
                 role = "Host 2"
                 voice = voices_map.get("Host 2")
-                text = line.replace("ELVIRA:", "").strip()
+                text = line.split(":", 1)[1].strip()
             
             if voice and text:
                 segments.append((role, voice, text))
@@ -185,10 +243,10 @@ class NewsPodcastService:
         
         audio_files = []
         
-        # INYECTAR INTRO MUSICAL (Si existe)
+        # INYECTAR INTRO MUSICAL (Solo si se solicita explícitamente)
         root_dir = Path(__file__).parent.parent.parent
         intro_path = root_dir / "assets" / "intro.mp3"
-        if intro_path.exists():
+        if include_intro and intro_path.exists():
             logger.info(f"🎵 Añadiendo intro musical: {intro_path}")
             audio_files.append(str(intro_path))
         
@@ -523,7 +581,7 @@ class NewsPodcastService:
         except:
             pass
     
-    async def upload_to_castos(self, user_id: str, audio_path: str, episode_title: str = None) -> Optional[str]:
+    async def upload_to_castos(self, user_id: str, audio_path: str, episode_title: str = None, cover_image_url: str = None) -> Optional[str]:
         """
         Sube el podcast a Castos y devuelve la URL del feed RSS privado.
         
@@ -533,10 +591,12 @@ class NewsPodcastService:
             user_id: ID único del usuario (usado para crear/obtener su podcast privado)
             audio_path: Ruta al archivo de audio
             episode_title: Título del episodio (opcional)
+            cover_image_url: URL de la imagen de portada de la noticia más importante (opcional)
         
         Returns:
             URL del feed RSS privado (con uuid=...) o None si falla
         """
+        import urllib.request
         from src.services.castos_hosting import CastosUploader
         from pathlib import Path
         
@@ -547,6 +607,20 @@ class NewsPodcastService:
         
         # Título del podcast del usuario
         podcast_title = f"Briefing Diario - {user_id}"
+        
+        # Descargar imagen de portada si se proporcionó una URL
+        episode_image_path = None
+        if cover_image_url:
+            try:
+                img_ext = cover_image_url.split('?')[0].rsplit('.', 1)[-1].lower()
+                if img_ext not in ('jpg', 'jpeg', 'png', 'webp', 'gif'):
+                    img_ext = 'jpg'
+                img_temp = str(self.temp_dir / f"cover_{user_id}.{img_ext}")
+                urllib.request.urlretrieve(cover_image_url, img_temp)
+                episode_image_path = img_temp
+                logger.info(f"🖼️ Imagen de portada descargada: {img_temp}")
+            except Exception as e:
+                logger.warning(f"⚠️ No se pudo descargar imagen de portada: {e}")
         
         try:
             # 1. Obtener o crear podcast privado para el usuario
@@ -579,7 +653,8 @@ class NewsPodcastService:
                 episode_title=episode_title,
                 episode_description=f"Tu resumen de noticias del {datetime.now().strftime('%d de %B de %Y')}",
                 audio_file_path=audio_path,
-                market="es"
+                market="es",
+                episode_image_path=episode_image_path
             )
             
             if upload_result:

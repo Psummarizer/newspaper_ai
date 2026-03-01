@@ -26,6 +26,7 @@ from openai import AsyncOpenAI
 from src.services.gcs_service import GCSService
 from src.services.firebase_service import FirebaseService
 from src.utils.html_builder import CATEGORY_IMAGES
+from src.services.perspective_enricher import enrich_topics_with_perspectives
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -158,8 +159,27 @@ class HourlyProcessor:
         # Stats
         total_redacted = sum(1 for v in self.redacted_cache.values() if v)
         logger.info(f"📊 Stats: {total_redacted} noticias redactadas, {len(self.existing_news)} en cache de dedup")
-        
-        # 5. Guardar estado de finalización
+
+        # 5. ENRIQUECIMIENTO DE PERSPECTIVAS (embedding-based clustering)
+        # Busca la misma noticia cubierta por distintas fuentes y añade
+        # `perspectivas` y `community_note` a cada artículo en topics_data.
+        try:
+            logger.info("🔭 Iniciando enriquecimiento de perspectivas...")
+            # Usar asyncio.to_thread para no bloquear el event loop con requests síncronos
+            await asyncio.to_thread(
+                enrich_topics_with_perspectives,
+                topics_data,
+                None,  # api_key=None → usa GEMINI_API_KEY del entorno
+                True,  # generate_community_notes
+            )
+            # Re-guardar con perspectivas añadidas
+            self._save_topics_json(topics_data)
+            logger.info("💾 topics.json actualizado con perspectivas")
+        except Exception as e:
+            logger.error(f"❌ Error en perspective enrichment (no crítico): {e}")
+            # El pipeline sigue: las perspectivas son un bonus, no un requisito
+
+        # 6. Guardar estado de finalización
         self.gcs.save_json_file("ingest_state.json", {
             "last_run_finished": datetime.now().isoformat()
         })

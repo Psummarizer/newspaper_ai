@@ -3,14 +3,14 @@ import logging
 import json
 from typing import List, Dict
 from sqlalchemy import select
-from openai import AsyncOpenAI
 from src.database.connection import AsyncSessionLocal
 from src.database.models import Article
+from src.services.llm_factory import LLMFactory
 
 class DbRetrievalService:
     def __init__(self):
         self.logger = logging.getLogger(__name__)
-        self.client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+        self.client, self.model = LLMFactory.get_client("fast")
 
     async def _llm_filter(self, topic: str, candidates: List[Article]) -> List[Dict]:
         """
@@ -41,7 +41,7 @@ class DbRetrievalService:
 
         try:
             response = await self.client.chat.completions.create(
-                model="gpt-5-nano",
+                model=self.model,
                 messages=[
                     {"role": "system", "content": "Responde solo JSON valid."},
                     {"role": "user", "content": prompt}

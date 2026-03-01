@@ -109,6 +109,90 @@ CATEGORY_EMOJIS = {
     "General": "📰"
 }
 
+# Web dashboard URL (used in the mid-newsletter promo banner)
+WEB_APP_URL = "https://podsummarizer.xyz/"
+
+
+def build_mid_banner(web_url: str = WEB_APP_URL) -> str:
+    """
+    Banner promocional para el centro del email.
+    100% compatible con Gmail, Outlook, Apple Mail, Yahoo Mail:
+    - Tablas para layout, sin flexbox ni CSS grid
+    - Inline styles únicamente
+    - Sin web fonts externas (usa system fonts stack)
+    - Botón CTA como tabla (no <button>)
+    - Sin background gradients (degrade a solid dark, Outlook-safe)
+    """
+    return f'''
+    <!-- MID NEWSLETTER BANNER -->
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"
+           style="max-width:600px; margin:32px 0; border-radius:12px; overflow:hidden;
+                  border:2px solid #1DA1F2; background-color:#0D1B2A;">
+        <tr>
+            <!-- Franja lateral de color como acento visual (Outlook-safe) -->
+            <td width="6" style="background-color:#1DA1F2; padding:0;">&nbsp;</td>
+            <td style="padding:32px 28px;">
+
+                <!-- Icono + Eyebrow label -->
+                <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+                    <tr>
+                        <td>
+                            <p style="margin:0 0 10px 0; font-size:11px; font-weight:700;
+                                      letter-spacing:2px; text-transform:uppercase;
+                                      color:#1DA1F2; font-family:Helvetica,Arial,sans-serif;">
+                                🔭 &nbsp;ÁREA PRIVADA · SOLO PARA TI
+                            </p>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td>
+                            <h2 style="margin:0 0 14px 0; font-size:22px; line-height:1.25;
+                                       font-weight:800; color:#FFFFFF;
+                                       font-family:Helvetica,Arial,sans-serif;">
+                                Esto es solo una <em style="color:#1DA1F2;">muestra</em>.<br>
+                                La historia completa te espera dentro.
+                            </h2>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td>
+                            <p style="margin:0 0 24px 0; font-size:15px; line-height:1.6;
+                                      color:#8ECDF7; font-family:Helvetica,Arial,sans-serif;">
+                                Cientos de noticias sobre tus temas favoritos,
+                                análisis en profundidad y tendencias globales que
+                                el email no puede contener.
+                                Tu panel privado lo tiene todo —ordenado, filtrado y listo.
+                            </p>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td>
+                            <!-- CTA Button (table method, Outlook-safe) -->
+                            <table role="presentation" cellpadding="0" cellspacing="0" border="0">
+                                <tr>
+                                    <td style="border-radius:8px; background-color:#1DA1F2;">
+                                        <a href="{web_url}"
+                                           style="display:inline-block; padding:14px 28px;
+                                                  font-size:15px; font-weight:700;
+                                                  color:#FFFFFF; text-decoration:none;
+                                                  font-family:Helvetica,Arial,sans-serif;
+                                                  border-radius:8px; letter-spacing:0.3px;"
+                                           target="_blank">
+                                            Ver todas las noticias &nbsp;→
+                                        </a>
+                                    </td>
+                                </tr>
+                            </table>
+                        </td>
+                    </tr>
+                </table>
+
+            </td>
+        </tr>
+    </table>
+    <!-- END MID NEWSLETTER BANNER -->
+    '''
+
 
 def build_front_page(headlines: list) -> str:
     """

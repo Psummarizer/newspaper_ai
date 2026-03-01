@@ -3,13 +3,16 @@ import logging
 import json
 import re
 from typing import Dict, Any, List
-from openai import AsyncOpenAI
+from src.services.llm_factory import LLMFactory
 from src.services.image_service import ImageService
 
 class ContentProcessorAgent:
     def __init__(self):
         self.logger = logging.getLogger(__name__)
-        self.client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+        self.client_fast, self.model_fast = LLMFactory.get_client("fast")
+        self.client_quality, self.model_quality = LLMFactory.get_client("quality")
+        # Por simplicidad mantenemos self.client apuntando al de quality para no romper la firma base
+        self.client = self.client_quality
         self.image_service = ImageService()
         self.used_images = set()
 
@@ -45,7 +48,7 @@ class ContentProcessorAgent:
 
         try:
             response = await self.client.chat.completions.create(
-                model="gpt-5-nano",
+                model=self.model_fast,
                 messages=[
                     {"role": "user", "content": system_prompt},
                     {"role": "user", "content": articles_input}
@@ -195,7 +198,7 @@ class ContentProcessorAgent:
     political summit Madrid"""
 
             response = await self.client.chat.completions.create(
-                model="gpt-5-nano",
+                model=self.model_fast,
                 messages=[{"role": "user", "content": prompt}]
             )
 
@@ -277,7 +280,7 @@ class ContentProcessorAgent:
 
         try:
             response = await self.client.chat.completions.create(
-                model="gpt-5-mini",
+                model=self.model_quality,
                 messages=[
                     {"role": "user", "content": system_prompt},
                     {"role": "user", "content": articles_text}
@@ -384,7 +387,7 @@ class ContentProcessorAgent:
 
         try:
             response = await self.client.chat.completions.create(
-                model="gpt-5-nano",
+                model=self.model_fast,
                 messages=[
                     {"role": "user", "content": system_prompt},
                     {"role": "user", "content": raw_articles_html}

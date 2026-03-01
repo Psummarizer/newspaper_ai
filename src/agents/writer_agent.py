@@ -1,12 +1,12 @@
 import logging
 import os
 from typing import List, Dict, Any
-from openai import AsyncOpenAI
+from src.services.llm_factory import LLMFactory
 
 class WriterAgent:
     def __init__(self):
         self.logger = logging.getLogger(__name__)
-        self.client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+        self.client, self.model = LLMFactory.get_client("quality")
 
     async def process(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         topic = payload.get("topic", "Actualidad")
@@ -51,7 +51,7 @@ class WriterAgent:
 
         try:
             response = await self.client.chat.completions.create(
-                model="gpt-5-mini",
+                model=self.model,
                 messages=[
                     {"role": "user", "content": "Eres un redactor web experto. Escribes solo en HTML limpio. Nunca usas Markdown."},
                     {"role": "user", "content": prompt}
