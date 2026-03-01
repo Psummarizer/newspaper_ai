@@ -14,7 +14,8 @@ class LLMFactory:
     @classmethod
     def _load_config(cls):
         if cls._config is None:
-            config_path = Path(__file__).parent.parent / "config" / "model_config.json"
+            # Usar resolve() asegura que se tome la ruta absoluta independientemente de desde dónde se ejecute el script
+            config_path = Path(__file__).resolve().parent.parent / "config" / "model_config.json"
             try:
                 with open(config_path, "r", encoding="utf-8") as f:
                     cls._config = json.load(f)

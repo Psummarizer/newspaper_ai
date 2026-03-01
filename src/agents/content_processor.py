@@ -37,13 +37,14 @@ class ContentProcessorAgent:
 
         self.logger.info(f"🔎 Filtrando relevancia para '{topic}' entre {len(articles)} noticias...")
         
-        # 1. First Pass: Length Filter (> 30 words - Relaxed as per user request)
-        # Many RSS feeds only provide summaries.
+        # 1. First Pass: Length Filter 
+        # Bajamos el límite para permitir que descripciones vacías que solo tienen el link HTML pasen al LLM
+        # y así el LLM pueda activar la flag 'needs_scraping'.
         candidates_checked = []
         for art in articles:
             content_text = art.get('content') or ""
             content_len = len(content_text.split())
-            if content_len > 30:
+            if content_len > 3 or "http" in content_text: # Allow if there is at least a link or >3 words
                 # Update art content to be safe
                 art['content'] = content_text
                 candidates_checked.append(art)
@@ -51,7 +52,7 @@ class ContentProcessorAgent:
                 self.logger.debug(f"📉 Descartando artículo muy corto ({content_len} palabras): {art.get('title')}")
                 
         if not candidates_checked:
-            self.logger.warning(f"⚠️ Ningún artículo supera las 30 palabras para '{topic}'.")
+            self.logger.warning(f"⚠️ Ningún artículo supera el filtro mínimo para '{topic}'.")
             return []
             
         # Optimization: Limit to top 40 candidates to avoid huge prompts
@@ -75,7 +76,7 @@ class ContentProcessorAgent:
             - Prioriza: Grandes avances, cambios regulatorios, fusiones/adquisiciones clave, resultados científicos.
             - Descarta: Anécdotas menores, rumores sin base, declaraciones irrelevantes.
 
-        . **Carácter INFORMATIVO (CRÍTICO)**:
+        3. **Carácter INFORMATIVO (CRÍTICO)**:
             - SOLO admite noticias puramente informativas, análisis o reportajes periodísticos.
             - **DESCARTA INMEDIATAMENTE**:
                 - Contenido publicitario, publirreportajes ("advertorials") o notas de prensa de marcas.
@@ -92,7 +93,11 @@ class ContentProcessorAgent:
 
         Tu trabajo es filtrar ruido y spam. Solo deja pasar información de valor sustancial para el usuario.
         
-        SALIDA JSON: {{ "valid_ids": [0, 2] }}
+        5. **Detección de Texto Vacío (NUEVO)**:
+            - A veces el SNIPPET no contiene una noticia, sino solo la repetición del Titulo, nombres de medios, palabras como "Ver más", o simplemente una lista de enlaces vacíos.
+            - Si la noticia es MUY relevante por su TÍTULO pero el SNIPPET no aporta contexto suficiente porque parece vacío o un error del RSS, marca "needs_scraping": true.
+        
+        SALIDA JSON: {{ "valid_items": [{{"id": 0, "needs_scraping": false}}, {{"id": 2, "needs_scraping": true}}] }}
         """
 
         try:
@@ -105,9 +110,40 @@ class ContentProcessorAgent:
                 response_format={"type": "json_object"}
             )
             result = json.loads(response.choices[0].message.content)
-            valid_ids = result.get("valid_ids", [])
             
-            filtered_articles = [articles[i] for i in valid_ids if i < len(articles)]
+            # Retro-compatibility check in case LLM fails the format
+            if "valid_ids" in result and not "valid_items" in result:
+                valid_items = [{"id": i, "needs_scraping": False} for i in result["valid_ids"]]
+            else:
+                valid_items = result.get("valid_items", [])
+            
+            filtered_articles = []
+            
+            from src.services.scraper_service import ScraperService
+            from datetime import datetime, timedelta, timezone
+            scraper = ScraperService()
+            min_date = datetime.now(timezone.utc) - timedelta(days=2) # 48h aprox
+            
+            for item in valid_items:
+                idx = item.get("id")
+                needs_scraping = item.get("needs_scraping", False)
+                
+                if idx is not None and idx < len(articles):
+                    art = dict(articles[idx]) # copy
+                    
+                    if needs_scraping:
+                        url = art.get('url')
+                        self.logger.info(f"   🕸️ El LLM solicitó scraping para '{art.get('title')}' ({url})...")
+                        if url:
+                            scraped_data = scraper.scrape_and_validate(url, min_date)
+                            if scraped_data and scraped_data.get('content'):
+                                art['content'] = scraped_data['content']
+                                self.logger.info("      ✅ Text scrapeado con éxito.")
+                            else:
+                                self.logger.warning("      ⚠️ Scraping falló o texto rechazado, se quedará con el snippet original.")
+                                
+                    filtered_articles.append(art)
+                    
             self.logger.info(f"   ✅ Seleccionadas {len(filtered_articles)} noticias relevantes para '{topic}'.")
             
             # Merge similar articles and limit to max 3 per topic

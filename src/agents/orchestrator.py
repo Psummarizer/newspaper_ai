@@ -184,7 +184,7 @@ class Orchestrator:
             # Usar cliente de ContentProcessor si es público, o crear uno temporal?
             # Orchestrator tiene self.processor.client
             response = await self.processor.client.chat.completions.create(
-                model="gpt-5-nano",
+                model=self.processor.model_fast,
                 messages=[{"role": "user", "content": prompt}],
                 response_format={"type": "json_object"}
             )
@@ -195,6 +195,66 @@ class Orchestrator:
         except Exception as e:
             self.logger.error(f"Error seleccionando top 3: {e}")
             return news_list[:3] # Fallback: first 3
+
+    async def _translate_news_list(self, news_list: List[Dict], target_lang: str) -> List[Dict]:
+        """Traduce una lista de noticias seleccionadas al idioma objetivo sin límite de tokens restrictivo."""
+        if not news_list:
+            return []
+            
+        prompt_text = ""
+        for i, news in enumerate(news_list):
+            title = news.get("titulo", "")
+            summary = news.get("resumen", "")
+            body = news.get("noticia", "")
+            prompt_text += f"\n--- ITEM {i} ---\nTÍTULO: {title}\nRESUMEN: {summary}\nCUERPO:\n{body}\n"
+            
+        prompt = f"""
+        Eres un traductor profesional de periodismo. Debes traducir exactamente los textos proporcionados al idioma: {target_lang}.
+        Mantén el tono periodístico, la estructura original y cualquier formato HTML (como <b> o etiquetas) que exista.
+        
+        Textos a traducir:
+        {prompt_text}
+        
+        Devuelve SOLO un JSON estrictamente válido con el siguiente formato, respetando los IDs de cada Item:
+        {{
+            "translated_items": [
+                {{
+                    "id": 0,
+                    "titulo": "...",
+                    "resumen": "...",
+                    "noticia": "..."
+                }}
+            ]
+        }}
+        """
+        
+        try:
+            response = await self.processor.client.chat.completions.create(
+                model=self.processor.model_quality,
+                messages=[{"role": "user", "content": prompt}],
+                response_format={"type": "json_object"}
+            )
+            result = json.loads(response.choices[0].message.content)
+            translated_data = result.get("translated_items", [])
+            
+            translated_list = []
+            # Merge logic
+            for i, news in enumerate(news_list):
+                news_copy = dict(news)
+                # Find translation for this index
+                trans = next((t for t in translated_data if t.get("id") == i), None)
+                if trans:
+                    if trans.get("titulo"): news_copy["titulo"] = trans["titulo"]
+                    if trans.get("resumen"): news_copy["resumen"] = trans["resumen"]
+                    if trans.get("noticia"): news_copy["noticia"] = trans["noticia"]
+                translated_list.append(news_copy)
+                
+            return translated_list
+            
+        except Exception as e:
+            self.logger.error(f"Error traduciendo noticias a {target_lang}: {e}")
+            return news_list # Fallback to original
+
 
     async def run_for_user(self, user_data: Dict):
         """
@@ -338,6 +398,12 @@ class Orchestrator:
             # SELECCION TOP 3
             selected_news = await self._select_top_3_cached(topic, fresh_news)
             print(f"   ✅ Seleccionadas Top {len(selected_news)} para el boletín.")
+            
+            # TRADUCCION DE LAS NOTICIAS SELECCIONADAS
+            user_lang_lower = user_lang.lower()
+            if user_lang_lower not in ['es', 'spanish', 'español', 'es-es'] and selected_news:
+                print(f"   🌐 Traduciendo {len(selected_news)} noticias seleccionadas al idioma '{user_lang}'...")
+                selected_news = await self._translate_news_list(selected_news, user_lang)
             
             # Acumular para podcast -> MOVIDO AL FINAL PARA SINCRONIZAR CON EMAIL FINAL
             # if selected_news:
