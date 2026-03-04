@@ -839,10 +839,11 @@ class HourlyProcessor:
                  # Limit to avoid huge prompts
                  list_str = "\n".join([f"- {c}" for c in cleaned_contexts[:20]]) 
                  context_str = (
-                     f"\n⚠️ INTERESES ESPECÍFICOS DE LOS USUARIOS (CRÍTICO PARA AHORRO DE COSTES):\n"
+                     f"\n⚠️ INTERESES ESPECÍFICOS DE LOS USUARIOS:\n"
                      f"{list_str}\n"
-                     f"INSTRUCCIÓN DE FILTRADO: Solo selecciona noticias que RELEVANTES para estos intereses específicos.\n"
-                     f"SI UNA NOTICIA ES DEL TEMA '{topic}' PERO NO ENCAJA CON NINGÚN INTERÉS ESPECÍFICO, DESCÁRTALA (excepto Breaking News masivo).\n"
+                     f"INSTRUCCIÓN DE FILTRADO: PRIORIZA noticias que encajen con estos intereses.\n"
+                     f"Si mencionan medios concretos, INCLUYE SIEMPRE noticias de esos medios.\n"
+                     f"Incluye también noticias relevantes del tema '{topic}' de otros medios de calidad.\n"
                  )
 
         prompt = f"""
@@ -851,7 +852,7 @@ class HourlyProcessor:
         Tu trabajo: Identificar noticias RELACIONADAS con "{topic}".
         
         INSTRUCCIÓN SOBRE FUENTES Y MEDIOS:
-        - Si el topic menciona explícitamente una fuente (ej: "Política de El Confidencial"), SELECCIONA SOLO noticias de esa fuente.
+        - Si el topic o los intereses del usuario mencionan medios concretos (ej: "El Confidencial", "Libertad Digital"), PRIORIZA noticias de esos medios (dales preferencia), pero NO descartes noticias de otros medios si son muy relevantes para el tema.
         - Si el topic es genérico, ignora la fuente y céntrate en el contenido.
         
         ENFOQUE PARA TOPICS CIENTÍFICOS/TÉCNICOS (ej: física cuántica, IA, blockchain):

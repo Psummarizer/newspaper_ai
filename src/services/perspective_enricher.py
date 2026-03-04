@@ -56,8 +56,10 @@ BATCH_DELAY_S = 2.5                # seconds between embedding batches (rate-lim
 
 SOURCES_JSON_PATH = Path(__file__).parent.parent.parent / "data" / "sources.json"
 
-# Spanish media bias mapping — used to add `sesgo` field to perspectivas
+# Media bias mapping — used to add `sesgo` field to perspectivas
+# Spanish + international media for comprehensive spectrum coverage
 DOMAIN_BIAS_MAP: Dict[str, str] = {
+    # === SPANISH MEDIA ===
     # Izquierda
     'elpais.com': 'izquierda', 'eldiario.es': 'izquierda', 'publico.es': 'izquierda',
     'infolibre.es': 'izquierda', 'lamarea.com': 'izquierda', 'ctxt.es': 'izquierda',
@@ -66,15 +68,32 @@ DOMAIN_BIAS_MAP: Dict[str, str] = {
     # Centro
     'efe.com': 'centro', 'rtve.es': 'centro', 'agenciasinc.es': 'centro',
     'elconfidencial.com': 'centro', 'lavanguardia.com': 'centro', 'europapress.es': 'centro',
-    'expansion.com': 'centro', 'cincodias.elpais.com': 'centro', 'reuters.com': 'centro',
-    'bloomberg.com': 'centro', 'ft.com': 'centro', 'bbc.com': 'centro',
-    'bbc.co.uk': 'centro', 'france24.com': 'centro', 'dw.com': 'centro',
-    'businessinsider.es': 'centro', 'eleconomista.es': 'centro', 'news.google.com': 'centro',
+    'expansion.com': 'centro', 'cincodias.elpais.com': 'centro',
+    'businessinsider.es': 'centro', 'eleconomista.es': 'centro',
     # Derecha
     'elmundo.es': 'derecha', 'abc.es': 'derecha', 'larazon.es': 'derecha',
     'libertaddigital.com': 'derecha', 'okdiario.com': 'derecha', 'vozpopuli.com': 'derecha',
     'theobjective.com': 'derecha', 'esdiario.com': 'derecha',
     'periodistadigital.com': 'derecha', 'cope.es': 'derecha',
+    'eldebate.com': 'derecha',
+    # === INTERNATIONAL MEDIA ===
+    # Left-leaning
+    'theguardian.com': 'izquierda', 'nytimes.com': 'izquierda', 'washingtonpost.com': 'izquierda',
+    'msnbc.com': 'izquierda', 'lemonde.fr': 'izquierda', 'taz.de': 'izquierda',
+    'theintercept.com': 'izquierda', 'jacobin.com': 'izquierda',
+    # Center
+    'reuters.com': 'centro', 'apnews.com': 'centro', 'bbc.com': 'centro',
+    'bbc.co.uk': 'centro', 'france24.com': 'centro', 'dw.com': 'centro',
+    'bloomberg.com': 'centro', 'ft.com': 'centro', 'economist.com': 'centro',
+    'politico.eu': 'centro', 'politico.com': 'centro',
+    'foreignpolicy.com': 'centro', 'foreignaffairs.com': 'centro',
+    'nikkei.com': 'centro', 'scmp.com': 'centro', 'aljazeera.com': 'centro',
+    'theatlantic.com': 'centro', 'npr.org': 'centro', 'pbs.org': 'centro',
+    'news.google.com': 'centro',
+    # Right-leaning
+    'foxnews.com': 'derecha', 'nypost.com': 'derecha', 'dailymail.co.uk': 'derecha',
+    'telegraph.co.uk': 'derecha', 'wsj.com': 'derecha', 'breitbart.com': 'derecha',
+    'spectator.co.uk': 'derecha', 'nationalreview.com': 'derecha',
 }
 
 # Spanish stopwords for title overlap validation
@@ -110,7 +129,7 @@ def _title_keywords(titulo: str) -> set:
     return words - _STOPWORDS_ES - {w for w in words if len(w) <= 2}
 
 
-def _validate_cluster_titles(articles: List[dict], min_common: int = 2) -> List[dict]:
+def _validate_cluster_titles(articles: List[dict], min_common: int = 3) -> List[dict]:
     """
     Filter a cluster to keep only articles that share at least `min_common`
     significant title keywords with the majority of the group.
@@ -180,7 +199,9 @@ def _extract_domain(url: str) -> str:
 
 
 def _find_source_meta(article: dict, source_lookup: Dict[str, dict]) -> dict:
-    """Find source metadata for an article by checking its `fuentes` URLs."""
+    """Find source metadata for an article by checking its `fuentes` URLs.
+    Returns metadata for the first matched source. Use _find_all_source_urls
+    to get all source URLs."""
     fuentes = article.get("fuentes") or []
     for url in fuentes:
         domain = _extract_domain(url)
@@ -207,6 +228,12 @@ def _find_source_meta(article: dict, source_lookup: Dict[str, dict]) -> dict:
         "category": "",
         "url": fallback_url,
     }
+
+
+def _find_all_source_urls(article: dict) -> List[str]:
+    """Return all unique source URLs from an article's fuentes field."""
+    fuentes = article.get("fuentes") or []
+    return [url for url in fuentes if url and _extract_domain(url)]
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -444,30 +471,29 @@ def enrich_topics_with_perspectives(
 
     logger.info(f"✅ {len(all_embeddings)} embeddings generated")
 
-    # ── 3. Group by category for intra-category comparison ──────────────────
-    # We only cluster articles within the same primary category to avoid
-    # false matches across very different topic areas (e.g., Tech vs. Sports).
-    by_category: Dict[str, List[int]] = {}
+    # ── 3. Group by TOPIC for intra-topic comparison ────────────────────────
+    # Clustering per-topic (not per-category) to avoid false matches between
+    # unrelated stories that happen to share a broad category like "Internacional".
+    by_topic: Dict[str, List[int]] = {}
     for idx, (topic_id, _) in enumerate(flat_meta):
-        cats = topics_data[topic_id].get("categories", [])
-        primary_cat = cats[0] if cats else topics_data[topic_id].get("name", "General")
-        by_category.setdefault(primary_cat, []).append(idx)
+        by_topic.setdefault(topic_id, []).append(idx)
 
-    # ── 4. Cluster within each category + assign perspectives ────────────────
+    # ── 4. Cluster within each topic + assign perspectives ────────────────
     total_clusters = 0
     total_enriched = 0
     total_notes = 0
 
-    for category, global_indices in by_category.items():
+    for topic_id, global_indices in by_topic.items():
         if len(global_indices) < MIN_PERSPECTIVES:
             continue
 
-        cat_embeddings = [all_embeddings[i] for i in global_indices]
-        groups = _cluster_articles(cat_embeddings)
+        topic_embeddings = [all_embeddings[i] for i in global_indices]
+        groups = _cluster_articles(topic_embeddings)
 
         if groups:
             sizes = [len(g) for g in groups]
-            logger.info(f"  [{category}] {len(groups)} clusters (sizes: {sizes})")
+            topic_name = topics_data.get(topic_id, {}).get("name", topic_id)
+            logger.info(f"  [{topic_name}] {len(groups)} clusters (sizes: {sizes})")
             total_clusters += len(groups)
 
         for local_group in groups:
@@ -509,6 +535,18 @@ def enrich_topics_with_perspectives(
                 if community_note:
                     total_notes += 1
 
+            # Collect ALL source URLs from the cluster for "fuentes_originales"
+            cluster_source_urls = []
+            for gi in validated_gis:
+                cluster_source_urls.extend(_find_all_source_urls(flat_articles[gi]))
+            # Deduplicate while preserving order
+            seen_urls = set()
+            unique_cluster_urls = []
+            for url in cluster_source_urls:
+                if url not in seen_urls:
+                    seen_urls.add(url)
+                    unique_cluster_urls.append(url)
+
             # Assign to each article — exclude self (by domain), deduplicate
             for gi in validated_gis:
                 art = flat_articles[gi]
@@ -525,6 +563,9 @@ def enrich_topics_with_perspectives(
                     art["perspectivas"].append(p)
                     if len(art["perspectivas"]) >= MAX_PERSPECTIVES:
                         break
+
+                # Store all cluster source URLs (not just self)
+                art["fuentes_perspectiva"] = unique_cluster_urls
 
                 if community_note:
                     art["community_note"] = community_note
