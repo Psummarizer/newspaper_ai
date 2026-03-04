@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -c \":*)",
+      "Bash(pip search googlenews)",
+      "Bash(python:*)",
+      "Bash(xargs grep -l \"perspectiva\\\\|verificad\\\\|sesgo\")",
+      "Bash(xargs grep -l \"Flask\\\\|FastAPI\\\\|Streamlit\\\\|@app\\\\|@router\")",
+      "Bash(xargs grep -l \"perspectiva\\\\|verificado\\\\|fuentes\")"
+    ]
+  }
+}

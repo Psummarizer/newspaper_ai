@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(grep -o \"perspectiva\" /d/proyectos/Briefing_news/newspaper_ai/data/*.json)"
+    ]
+  }
+}
