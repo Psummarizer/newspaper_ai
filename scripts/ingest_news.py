@@ -949,7 +949,11 @@ class HourlyProcessor:
             return ""
         try:
             async with aiohttp.ClientSession() as session:
-                headers = {"User-Agent": "Mozilla/5.0 (compatible; NewsBot/1.0)"}
+                headers = {
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+                    "Accept": "text/html,application/xhtml+xml",
+                    "Accept-Language": "es-ES,es;q=0.9,en;q=0.8",
+                }
                 async with session.get(url, timeout=aiohttp.ClientTimeout(total=10), headers=headers) as response:
                     if response.status != 200:
                         return ""
@@ -990,19 +994,24 @@ class HourlyProcessor:
         content = article.get("content") or article.get("description") or ""
         url = article.get("url", article.get("link", ""))
         
-        # FILTRO: Descartar noticias con contenido muy corto (solo titulares)
-        # Si el RSS no tiene suficiente contenido, intentar extraerlo de la fuente
-        MIN_CONTENT_LENGTH = 400  # caracteres minimos
+        # FILTRO: Si el RSS no tiene suficiente contenido, intentar extraerlo de la fuente
+        MIN_CONTENT_LENGTH = 400  # caracteres mínimos ideales
+        MIN_CONTENT_FALLBACK = 80  # mínimo absoluto (título + summary corto de RSS)
         if len(content) < MIN_CONTENT_LENGTH and url:
             logger.info(f"📥 Contenido corto ({len(content)} chars), intentando extraer de la fuente...")
             fetched_content = await self._fetch_article_content(url)
             if fetched_content and len(fetched_content) >= MIN_CONTENT_LENGTH:
                 content = fetched_content
                 logger.info(f"   ✅ Extraído: {len(content)} chars")
+            elif len(content) >= MIN_CONTENT_FALLBACK or (len(title) > 20 and len(content) >= 30):
+                # Scraping failed but RSS has enough for LLM to work with (title + short summary)
+                # Combine title + content for better LLM input
+                content = f"{title}. {content}" if content else title
+                logger.info(f"   ⚠️ Scraping falló, usando RSS content ({len(content)} chars)")
             else:
-                logger.info(f"⏭️ Descartando '{title[:40]}...' - contenido insuficiente")
+                logger.info(f"⏭️ Descartando '{title[:40]}...' - contenido insuficiente ({len(content)} chars)")
                 return None
-        elif len(content) < MIN_CONTENT_LENGTH:
+        elif len(content) < MIN_CONTENT_FALLBACK:
             logger.info(f"⏭️ Descartando '{title[:40]}...' - contenido muy corto ({len(content)} chars)")
             return None
         

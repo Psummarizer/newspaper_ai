@@ -3928,10 +3928,64 @@
   },
   {
     "category": "Política",
-    "name": "El Debate",
+    "name": "El Debate - España",
     "domain": "eldebate.com",
-    "rss_url": "https://news.google.com/rss/search?q=site:eldebate.com&hl=es&gl=ES&ceid=ES:es",
+    "rss_url": "https://www.eldebate.com/rss/espana.xml",
     "base_url": "https://www.eldebate.com",
+    "language": "es",
+    "country": "ES"
+  },
+  {
+    "category": "Geopolítica",
+    "name": "El Debate - Internacional",
+    "domain": "eldebate.com",
+    "rss_url": "https://www.eldebate.com/rss/internacional.xml",
+    "base_url": "https://www.eldebate.com",
+    "language": "es",
+    "country": "ES"
+  },
+  {
+    "category": "Economía y Finanzas",
+    "name": "El Debate - Economía",
+    "domain": "eldebate.com",
+    "rss_url": "https://www.eldebate.com/rss/economia.xml",
+    "base_url": "https://www.eldebate.com",
+    "language": "es",
+    "country": "ES"
+  },
+  {
+    "category": "Sociedad",
+    "name": "El Debate - Sociedad",
+    "domain": "eldebate.com",
+    "rss_url": "https://www.eldebate.com/rss/sociedad.xml",
+    "base_url": "https://www.eldebate.com",
+    "language": "es",
+    "country": "ES"
+  },
+  {
+    "category": "Política",
+    "name": "El Debate - Opinión",
+    "domain": "eldebate.com",
+    "rss_url": "https://www.eldebate.com/rss/opinion.xml",
+    "base_url": "https://www.eldebate.com",
+    "language": "es",
+    "country": "ES"
+  },
+  {
+    "category": "Política",
+    "name": "VozPopuli",
+    "domain": "vozpopuli.com",
+    "rss_url": "https://news.google.com/rss/search?q=site:vozpopuli.com&hl=es&gl=ES&ceid=ES:es",
+    "base_url": "https://www.vozpopuli.com",
+    "language": "es",
+    "country": "ES"
+  },
+  {
+    "category": "Política",
+    "name": "Libertad Digital - Google News",
+    "domain": "libertaddigital.com",
+    "rss_url": "https://news.google.com/rss/search?q=site:libertaddigital.com&hl=es&gl=ES&ceid=ES:es",
+    "base_url": "https://www.libertaddigital.com",
     "language": "es",
     "country": "ES"
   },

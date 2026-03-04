@@ -75,7 +75,7 @@ DOMAIN_BIAS_MAP: Dict[str, str] = {
     'libertaddigital.com': 'derecha', 'okdiario.com': 'derecha', 'vozpopuli.com': 'derecha',
     'theobjective.com': 'derecha', 'esdiario.com': 'derecha',
     'periodistadigital.com': 'derecha', 'cope.es': 'derecha',
-    'eldebate.com': 'derecha',
+    'eldebate.com': 'derecha', 'vozpopuli.com': 'derecha',
     # === INTERNATIONAL MEDIA ===
     # Left-leaning
     'theguardian.com': 'izquierda', 'nytimes.com': 'izquierda', 'washingtonpost.com': 'izquierda',
