@@ -41,8 +41,8 @@ logger = logging.getLogger(__name__)
 # CONFIGURATION
 # ─────────────────────────────────────────────────────────────────────────────
 
-SIMILARITY_THRESHOLD = 0.83       # cosine threshold — slightly lower than JS (0.85)
-                                   # because Spanish multi-source articles cluster tighter
+SIMILARITY_THRESHOLD = 0.88       # cosine threshold — raised to reduce false positives
+                                   # within broad categories (e.g., economia y finanzas)
 MIN_PERSPECTIVES = 2               # need at least 2 articles to form a cluster
 MAX_PERSPECTIVES = 8               # cap per article
 COMMUNITY_NOTE_MIN_SOURCES = 3    # cluster size required for a community note
@@ -55,6 +55,91 @@ BATCH_SIZE = 100                   # embeddings per API call (Gemini batch limit
 BATCH_DELAY_S = 2.5                # seconds between embedding batches (rate-limit safety)
 
 SOURCES_JSON_PATH = Path(__file__).parent.parent.parent / "data" / "sources.json"
+
+# Spanish media bias mapping — used to add `sesgo` field to perspectivas
+DOMAIN_BIAS_MAP: Dict[str, str] = {
+    # Izquierda
+    'elpais.com': 'izquierda', 'eldiario.es': 'izquierda', 'publico.es': 'izquierda',
+    'infolibre.es': 'izquierda', 'lamarea.com': 'izquierda', 'ctxt.es': 'izquierda',
+    'huffingtonpost.es': 'izquierda', 'maldita.es': 'izquierda', 'ara.cat': 'izquierda',
+    'elperiodico.com': 'izquierda', 'cadenaser.com': 'izquierda',
+    # Centro
+    'efe.com': 'centro', 'rtve.es': 'centro', 'agenciasinc.es': 'centro',
+    'elconfidencial.com': 'centro', 'lavanguardia.com': 'centro', 'europapress.es': 'centro',
+    'expansion.com': 'centro', 'cincodias.elpais.com': 'centro', 'reuters.com': 'centro',
+    'bloomberg.com': 'centro', 'ft.com': 'centro', 'bbc.com': 'centro',
+    'bbc.co.uk': 'centro', 'france24.com': 'centro', 'dw.com': 'centro',
+    'businessinsider.es': 'centro', 'eleconomista.es': 'centro', 'news.google.com': 'centro',
+    # Derecha
+    'elmundo.es': 'derecha', 'abc.es': 'derecha', 'larazon.es': 'derecha',
+    'libertaddigital.com': 'derecha', 'okdiario.com': 'derecha', 'vozpopuli.com': 'derecha',
+    'theobjective.com': 'derecha', 'esdiario.com': 'derecha',
+    'periodistadigital.com': 'derecha', 'cope.es': 'derecha',
+}
+
+# Spanish stopwords for title overlap validation
+_STOPWORDS_ES = frozenset({
+    'el', 'la', 'los', 'las', 'un', 'una', 'unos', 'unas', 'de', 'del', 'al',
+    'en', 'y', 'o', 'que', 'es', 'por', 'con', 'para', 'se', 'su', 'no', 'a',
+    'lo', 'como', 'más', 'mas', 'pero', 'sus', 'le', 'ya', 'este', 'ha', 'si',
+    'porque', 'esta', 'entre', 'cuando', 'muy', 'sin', 'sobre', 'ser', 'también',
+    'me', 'hasta', 'hay', 'donde', 'quien', 'desde', 'todo', 'nos', 'durante',
+    'the', 'of', 'and', 'to', 'in', 'a', 'is', 'that', 'for', 'it', 'on', 'with',
+})
+
+
+def _get_domain_bias(domain: str) -> Optional[str]:
+    """Look up media bias for a domain."""
+    domain = domain.lower().replace("www.", "")
+    if domain in DOMAIN_BIAS_MAP:
+        return DOMAIN_BIAS_MAP[domain]
+    parts = domain.split(".")
+    if len(parts) > 2:
+        parent = ".".join(parts[-2:])
+        if parent in DOMAIN_BIAS_MAP:
+            return DOMAIN_BIAS_MAP[parent]
+    return None
+
+
+def _title_keywords(titulo: str) -> set:
+    """Extract significant keywords from a title (lowercased, no stopwords)."""
+    import unicodedata
+    normalized = unicodedata.normalize('NFD', titulo.lower())
+    normalized = ''.join(c for c in normalized if unicodedata.category(c) != 'Mn')
+    words = set(normalized.split())
+    return words - _STOPWORDS_ES - {w for w in words if len(w) <= 2}
+
+
+def _validate_cluster_titles(articles: List[dict], min_common: int = 2) -> List[dict]:
+    """
+    Filter a cluster to keep only articles that share at least `min_common`
+    significant title keywords with the majority of the group.
+    """
+    if len(articles) <= 2:
+        return articles
+
+    # Build keyword sets for each article
+    kw_sets = [_title_keywords(a.get('titulo', '')) for a in articles]
+
+    # Find the "core" keywords: words appearing in 2+ articles
+    from collections import Counter
+    all_words = Counter()
+    for kws in kw_sets:
+        for w in kws:
+            all_words[w] += 1
+    core_words = {w for w, c in all_words.items() if c >= 2}
+
+    if not core_words:
+        return []  # No common keywords — cluster is likely false
+
+    # Keep articles that share at least min_common core words
+    validated = []
+    for art, kws in zip(articles, kw_sets):
+        overlap = len(kws & core_words)
+        if overlap >= min_common:
+            validated.append(art)
+
+    return validated if len(validated) >= MIN_PERSPECTIVES else []
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -390,31 +475,42 @@ def enrich_topics_with_perspectives(
             global_group_indices = [global_indices[li] for li in local_group]
             group_articles = [flat_articles[gi] for gi in global_group_indices]
 
+            # Validate cluster: articles must share title keywords
+            validated_articles = _validate_cluster_titles(group_articles)
+            if len(validated_articles) < MIN_PERSPECTIVES:
+                continue  # Skip this cluster — articles are not about the same event
+
+            # Rebuild indices for validated articles only
+            validated_gis = [gi for gi in global_group_indices if flat_articles[gi] in validated_articles]
+
             # Build perspective entries for each article in the cluster
             perspectives: List[dict] = []
-            for gi in global_group_indices:
+            for gi in validated_gis:
                 art = flat_articles[gi]
                 meta = _find_source_meta(art, source_lookup)
+                art_url = meta.get("url") or (art.get("fuentes") or [""])[0]
+                art_domain = _extract_domain(art_url)
                 perspectives.append({
                     "medio": meta["name"],
                     "pais": meta.get("country", "INT"),
                     "idioma": meta.get("language", "es"),
+                    "sesgo": _get_domain_bias(art_domain),
                     "resumen": (art.get("resumen") or art.get("titulo") or "")[:300],
-                    "url": meta.get("url") or (art.get("fuentes") or [""])[0],
+                    "url": art_url,
                 })
 
             # Community note (optional, only for diverse multi-source clusters)
             community_note: Optional[str] = None
             if (
                 generate_community_notes
-                and len(global_group_indices) >= COMMUNITY_NOTE_MIN_SOURCES
+                and len(validated_gis) >= COMMUNITY_NOTE_MIN_SOURCES
             ):
-                community_note = _generate_community_note(group_articles, source_lookup, api_key)
+                community_note = _generate_community_note(validated_articles, source_lookup, api_key)
                 if community_note:
                     total_notes += 1
 
             # Assign to each article — exclude self (by domain), deduplicate
-            for gi in global_group_indices:
+            for gi in validated_gis:
                 art = flat_articles[gi]
                 self_domain = _extract_domain((art.get("fuentes") or [""])[0])
                 seen_names: set = set()

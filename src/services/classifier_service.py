@@ -122,22 +122,30 @@ class ClassifierService:
         - Buscar mejor encaje en CATEGORIES_LIST.
         """
         
-        # Prompt más específico
+        # Prompt más específico - adaptar regla de política según si hay country
+        if user_country:
+            politics_rule = f"""
+        REGLA DE ORO DE POLÍTICA:
+        - La categoría "Política" es EXCLUSIVA para política interna de {user_country}.
+        - Si la noticia es política pero de OTRO país, DEBES clasificarla como "Internacional" o "Geopolítica"."""
+        else:
+            politics_rule = """
+        REGLA DE ORO DE POLÍTICA:
+        - No se conoce el país del usuario. Clasifica toda política nacional de cualquier país concreto como "Internacional" o "Geopolítica".
+        - Usa "Política" solo para noticias genéricas de gobernanza sin país específico."""
+
         system_prompt = f"""
         Eres un Editor Jefe experto en categorización.
         Tienes la siguiente lista de categorías oficiales:
         {json.dumps(CATEGORIES_LIST, ensure_ascii=False)}
 
         Información del Usuario:
-        - País de Residencia: "{user_country}"
+        - País de Residencia: "{user_country or 'Desconocido'}"
+        {politics_rule}
 
-        REGLA DE ORO DE POLÍTICA:
-        - La categoría "Política" es EXCLUSIVA para política interna de {user_country}.
-        - Si la noticia es política pero de OTRO país, DEBES clasificarla como "Internacional" o "Geopolítica".
-        
         Tu tarea:
         Analiza el título y resumen de la noticia y asigna la MEJOR categoría de la lista.
-        
+
         Responde SOLO un JSON con el formato: {{"category": "Nombre Exacto"}}
         """
 

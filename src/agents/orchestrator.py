@@ -29,6 +29,58 @@ from src.services.podcast_service import NewsPodcastService
 from src.utils.constants import CATEGORIES_LIST
 
 class Orchestrator:
+    # i18n display names per language
+    CATEGORY_DISPLAY_I18N = {
+        "es": {
+            "Política": "🏛️ POLÍTICA Y GOBIERNO",
+            "Geopolítica": "🌍 GEOPOLÍTICA GLOBAL",
+            "Economía y Finanzas": "💰 ECONOMÍA Y MERCADOS",
+            "Negocios y Empresas": "🏢 NEGOCIOS Y EMPRESAS",
+            "Tecnología y Digital": "💻 TECNOLOGÍA Y DIGITAL",
+            "Ciencia e Investigación": "🔬 CIENCIA E INVESTIGACIÓN",
+            "Sociedad": "👥 SOCIEDAD",
+            "Cultura y Entretenimiento": "🎭 CULTURA Y ENTRETENIMIENTO",
+            "Deporte": "⚽ DEPORTES",
+            "Salud y Bienestar": "🏥 SALUD Y BIENESTAR",
+            "Internacional": "🌍 INTERNACIONAL",
+            "Medio Ambiente y Clima": "🌱 MEDIO AMBIENTE",
+            "Justicia y Legal": "⚖️ JUSTICIA Y LEGAL",
+            "Transporte y Movilidad": "🚗 TRANSPORTE",
+            "Energía": "⚡ ENERGÍA",
+            "Consumo y Estilo de Vida": "🛍️ CONSUMO Y ESTILO DE VIDA",
+            "Agricultura y Alimentación": "🌾 AGRICULTURA Y ALIMENTACIÓN",
+            "Industria": "🏭 INDUSTRIA",
+            "Inmobiliario y Construcción": "🏗️ INMOBILIARIO",
+            "Educación y Conocimiento": "📚 EDUCACIÓN",
+            "Cultura Digital y Sociedad de la Información": "📱 CULTURA DIGITAL",
+            "Filantropía e Impacto Social": "🤝 FILANTROPÍA",
+        },
+        "en": {
+            "Política": "🏛️ POLITICS & GOVERNMENT",
+            "Geopolítica": "🌍 GLOBAL GEOPOLITICS",
+            "Economía y Finanzas": "💰 ECONOMY & MARKETS",
+            "Negocios y Empresas": "🏢 BUSINESS & COMPANIES",
+            "Tecnología y Digital": "💻 TECHNOLOGY & DIGITAL",
+            "Ciencia e Investigación": "🔬 SCIENCE & RESEARCH",
+            "Sociedad": "👥 SOCIETY",
+            "Cultura y Entretenimiento": "🎭 CULTURE & ENTERTAINMENT",
+            "Deporte": "⚽ SPORTS",
+            "Salud y Bienestar": "🏥 HEALTH & WELLNESS",
+            "Internacional": "🌍 INTERNATIONAL",
+            "Medio Ambiente y Clima": "🌱 ENVIRONMENT & CLIMATE",
+            "Justicia y Legal": "⚖️ JUSTICE & LAW",
+            "Transporte y Movilidad": "🚗 TRANSPORT",
+            "Energía": "⚡ ENERGY",
+            "Consumo y Estilo de Vida": "🛍️ CONSUMER & LIFESTYLE",
+            "Agricultura y Alimentación": "🌾 AGRICULTURE & FOOD",
+            "Industria": "🏭 INDUSTRY",
+            "Inmobiliario y Construcción": "🏗️ REAL ESTATE",
+            "Educación y Conocimiento": "📚 EDUCATION",
+            "Cultura Digital y Sociedad de la Información": "📱 DIGITAL CULTURE",
+            "Filantropía e Impacto Social": "🤝 PHILANTHROPY",
+        }
+    }
+
     def __init__(self, mock_mode: bool = False, gcs_service: GCSService = None):
         self.logger = logging.getLogger(__name__)
         self.classifier = ClassifierService()
@@ -37,7 +89,7 @@ class Orchestrator:
         self.mock_mode = mock_mode
         self.gcs = gcs_service or GCSService()  # Usar GCS para artículos
         self.fb_service = FirebaseService()  # Solo para usuarios
-        
+
         # Load scoring config
         config_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'config', 'scoring_config.json')
         try:
@@ -95,21 +147,20 @@ class Orchestrator:
         
         return (None, None)
         
-    def _format_cached_news_to_html(self, news_item: Dict, category: str) -> str:
+    def _format_cached_news_to_html(self, news_item: Dict, category: str, user_lang: str = "es") -> str:
         """Convierte noticia cacheada (JSON) a HTML final"""
         title = news_item.get("titulo", "")
         body = news_item.get("noticia", "")
-        
-        # Limpieza de Body (Atribuciones periodísticas)
-        # SE HA MOVIDO A INGEST_NEWS.PY (Prompt Engineering)
+
         image_url = news_item.get("imagen_url", "")
         sources = news_item.get("fuentes", [])
-        
+
         # Debug: mostrar si hay imagen
         if not image_url:
             print(f"      [DEBUG] Noticia sin imagen: {title[:40]}...")
-        
-        # Sources HTML
+
+        # Sources HTML - language-aware label
+        sources_label = "Sources" if user_lang.lower() in ("en", "english") else "Fuentes"
         sources_html = ""
         if sources:
             links = []
@@ -117,7 +168,7 @@ class Orchestrator:
                  domain = urlparse(src).netloc.replace("www.", "")
                  links.append(f'<a href="{src}" target="_blank" style="color: #1DA1F2;">{domain}</a>')
             sources_line = " | ".join(links)
-            sources_html = f'<p style="font-size: 12px; color: #8899A6; margin-top: 10px; border-top: 1px dashed #38444D; padding-top: 8px;">Fuentes: {sources_line}</p>'
+            sources_html = f'<p style="font-size: 12px; color: #8899A6; margin-top: 10px; border-top: 1px dashed #38444D; padding-top: 8px;">{sources_label}: {sources_line}</p>'
             
         # Image HTML - Solo mostrar si hay URL valida
         img_html = ""
@@ -145,9 +196,9 @@ class Orchestrator:
         </div>
         '''
 
-    async def _select_top_3_cached(self, topic: str, news_list: List[Dict]) -> List[Dict]:
-        """Selecciona las 3 noticias más relevantes de la lista cacheada usando LLM"""
-        if len(news_list) <= 3:
+    async def _select_top_3_cached(self, topic: str, news_list: List[Dict], max_count: int = 3) -> List[Dict]:
+        """Selecciona las top N noticias más relevantes de la lista cacheada usando LLM"""
+        if len(news_list) <= max_count:
             return news_list
             
         # Preparar input
@@ -163,7 +214,7 @@ class Orchestrator:
             
         prompt = f"""
         Eres un Editor Jefe enfocado en VIRALIDAD y ENGAGEMENT. Tienes {len(news_list)} noticias sobre "{topic}".
-        Selecciona las 2-3 noticias MÁS IMPACTANTES, VIRALES o POLÉMICAS para el boletín.
+        Selecciona las {max_count} noticias MÁS IMPACTANTES, VIRALES o POLÉMICAS para el boletín.
         
         CRITERIOS DE SELECCIÓN (ORDEN DE PRIORIDAD):
         1. 🔥 **SENSACIONALISMO INFORMATIVO**: Prioriza noticias que generen "Wow", miedo, debate o sorpresa. (Ej: "IA cobra conciencia" > "IA mejora un 2%").
@@ -191,10 +242,10 @@ class Orchestrator:
             result = json.loads(response.choices[0].message.content)
             ids = result.get("selected_ids", [])
             selected = [news_list[i] for i in ids if i < len(news_list)]
-            return selected[:3]
+            return selected[:max_count]
         except Exception as e:
-            self.logger.error(f"Error seleccionando top 3: {e}")
-            return news_list[:3] # Fallback: first 3
+            self.logger.error(f"Error seleccionando top {max_count}: {e}")
+            return news_list[:max_count] # Fallback: first N
 
     async def _translate_news_list(self, news_list: List[Dict], target_lang: str) -> List[Dict]:
         """Traduce una lista de noticias seleccionadas al idioma objetivo sin límite de tokens restrictivo."""
@@ -282,59 +333,64 @@ class Orchestrator:
         topics_cache = self._load_topics_cache()
         print(f"📦 Cache topics cargado: {len(topics_cache)} topics disponibles globalmente")
 
-        category_map: Dict[str, Dict[str, Dict]] = {} 
+        category_map: Dict[str, Dict[str, Dict]] = {}
         user_id = user_data.get('id', user_email.split('@')[0])
-        used_titles: set = set()  # Para evitar duplicados cross-categoria 
+        used_titles: set = set()  # Para evitar duplicados cross-categoria
         topics_news_for_podcast: Dict[str, list] = {}  # Para generar podcast
-        
+
         # --- FASE 1: RECOLECCIÓN & SELECCIÓN (CACHE ONLY) ---
+        # Two-pass: first collect available news counts, then allocate proportionally
+        topic_fresh_news: Dict[str, tuple] = {}  # topic -> (fresh_news_list, cached_data)
+        total_budget = len(topics) * 3  # Total news slots across all topics
+
+        # User country and time - shared across all topics
+        user_country = user_data.get('country', '')
+        current_time = datetime.now()
+
         for idx, topic in enumerate(topics):
             print(f"\n--- [{idx+1}/{len(topics)}] Procesando alias: '{topic}' ---")
-            
+
             # Buscar topic por alias (soporta sinónimos)
             topic_id, cached_data = self._find_topic_by_alias(topic, topics_cache)
-            
+
             if not topic_id or not cached_data or not cached_data.get("noticias"):
                 print(f"   ⚠️ No hay noticias cacheadas para alias '{topic}'. Saltando.")
                 continue
-            
+
             print(f"   ✅ Alias '{topic}' → Topic '{topic_id}' encontrado")
             all_news = cached_data["noticias"]
             print(f"   Total noticias en cache: {len(all_news)}")
-            
-            # Obtener User Country (default a 'España' si no existe, o manejar lógica de 'Politica' global)
-            # Si no hay country, política se queda como está (riesgo de mezcla, pero es lo esperado sin datos)
-            user_country = user_data.get('country', 'España') 
 
-            # Filtrar por fecha (ultimas 24h -> 48h -> 72h fallback)
-            current_time = datetime.now()
-            
+            # Filtrar por fecha - preferir noticias de hoy, con fallback progresivo
             def get_fresh_news(hours_limit):
                 filtered = []
                 for n in all_news:
                     fecha_str = n.get("fecha_inventariado", "")
                     if fecha_str:
                         try:
-                            # Parse ISO format (Naive handling)
-                            # Asumimos que both writer and reader are in same TZ or both naive
                             fecha = datetime.fromisoformat(fecha_str.replace("Z", "+00:00").split("+")[0])
                             age_hours = (current_time - fecha).total_seconds() / 3600
                             if age_hours <= hours_limit:
                                 filtered.append(n)
                         except:
                             pass # Skip invalid dates
-                    else:
-                        filtered.append(n) # Keep if no date
+                    # Sin fecha -> no incluir (probablemente stale)
                 return filtered
 
-            fresh_news = get_fresh_news(24)
-            
-            # FALLBACK: Si no hay noticias de 24h, buscar de 48h
+            # Intentar ventana de 16h primero (cubre noticias de hoy)
+            fresh_news = get_fresh_news(16)
+
+            # FALLBACK: Si no hay de hoy, buscar 24h
+            if not fresh_news:
+                print(f"   ⚠️ Sin noticias de 16h. Buscando en ventana de 24h...")
+                fresh_news = get_fresh_news(24)
+
+            # FALLBACK 2: 48h (fin de semana etc)
             if not fresh_news:
                 print(f"   ⚠️ Sin noticias de 24h. Buscando en ventana de 48h...")
                 fresh_news = get_fresh_news(48)
-                
-            # FALLBACK 2: Si aun asi no hay, buscar de 72h (fin de semana etc)
+
+            # FALLBACK 3: 72h (último recurso)
             if not fresh_news:
                 print(f"   ⚠️ Sin noticias de 48h. Buscando en ventana de 72h...")
                 fresh_news = get_fresh_news(72)
@@ -394,10 +450,53 @@ class Orchestrator:
 
             # Ordenar noticias por puntuación descendente (using the new helper)
             fresh_news.sort(key=lambda a: _compute_article_score(a, current_time, user_country), reverse=True)
-            print(f"   Noticias ordenadas por relevancia: {len(fresh_news)}")            
-            # SELECCION TOP 3
-            selected_news = await self._select_top_3_cached(topic, fresh_news)
-            print(f"   ✅ Seleccionadas Top {len(selected_news)} para el boletín.")
+            print(f"   Noticias ordenadas por relevancia: {len(fresh_news)}")
+
+            # Store for second pass (section balancing)
+            topic_fresh_news[topic] = (fresh_news, cached_data)
+
+        # --- FASE 1b: BALANCEO DE SECCIONES ---
+        # Distribuir slots: base 3 per topic, redistribute from topics with <3 news
+        topic_slots = {}
+        surplus = 0
+        topics_with_surplus_capacity = []
+        for t in topics:
+            if t not in topic_fresh_news:
+                surplus += 3  # This topic has 0 news, redistribute its slots
+                topic_slots[t] = 0
+            else:
+                available = len(topic_fresh_news[t][0])
+                if available < 3:
+                    surplus += (3 - available)
+                    topic_slots[t] = available
+                else:
+                    topic_slots[t] = 3
+                    topics_with_surplus_capacity.append(t)
+
+        # Distribute surplus evenly among topics that have extra news
+        if surplus > 0 and topics_with_surplus_capacity:
+            extra_per_topic = max(1, surplus // len(topics_with_surplus_capacity))
+            for t in topics_with_surplus_capacity:
+                if surplus <= 0:
+                    break
+                available = len(topic_fresh_news[t][0])
+                bonus = min(extra_per_topic, surplus, available - topic_slots[t])
+                topic_slots[t] += bonus
+                surplus -= bonus
+
+        print(f"\n📊 Distribución de slots: {topic_slots}")
+
+        # --- Second pass: select and process ---
+        for idx, topic in enumerate(topics):
+            if topic not in topic_fresh_news:
+                continue
+
+            fresh_news, cached_data = topic_fresh_news[topic]
+            max_for_topic = topic_slots.get(topic, 3)
+
+            # SELECCION TOP N (balanced)
+            selected_news = await self._select_top_3_cached(topic, fresh_news, max_count=max_for_topic)
+            print(f"   ✅ [{topic}] Seleccionadas Top {len(selected_news)} para el boletín.")
             
             # TRADUCCION DE LAS NOTICIAS SELECCIONADAS
             user_lang_lower = user_lang.lower()
@@ -492,7 +591,7 @@ class Orchestrator:
                 
                 # Generar HTML pre-renderizado (Ya viene redactado, solo envolver)
                 # OJO: Pasamos 'final_cat' para que el HTML (colores etc) si dependiera de ello, salga bien.
-                pre_html = self._format_cached_news_to_html(news, final_cat)
+                pre_html = self._format_cached_news_to_html(news, final_cat, user_lang=user_lang)
                 
                 category_map[final_cat][art_url] = {
                     "title": title,
@@ -521,25 +620,10 @@ class Orchestrator:
 
         # Generación Secciones (Join HTML pre-renderizado)
         final_html_parts = []
-        
-        CATEGORY_DISPLAY_MAP = {
-            "Política": "🏛️ POLÍTICA Y GOBIERNO",
-            "Geopolítica": "🌍 GEOPOLÍTICA GLOBAL",
-            "Economía y Finanzas": "💰 ECONOMÍA Y MERCADOS",
-            "Negocios y Empresas": "🏢 NEGOCIOS Y EMPRESAS",
-            "Tecnología y Digital": "💻 TECNOLOGÍA Y DIGITAL",
-            "Ciencia e Investigación": "🔬 CIENCIA E INVESTIGACIÓN",
-            "Sociedad": "👥 SOCIEDAD",
-            "Cultura y Entretenimiento": "🎭 CULTURA Y ENTRETENIMIENTO",
-            "Deporte": "⚽ DEPORTES",
-            "Salud y Bienestar": "🏥 SALUD Y BIENESTAR",
-            "Internacional": "🌍 INTERNACIONAL",
-            "Medio Ambiente y Clima": "🌱 MEDIO AMBIENTE",
-            "Justicia y Legal": "⚖️ JUSTICIA Y LEGAL",
-            "Transporte y Movilidad": "🚗 TRANSPORTE",
-            "Energía": "⚡ ENERGÍA",
-            "Consumo y Estilo de Vida": "🛍️ CONSUMO Y ESTILO DE VIDA"
-        }
+
+        # Select language-aware category display names
+        lang_key = "en" if user_lang.lower() in ("en", "english") else "es"
+        CATEGORY_DISPLAY_MAP = self.CATEGORY_DISPLAY_I18N.get(lang_key, self.CATEGORY_DISPLAY_I18N["es"])
         
         
         # --- FASE 2b: NORMALIZACIÓN DE CATEGORÍAS ---
@@ -732,7 +816,10 @@ class Orchestrator:
             
             final_html = build_newsletter_html(full_body_html, front_page_html)
             
-            subject = f"📰 Briefing Diario - {datetime.now().strftime('%d/%m/%Y')}"
+            if user_lang.lower() in ("en", "english"):
+                subject = f"📰 Daily Briefing - {datetime.now().strftime('%m/%d/%Y')}"
+            else:
+                subject = f"📰 Briefing Diario - {datetime.now().strftime('%d/%m/%Y')}"
             print(f"\n📧 Enviando email a {user_email}...")
             self.email_service.send_email(user_email, subject, final_html)
             print(f"   ✅ Email enviado correctamente!")

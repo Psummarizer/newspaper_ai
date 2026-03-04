@@ -3018,6 +3018,51 @@
     "country": "ES"
   },
   {
+    "category": "Agricultura y Alimentación",
+    "name": "Google News - Palm Oil",
+    "domain": "news.google.com",
+    "rss_url": "https://news.google.com/rss/search?q=%22palm+oil%22+price+market&hl=en-US&gl=US&ceid=US:en",
+    "base_url": "https://news.google.com",
+    "language": "en",
+    "country": "US"
+  },
+  {
+    "category": "Agricultura y Alimentación",
+    "name": "Google News - Soy Oil",
+    "domain": "news.google.com",
+    "rss_url": "https://news.google.com/rss/search?q=%22soy+oil%22+OR+%22soybean+oil%22+price+market&hl=en-US&gl=US&ceid=US:en",
+    "base_url": "https://news.google.com",
+    "language": "en",
+    "country": "US"
+  },
+  {
+    "category": "Agricultura y Alimentación",
+    "name": "Google News - Biodiesel Mandates",
+    "domain": "news.google.com",
+    "rss_url": "https://news.google.com/rss/search?q=biodiesel+mandates+policy+biofuel&hl=en-US&gl=US&ceid=US:en",
+    "base_url": "https://news.google.com",
+    "language": "en",
+    "country": "US"
+  },
+  {
+    "category": "Agricultura y Alimentación",
+    "name": "Google News - Aceite de Soja y Biodiesel",
+    "domain": "news.google.com",
+    "rss_url": "https://news.google.com/rss/search?q=%22aceite+de+soja%22+OR+%22aceite+de+palma%22+OR+biodiesel&hl=es&gl=ES&ceid=ES:es",
+    "base_url": "https://news.google.com",
+    "language": "es",
+    "country": "ES"
+  },
+  {
+    "category": "Agricultura y Alimentación",
+    "name": "Google News - Commodities Oils",
+    "domain": "news.google.com",
+    "rss_url": "https://news.google.com/rss/search?q=%22palm+oil%22+OR+%22soy+oil%22+biodiesel+mandate&hl=en-US&gl=US&ceid=US:en",
+    "base_url": "https://news.google.com",
+    "language": "en",
+    "country": "US"
+  },
+  {
     "category": "Educación y Conocimiento",
     "name": "El País - Educación",
     "domain": "elpais.com",
@@ -3833,6 +3878,60 @@
     "domain": "libertaddigital.com",
     "rss_url": "https://www.libertaddigital.com/rss/portada.xml",
     "base_url": "https://www.libertaddigital.com",
+    "language": "es",
+    "country": "ES"
+  },
+  {
+    "category": "Política",
+    "name": "Libertad Digital - Internacional",
+    "domain": "libertaddigital.com",
+    "rss_url": "https://www.libertaddigital.com/rss/internacional.xml",
+    "base_url": "https://www.libertaddigital.com",
+    "language": "es",
+    "country": "ES"
+  },
+  {
+    "category": "Política",
+    "name": "Libertad Digital - Opinión",
+    "domain": "libertaddigital.com",
+    "rss_url": "https://www.libertaddigital.com/rss/opinion.xml",
+    "base_url": "https://www.libertaddigital.com",
+    "language": "es",
+    "country": "ES"
+  },
+  {
+    "category": "Economía y Finanzas",
+    "name": "Libertad Digital - Economía",
+    "domain": "libertaddigital.com",
+    "rss_url": "https://www.libertaddigital.com/rss/economia.xml",
+    "base_url": "https://www.libertaddigital.com",
+    "language": "es",
+    "country": "ES"
+  },
+  {
+    "category": "Sociedad",
+    "name": "Libertad Digital - Sociedad",
+    "domain": "libertaddigital.com",
+    "rss_url": "https://www.libertaddigital.com/rss/sociedad.xml",
+    "base_url": "https://www.libertaddigital.com",
+    "language": "es",
+    "country": "ES"
+  },
+  {
+    "category": "Política",
+    "name": "The Objective",
+    "domain": "theobjective.com",
+    "rss_url": "https://theobjective.com/feed/",
+    "base_url": "https://theobjective.com",
+    "language": "es",
+    "country": "ES"
+  },
+  {
+    "category": "Política",
+    "name": "El Debate",
+    "domain": "eldebate.com",
+    "rss_url": "https://news.google.com/rss/search?q=site:eldebate.com&hl=es&gl=ES&ceid=ES:es",
+    "base_url": "https://www.eldebate.com",
     "language": "es",
     "country": "ES"
   },

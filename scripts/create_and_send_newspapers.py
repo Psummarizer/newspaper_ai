@@ -119,6 +119,7 @@ async def generate_and_send():
             "email": email,
             "Topics": user_topics_list,
             "Language": language,
+            "country": sub_data.get("country") or sub_data.get("Country", ""),
             "forbidden_sources": sub_data.get("forbidden_sources", ""),
             "news_podcast": sub_data.get("news_podcast") or sub_data.get("NewsPodcast"),
             "preferences": sub_data.get("preferences") or sub_data.get("Preferences", {})

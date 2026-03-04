@@ -25,6 +25,7 @@ python-dateutil
 duckduckgo_search
 curl_cffi
 feedparser
+googlenewsdecoder
 aiosqlite
 aiohttp
 firebase-admin>=6.2.0

@@ -227,8 +227,8 @@ class HourlyProcessor:
         
         topic_info = topics_data[topic_id]
         
-        # Asignar categorías si no tiene
-        if not topic_info.get("categories"):
+        # Asignar categorías si no tiene, o re-evaluar si tiene 0 noticias
+        if not topic_info.get("categories") or not topic_info.get("noticias"):
             categories = await self._assign_categories(topic_name)
             topic_info["categories"] = categories
             logger.info(f"📂 {topic_name} → {categories}")
@@ -1105,44 +1105,63 @@ class HourlyProcessor:
         url = source.get('url') or source.get('rss_url')
         category = source.get('category', 'General')
         name = source.get('name', url[:30] if url else 'Unknown')
-        
+
         if not url: return [], "no_url"
-        
+
+        is_google_news = 'news.google.com' in url
+
         feed_content = await self._fetch_feed(session, url)
         if not feed_content: return [], "fetch_failed"
-        
+
         try:
             feed = feedparser.parse(feed_content)
             entries = feed.entries[:15]
-            
+
             if not entries: return [], "no_entries"
-            
+
             articles = []
             for entry in entries:
                 try:
                     link = entry.get('link')
                     if not link: continue
-                    
+
                     title = entry.get('title', '')
                     summary = entry.get('summary', '') or entry.get('description', '')
-                    
+
+                    # Google News: resolve real URL and extract source name
+                    source_name = name
+                    if is_google_news:
+                        try:
+                            from googlenewsdecoder import new_decoderv1
+                            decoded = await asyncio.to_thread(new_decoderv1, link)
+                            if decoded and decoded.get('status'):
+                                link = decoded['decoded_url']
+                        except Exception:
+                            pass  # Keep Google News URL as fallback
+                        # Use original source name from RSS entry
+                        gn_source = entry.get('source', {})
+                        if isinstance(gn_source, dict) and gn_source.get('title'):
+                            source_name = gn_source['title']
+                        # Google News summary is HTML garbage, use title as content
+                        summary = title
+
                     published_struct = entry.get('published_parsed')
                     if published_struct:
                         published_at = datetime(*published_struct[:6]).isoformat()
                     else:
                         published_at = datetime.now().isoformat()
-                    
+
                     articles.append({
                         "url": link,
                         "title": title,
                         "content": summary[:1500],
                         "category": category,
                         "published_at": published_at,
-                        "source_name": name
+                        "source_name": source_name
                     })
                 except:
                     pass
-            
+
             return articles, "ok" if articles else "parse_failed"
         except Exception as e:
             return [], f"error:{str(e)[:50]}"
