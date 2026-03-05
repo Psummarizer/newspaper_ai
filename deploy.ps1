@@ -10,8 +10,8 @@ $IMAGE_REPO_NAME = "newsletter-repo"
 $IMAGE_TAG = "$REGION-docker.pkg.dev/$PROJECT_ID/$IMAGE_REPO_NAME/$SERVICE_NAME"
 
 # --- 1. ACTIVAR APIs NECESARIAS ---
-Write-Host "[INFO] Activando APIs (run, scheduler, artifacts)..."
-gcloud services enable run.googleapis.com artifactregistry.googleapis.com cloudscheduler.googleapis.com --project=$PROJECT_ID
+Write-Host "[INFO] Activando APIs (run, scheduler, artifacts, cloudbuild)..."
+gcloud services enable run.googleapis.com artifactregistry.googleapis.com cloudscheduler.googleapis.com cloudbuild.googleapis.com --project=$PROJECT_ID
 
 # --- 2. CONFIGURAR ARTIFACT REGISTRY ---
 Write-Host "[INFO] Configurando Artifact Registry..."
@@ -22,15 +22,12 @@ if ($LASTEXITCODE -ne 0) {
 }
 gcloud auth configure-docker $REGION-docker.pkg.dev --quiet
 
-# --- 3. BUILD & PUSH ---
-Write-Host "[INFO] Construyendo imagen Docker..."
-# NOTA: Ahora copiamos el .env dentro de la imagen (Usuario confirmo que quiere esto para evitar costes de Secret Manager)
-docker build -t "${IMAGE_TAG}:latest" .
-if ($LASTEXITCODE -ne 0) { Write-Error "Fallo en docker build"; exit 1 }
-
-Write-Host "[INFO] Subiendo imagen..."
-docker push "${IMAGE_TAG}:latest"
-if ($LASTEXITCODE -ne 0) { Write-Error "Fallo en docker push"; exit 1 }
+# --- 3. BUILD & PUSH (Cloud Build - no requiere Docker local) ---
+Write-Host "[INFO] Construyendo y subiendo imagen via Cloud Build..."
+# El .env se incluye en la imagen (excluido de .gitignore pero permitido en .gcloudignore)
+# Cloud Build construye en GCP directamente, sin necesitar Docker Desktop ni WSL local
+gcloud builds submit --tag "${IMAGE_TAG}:latest" --project=$PROJECT_ID --region=$REGION
+if ($LASTEXITCODE -ne 0) { Write-Error "Fallo en Cloud Build (build+push)"; exit 1 }
 
 # --- 4. DEPLOY CLOUD RUN ---
 Write-Host "[INFO] Desplegando en Cloud Run..."

@@ -196,11 +196,11 @@ class Orchestrator:
         </div>
         '''
 
-    async def _select_top_3_cached(self, topic: str, news_list: List[Dict], max_count: int = 3) -> List[Dict]:
+    async def _select_top_3_cached(self, topic: str, news_list: List[Dict], max_count: int = 3, user_contexts: List[str] = None) -> List[Dict]:
         """Selecciona las top N noticias más relevantes de la lista cacheada usando LLM"""
         if len(news_list) <= max_count:
             return news_list
-            
+
         # Preparar input
         prompt_text = ""
         for i, news in enumerate(news_list):
@@ -211,23 +211,32 @@ class Orchestrator:
             domains = [urlparse(s).netloc.replace("www.", "") for s in sources]
             domain_str = ", ".join(domains[:2]) # First 2 sources
             prompt_text += f"ID {i}: [{domain_str}] {title} | {summary}\n"
-            
+
+        # Build source preference instruction from user_contexts
+        source_pref_str = ""
+        if user_contexts:
+            contexts_joined = "; ".join(str(c) for c in user_contexts if c)
+            source_pref_str = (
+                f"\n⚠️ PREFERENCIAS DEL USUARIO: {contexts_joined}\n"
+                f"Si el usuario menciona medios concretos, ASEGÚRATE de incluir al menos 1 noticia de esos medios entre los seleccionados (si hay disponibles).\n"
+            )
+
         prompt = f"""
         Eres un Editor Jefe enfocado en VIRALIDAD y ENGAGEMENT. Tienes {len(news_list)} noticias sobre "{topic}".
         Selecciona las {max_count} noticias MÁS IMPACTANTES, VIRALES o POLÉMICAS para el boletín.
-        
+        {source_pref_str}
         CRITERIOS DE SELECCIÓN (ORDEN DE PRIORIDAD):
         1. 🔥 **SENSACIONALISMO INFORMATIVO**: Prioriza noticias que generen "Wow", miedo, debate o sorpresa. (Ej: "IA cobra conciencia" > "IA mejora un 2%").
         2. 🗣️ **ALTO IMPACTO SOCIAL**: Noticias que afectan a la gente, su dinero, su trabajo o su futuro inmediato.
         3. ⚡ **VIRALIDAD**: Temas de los que todo el mundo hablará mañana.
         4. **DIVERSIDAD DE FUENTES**: Evita repetir el mismo medio para diferentes noticias.
-        
+
         ❌ **DESCARTAR**: Notas de prensa corporativas aburridas, actualizaciones de software menores, noticias demasiado técnicas sin impacto real.
-        
+
         Queremos que el lector NO pueda dejar de leer. Busca el ángulo más "picante" pero veradaz.
-        
+
         {prompt_text}
-        
+
         Responde SOLO JSON: {{"selected_ids": [0, 2, 5]}}
         """
         
@@ -452,6 +461,40 @@ class Orchestrator:
             fresh_news.sort(key=lambda a: _compute_article_score(a, current_time, user_country), reverse=True)
             print(f"   Noticias ordenadas por relevancia: {len(fresh_news)}")
 
+            # Extract preferred source domains from user_contexts for scoring boost
+            _preferred_domains = set()
+            _ctx_list = cached_data.get("user_contexts", [])
+            # Known media name -> domain mapping
+            _media_domain_map = {
+                "el debate": "eldebate.com", "eldebate": "eldebate.com",
+                "el confidencial": "elconfidencial.com", "elconfidencial": "elconfidencial.com",
+                "libertad digital": "libertaddigital.com", "libertaddigital": "libertaddigital.com",
+                "the objective": "theobjective.com", "theobjective": "theobjective.com",
+                "vozpopuli": "vozpopuli.com", "voz populi": "vozpopuli.com", "voz pópuli": "vozpopuli.com",
+                "el mundo": "elmundo.es", "elmundo": "elmundo.es",
+                "el país": "elpais.com", "elpais": "elpais.com",
+                "abc": "abc.es", "la razón": "larazon.es", "la razon": "larazon.es",
+                "okdiario": "okdiario.com", "esdiario": "esdiario.com",
+            }
+            for ctx in _ctx_list:
+                ctx_lower = str(ctx).lower()
+                for media_name, domain in _media_domain_map.items():
+                    if media_name in ctx_lower:
+                        _preferred_domains.add(domain)
+
+            # Re-sort with preferred source boost if any
+            if _preferred_domains:
+                def _boosted_score(article):
+                    base = _compute_article_score(article, current_time, user_country)
+                    # Check if article source matches preferred domains
+                    for src_url in article.get("fuentes", []):
+                        src_domain = urlparse(src_url).netloc.lower().replace("www.", "")
+                        if src_domain in _preferred_domains:
+                            return base + 2.0  # Significant boost
+                    return base
+                fresh_news.sort(key=_boosted_score, reverse=True)
+                print(f"   🎯 Boost aplicado para fuentes preferidas: {_preferred_domains}")
+
             # Store for second pass (section balancing)
             topic_fresh_news[topic] = (fresh_news, cached_data)
 
@@ -494,8 +537,9 @@ class Orchestrator:
             fresh_news, cached_data = topic_fresh_news[topic]
             max_for_topic = topic_slots.get(topic, 3)
 
-            # SELECCION TOP N (balanced)
-            selected_news = await self._select_top_3_cached(topic, fresh_news, max_count=max_for_topic)
+            # SELECCION TOP N (balanced) - pass user_contexts for source preferences
+            topic_user_contexts = cached_data.get("user_contexts", [])
+            selected_news = await self._select_top_3_cached(topic, fresh_news, max_count=max_for_topic, user_contexts=topic_user_contexts)
             print(f"   ✅ [{topic}] Seleccionadas Top {len(selected_news)} para el boletín.")
             
             # TRADUCCION DE LAS NOTICIAS SELECCIONADAS
