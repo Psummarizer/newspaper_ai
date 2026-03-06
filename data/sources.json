@@ -839,7 +839,7 @@
     "category": "Ciencia e Investigación",
     "name": "National Geographic ES",
     "domain": "nationalgeographic.com.es",
-    "rss_url": "https://www.nationalgeographic.com.es/feeds/rss",
+    "rss_url": "https://news.google.com/rss/search?q=site:nationalgeographic.com.es&hl=es&gl=ES&ceid=ES:es",
     "base_url": "https://www.nationalgeographic.com.es"
   },
   {
@@ -898,7 +898,7 @@
     "category": "Ciencia e Investigación",
     "name": "National Geographic ES",
     "domain": "nationalgeographic.com.es",
-    "rss_url": "https://www.nationalgeographic.com.es/feeds/rss",
+    "rss_url": "https://news.google.com/rss/search?q=site:nationalgeographic.com.es&hl=es&gl=ES&ceid=ES:es",
     "base_url": "https://www.nationalgeographic.com.es",
     "language": "es",
     "country": "ES"
@@ -997,7 +997,7 @@
     "category": "Ciencia e Investigación",
     "name": "National Geographic – Ciencia",
     "domain": "nationalgeographic.com.es",
-    "rss_url": "https://www.nationalgeographic.com.es/feeds/rss",
+    "rss_url": "https://news.google.com/rss/search?q=site:nationalgeographic.com.es+ciencia&hl=es&gl=ES&ceid=ES:es",
     "base_url": "https://www.nationalgeographic.com.es",
     "language": "es",
     "country": "ES"
@@ -2316,7 +2316,7 @@
     "category": "Deporte",
     "name": "Sport",
     "domain": "sport.es",
-    "rss_url": "https://www.sport.es/es/rss/last_news/rss.xml",
+    "rss_url": "https://news.google.com/rss/search?q=site:sport.es&hl=es&gl=ES&ceid=ES:es",
     "base_url": "https://www.sport.es"
   },
   {
@@ -2346,7 +2346,7 @@
     "category": "Deporte",
     "name": "Marca – Baloncesto",
     "domain": "marca.com",
-    "rss_url": "https://e00-marca.uecdn.es/rss/baloncesto.xml",
+    "rss_url": "https://news.google.com/rss/search?q=site:marca.com+baloncesto&hl=es&gl=ES&ceid=ES:es",
     "base_url": "https://www.marca.com",
     "language": "es",
     "country": "ES"
@@ -3219,7 +3219,7 @@
     "category": "Deporte",
     "name": "AS Motor - F1",
     "domain": "as.com",
-    "rss_url": "https://feeds.as.com/mrss-s/pages/as/site/as.com/section/motor/subsection/formula-1/portada",
+    "rss_url": "https://feeds.as.com/mrss-s/pages/as/site/as.com/section/motor/portada",
     "base_url": "https://as.com/motor/formula_1/",
     "language": "es",
     "country": "ES"
@@ -3525,7 +3525,7 @@
     "category": "Deporte",
     "name": "Sport",
     "domain": "sport.es",
-    "rss_url": "https://www.sport.es/es/rss/rss.xml",
+    "rss_url": "https://news.google.com/rss/search?q=site:sport.es&hl=es&gl=ES&ceid=ES:es",
     "base_url": "https://www.sport.es",
     "language": "es",
     "country": "ES"
@@ -3822,7 +3822,7 @@
     "category": "Geopolítica",
     "name": "Infobae América",
     "domain": "infobae.com",
-    "rss_url": "https://www.infobae.com/feeds/rss/",
+    "rss_url": "https://www.infobae.com/arc/outboundfeeds/rss/?outputType=xml",
     "base_url": "https://www.infobae.com",
     "language": "es",
     "country": "AR"
@@ -3860,15 +3860,6 @@
     "domain": "infolibre.es",
     "rss_url": "https://www.infolibre.es/rss/",
     "base_url": "https://www.infolibre.es",
-    "language": "es",
-    "country": "ES"
-  },
-  {
-    "category": "Política",
-    "name": "Vozpópuli",
-    "domain": "vozpopuli.com",
-    "rss_url": "https://www.vozpopuli.com/rss/",
-    "base_url": "https://www.vozpopuli.com",
     "language": "es",
     "country": "ES"
   },
@@ -4009,18 +4000,18 @@
   },
   {
     "category": "Sociedad",
-    "name": "El Mundo - Sociedad",
+    "name": "El Mundo - Portada",
     "domain": "elmundo.es",
-    "rss_url": "https://e00-elmundo.uecdn.es/elmundo/rss/sociedad.xml",
+    "rss_url": "https://e00-elmundo.uecdn.es/elmundo/rss/portada.xml",
     "base_url": "https://www.elmundo.es/sociedad.html",
     "language": "es",
     "country": "ES"
   },
   {
     "category": "Sociedad",
-    "name": "20 Minutos - Sociedad",
+    "name": "20 Minutos - General",
     "domain": "20minutos.es",
-    "rss_url": "https://www.20minutos.es/rss/sociedad/",
+    "rss_url": "https://www.20minutos.es/rss/",
     "base_url": "https://www.20minutos.es/sociedad/",
     "language": "es",
     "country": "ES"
@@ -4362,26 +4353,17 @@
     "category": "Deporte",
     "name": "AS - Portada",
     "domain": "as.com",
-    "rss_url": "https://as.com/rss/tags/ultimas_noticias.xml",
+    "rss_url": "https://feeds.as.com/mrss-s/pages/as/site/as.com/portada",
     "base_url": "https://as.com",
     "language": "es",
     "country": "ES"
   },
   {
     "category": "Deporte",
-    "name": "AS - Real Madrid",
+    "name": "AS - Fútbol General",
     "domain": "as.com",
-    "rss_url": "https://as.com/rss/futbol/primera/equipos/real_madrid.xml",
+    "rss_url": "https://feeds.as.com/mrss-s/pages/as/site/as.com/section/futbol/portada",
     "base_url": "https://as.com/futbol/primera/equipos/real_madrid",
-    "language": "es",
-    "country": "ES"
-  },
-  {
-    "category": "Deporte",
-    "name": "AS - Barcelona",
-    "domain": "as.com",
-    "rss_url": "https://as.com/rss/futbol/primera/equipos/barcelona.xml",
-    "base_url": "https://as.com/futbol/primera/equipos/barcelona",
     "language": "es",
     "country": "ES"
   },
@@ -4407,7 +4389,7 @@
     "category": "Deporte",
     "name": "Sport - Portada",
     "domain": "sport.es",
-    "rss_url": "https://www.sport.es/es/rss/last_news/rss.xml",
+    "rss_url": "https://news.google.com/rss/search?q=site:sport.es+portada&hl=es&gl=ES&ceid=ES:es",
     "base_url": "https://www.sport.es",
     "language": "es",
     "country": "ES"

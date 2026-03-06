@@ -1008,9 +1008,17 @@ class HourlyProcessor:
                 # Combine title + content for better LLM input
                 content = f"{title}. {content}" if content else title
                 logger.info(f"   ⚠️ Scraping falló, usando RSS content ({len(content)} chars)")
+            elif len(title) > 30:
+                # Last resort: use just the title if it's descriptive enough
+                content = title
+                logger.info(f"   ⚠️ Scraping falló, usando solo título ({len(content)} chars)")
             else:
                 logger.info(f"⏭️ Descartando '{title[:40]}...' - contenido insuficiente ({len(content)} chars)")
                 return None
+        elif len(content) < MIN_CONTENT_FALLBACK and len(title) > 30:
+            # Content very short but title is descriptive - use title
+            content = f"{title}. {content}" if content else title
+            logger.info(f"   ⚠️ Contenido corto, combinando con título ({len(content)} chars)")
         elif len(content) < MIN_CONTENT_FALLBACK:
             logger.info(f"⏭️ Descartando '{title[:40]}...' - contenido muy corto ({len(content)} chars)")
             return None
@@ -1137,6 +1145,11 @@ class HourlyProcessor:
 
                     title = entry.get('title', '')
                     summary = entry.get('summary', '') or entry.get('description', '')
+
+                    # If RSS has no summary at all, use title as minimum content
+                    # This prevents articles from being discarded in _redact_article
+                    if not summary.strip() and title.strip():
+                        summary = title
 
                     # Google News: resolve real URL and extract source name
                     source_name = name
