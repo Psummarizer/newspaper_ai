@@ -270,28 +270,33 @@ class Orchestrator:
         source_pref_str = ""
         if user_contexts:
             contexts_joined = "; ".join(str(c) for c in user_contexts if c)
-            source_pref_str = (
-                f"\n⚠️ PREFERENCIAS DEL USUARIO: {contexts_joined}\n"
-                f"Si el usuario menciona medios concretos, ASEGÚRATE de incluir al menos 1 noticia de esos medios entre los seleccionados (si hay disponibles).\n"
-            )
+            if contexts_joined.strip():
+                source_pref_str = (
+                    f"\n🔴 MANDATORY USER PREFERENCES: {contexts_joined}\n"
+                    f"- If the user mentions specific media outlets, you MUST include at least 1-2 articles from those outlets (if available in the list).\n"
+                    f"- If the user specifies a sub-topic focus (e.g. 'only men's football', 'especially Aston Martin'), ONLY select articles matching that focus.\n"
+                    f"- Articles NOT matching the user's stated preferences should be deprioritized.\n"
+                )
 
         prompt = f"""
-        Eres un Editor Jefe enfocado en VIRALIDAD y ENGAGEMENT. Tienes {len(news_list)} noticias sobre "{topic}".
-        Selecciona las {max_count} noticias MÁS IMPACTANTES, VIRALES o POLÉMICAS para el boletín.
+        You are an Editor-in-Chief selecting the {max_count} most relevant and impactful news for topic "{topic}".
         {source_pref_str}
-        CRITERIOS DE SELECCIÓN (ORDEN DE PRIORIDAD):
-        1. 🔥 **SENSACIONALISMO INFORMATIVO**: Prioriza noticias que generen "Wow", miedo, debate o sorpresa. (Ej: "IA cobra conciencia" > "IA mejora un 2%").
-        2. 🗣️ **ALTO IMPACTO SOCIAL**: Noticias que afectan a la gente, su dinero, su trabajo o su futuro inmediato.
-        3. ⚡ **VIRALIDAD**: Temas de los que todo el mundo hablará mañana.
-        4. **DIVERSIDAD DE FUENTES**: Evita repetir el mismo medio para diferentes noticias.
+        SELECTION CRITERIA (PRIORITY ORDER):
+        1. 📅 **TODAY'S NEWS FIRST**: Strongly prefer news about events that happened TODAY. If an event already occurred (match finished, vote happened, decision made), prefer the RESULT/ANALYSIS over previews, lineups, or predictions.
+        2. 🎯 **TOPIC RELEVANCE**: The article must be DIRECTLY about "{topic}". Generic or tangential articles should be discarded.
+        3. 🔥 **HIGH IMPACT**: Prefer news with real consequences — policy changes, major events, significant results.
+        4. 📰 **SOURCE DIVERSITY**: Avoid repeating the same outlet for different articles.
+        5. ⚡ **ENGAGEMENT**: News people will talk about today.
 
-        ❌ **DESCARTAR**: Notas de prensa corporativas aburridas, actualizaciones de software menores, noticias demasiado técnicas sin impacto real.
-
-        Queremos que el lector NO pueda dejar de leer. Busca el ángulo más "picante" pero veradaz.
+        ❌ **DISCARD**:
+        - Pre-event previews/lineups if post-event results exist
+        - Promotional/branded content, PR press releases
+        - Articles only tangentially related to "{topic}"
+        - Celebrity gossip or lifestyle content unless the topic is specifically about that
 
         {prompt_text}
 
-        Responde SOLO JSON: {{"selected_ids": [0, 2, 5]}}
+        Respond ONLY JSON: {{"selected_ids": [0, 2, 5]}}
         """
         
         try:
@@ -541,6 +546,11 @@ class Orchestrator:
                 "el país": "elpais.com", "elpais": "elpais.com",
                 "abc": "abc.es", "la razón": "larazon.es", "la razon": "larazon.es",
                 "okdiario": "okdiario.com", "esdiario": "esdiario.com",
+                "as": "as.com", "diario as": "as.com",
+                "marca": "marca.com", "sport": "sport.es",
+                "motorsport": "es.motorsport.com", "motorsport.com": "es.motorsport.com",
+                "la vanguardia": "lavanguardia.com", "lavanguardia": "lavanguardia.com",
+                "20 minutos": "20minutos.es", "20minutos": "20minutos.es",
             }
             for ctx in _ctx_list:
                 ctx_lower = str(ctx).lower()
@@ -556,7 +566,7 @@ class Orchestrator:
                     for src_url in article.get("fuentes", []):
                         src_domain = urlparse(src_url).netloc.lower().replace("www.", "")
                         if src_domain in _preferred_domains:
-                            return base + 2.0  # Significant boost
+                            return base + 5.0  # Strong boost for user-preferred sources
                     return base
                 fresh_news.sort(key=_boosted_score, reverse=True)
                 print(f"   🎯 Boost aplicado para fuentes preferidas: {_preferred_domains}")

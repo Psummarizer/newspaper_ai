@@ -369,11 +369,13 @@ class ContentProcessorAgent:
         OUTPUT: JSON with the 3 to 7 most important/impactful stories.
         
         SELECTION CRITERIA:
-        1. Variety of topics (Politics, Tech, Sports, Economy...).
-        2. High impact and relevance (big news).
-        3. NO DUPLICATES (CRITICAL):
+        1. TODAY'S NEWS FIRST: Strongly prefer news about events that happened TODAY. Results/outcomes over previews/predictions.
+        2. Variety of topics (Politics, Tech, Sports, Economy...).
+        3. High impact and relevance (big news with real consequences).
+        4. NO DUPLICATES (CRITICAL):
            - If multiple stories cover the SAME event, choose only the most complete one.
            - Never include 2 stories that cover basically the same thing.
+        5. DISCARD pre-event previews/lineups if post-event results exist, promotional content, and tangential lifestyle filler.
         
         OUTPUT JSON FORMAT:
         {{
