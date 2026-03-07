@@ -514,15 +514,6 @@
   },
   {
     "category": "Economía y Finanzas",
-    "name": "Reuters – Finance",
-    "domain": "reuters.com",
-    "rss_url": "https://news.google.com/rss/search?q=site%3Areuters.com&hl=en-US&gl=US&ceid=US%3Aen",
-    "base_url": "https://www.reuters.com/finance",
-    "language": "en",
-    "country": "US"
-  },
-  {
-    "category": "Economía y Finanzas",
     "name": "The Wall Street Journal",
     "domain": "wsj.com",
     "rss_url": "https://feeds.a.dj.com/rss/RSSMarketsMain.xml",
@@ -565,15 +556,6 @@
     "base_url": "https://www.handelsblatt.com",
     "language": "de",
     "country": "DE"
-  },
-  {
-    "category": "Economía y Finanzas",
-    "name": "Nikkei Asia",
-    "domain": "nikkei.com",
-    "rss_url": "https://asia.nikkei.com/rss/feed/nar",
-    "base_url": "https://asia.nikkei.com",
-    "language": "en",
-    "country": "JP"
   },
   {
     "category": "Economía y Finanzas",
@@ -896,15 +878,6 @@
   },
   {
     "category": "Ciencia e Investigación",
-    "name": "National Geographic ES",
-    "domain": "nationalgeographic.com.es",
-    "rss_url": "https://news.google.com/rss/search?q=site:nationalgeographic.com.es&hl=es&gl=ES&ceid=ES:es",
-    "base_url": "https://www.nationalgeographic.com.es",
-    "language": "es",
-    "country": "ES"
-  },
-  {
-    "category": "Ciencia e Investigación",
     "name": "Live Science",
     "domain": "livescience.com",
     "rss_url": "https://www.livescience.com/feeds/all",
@@ -1004,15 +977,6 @@
   },
   {
     "category": "Ciencia e Investigación",
-    "name": "Phys.org",
-    "domain": "phys.org",
-    "rss_url": "https://phys.org/rss-feed/science-news/",
-    "base_url": "https://phys.org",
-    "language": "en",
-    "country": "US"
-  },
-  {
-    "category": "Ciencia e Investigación",
     "name": "Phys.org – Physics",
     "domain": "phys.org",
     "rss_url": "https://phys.org/rss-feed/physics-news/",
@@ -1046,15 +1010,6 @@
     "base_url": "https://www.sciencedaily.com",
     "language": "en",
     "country": "US"
-  },
-  {
-    "category": "Ciencia e Investigación",
-    "name": "Nature – News",
-    "domain": "nature.com",
-    "rss_url": "https://www.nature.com/nature.rss",
-    "base_url": "https://www.nature.com",
-    "language": "en",
-    "country": "UK"
   },
   {
     "category": "Ciencia e Investigación",
@@ -1179,15 +1134,6 @@
     "domain": "frontiersin.org",
     "rss_url": "https://www.frontiersin.org/journals/applied-mathematics-and-statistics/rss",
     "base_url": "https://www.frontiersin.org/journals/applied-mathematics-and-statistics",
-    "language": "en",
-    "country": "INT"
-  },
-  {
-    "category": "Ciencia e Investigación",
-    "name": "Frontiers in Artificial Intelligence",
-    "domain": "frontiersin.org",
-    "rss_url": "https://www.frontiersin.org/journals/artificial-intelligence/rss",
-    "base_url": "https://www.frontiersin.org/journals/artificial-intelligence",
     "language": "en",
     "country": "INT"
   },
@@ -3135,33 +3081,6 @@
     "country": "ES"
   },
   {
-    "category": "Cultura Digital y Sociedad de la Información",
-    "name": "Genbeta",
-    "domain": "genbeta.com",
-    "rss_url": "https://www.genbeta.com/feedburner.xml",
-    "base_url": "https://www.genbeta.com",
-    "language": "es",
-    "country": "ES"
-  },
-  {
-    "category": "Cultura Digital y Sociedad de la Información",
-    "name": "Xataka",
-    "domain": "xataka.com",
-    "rss_url": "https://www.xataka.com/feedburner.xml",
-    "base_url": "https://www.xataka.com",
-    "language": "es",
-    "country": "ES"
-  },
-  {
-    "category": "Cultura Digital y Sociedad de la Información",
-    "name": "Hipertextual",
-    "domain": "hipertextual.com",
-    "rss_url": "https://hipertextual.com/feed",
-    "base_url": "https://hipertextual.com",
-    "language": "es",
-    "country": "ES"
-  },
-  {
     "category": "Filantropía e Impacto Social",
     "name": "El País - Planeta Futuro",
     "domain": "elpais.com",
@@ -3496,15 +3415,6 @@
   },
   {
     "category": "Deporte",
-    "name": "Marca - Deportes",
-    "domain": "marca.com",
-    "rss_url": "https://e00-marca.uecdn.es/rss/portada.xml",
-    "base_url": "https://www.marca.com",
-    "language": "es",
-    "country": "ES"
-  },
-  {
-    "category": "Deporte",
     "name": "AS - Deportes",
     "domain": "as.com",
     "rss_url": "https://feeds.as.com/mrss-s/pages/as/site/as.com/portada",
@@ -3518,15 +3428,6 @@
     "domain": "mundodeportivo.com",
     "rss_url": "https://www.mundodeportivo.com/rss/home.xml",
     "base_url": "https://www.mundodeportivo.com",
-    "language": "es",
-    "country": "ES"
-  },
-  {
-    "category": "Deporte",
-    "name": "Sport",
-    "domain": "sport.es",
-    "rss_url": "https://news.google.com/rss/search?q=site:sport.es&hl=es&gl=ES&ceid=ES:es",
-    "base_url": "https://www.sport.es",
     "language": "es",
     "country": "ES"
   },
@@ -3583,15 +3484,6 @@
     "base_url": "https://www.indiewire.com",
     "language": "en",
     "country": "US"
-  },
-  {
-    "category": "Cultura y Entretenimiento",
-    "name": "El País - Cultura",
-    "domain": "elpais.com",
-    "rss_url": "https://feeds.elpais.com/mrss-s/pages/ep/site/elpais.com/section/cultura/portada",
-    "base_url": "https://elpais.com/cultura/",
-    "language": "es",
-    "country": "ES"
   },
   {
     "category": "Medio Ambiente y Clima",
@@ -3721,30 +3613,12 @@
   },
   {
     "category": "Geopolítica",
-    "name": "The Guardian - World",
-    "domain": "theguardian.com",
-    "rss_url": "https://www.theguardian.com/world/rss",
-    "base_url": "https://www.theguardian.com/world",
-    "language": "en",
-    "country": "UK"
-  },
-  {
-    "category": "Geopolítica",
     "name": "The Guardian - US Politics",
     "domain": "theguardian.com",
     "rss_url": "https://www.theguardian.com/us-news/us-politics/rss",
     "base_url": "https://www.theguardian.com/us-news/us-politics",
     "language": "en",
     "country": "UK"
-  },
-  {
-    "category": "Geopolítica",
-    "name": "Le Monde - International",
-    "domain": "lemonde.fr",
-    "rss_url": "https://www.lemonde.fr/international/rss_full.xml",
-    "base_url": "https://www.lemonde.fr/international/",
-    "language": "fr",
-    "country": "FR"
   },
   {
     "category": "Geopolítica",
@@ -3991,15 +3865,6 @@
   },
   {
     "category": "Sociedad",
-    "name": "El País - Sociedad",
-    "domain": "elpais.com",
-    "rss_url": "https://feeds.elpais.com/mrss-s/pages/ep/site/elpais.com/section/sociedad/portada",
-    "base_url": "https://elpais.com/sociedad/",
-    "language": "es",
-    "country": "ES"
-  },
-  {
-    "category": "Sociedad",
     "name": "El Mundo - Portada",
     "domain": "elmundo.es",
     "rss_url": "https://e00-elmundo.uecdn.es/elmundo/rss/portada.xml",
@@ -4013,24 +3878,6 @@
     "domain": "20minutos.es",
     "rss_url": "https://www.20minutos.es/rss/",
     "base_url": "https://www.20minutos.es/sociedad/",
-    "language": "es",
-    "country": "ES"
-  },
-  {
-    "category": "Cultura y Entretenimiento",
-    "name": "El Mundo - Cultura",
-    "domain": "elmundo.es",
-    "rss_url": "https://e00-elmundo.uecdn.es/elmundo/rss/cultura.xml",
-    "base_url": "https://www.elmundo.es/cultura.html",
-    "language": "es",
-    "country": "ES"
-  },
-  {
-    "category": "Cultura y Entretenimiento",
-    "name": "ABC - Cultura",
-    "domain": "abc.es",
-    "rss_url": "https://www.abc.es/rss/2.0/cultura/",
-    "base_url": "https://www.abc.es/cultura/",
     "language": "es",
     "country": "ES"
   },
@@ -4054,28 +3901,10 @@
   },
   {
     "category": "Cultura y Entretenimiento",
-    "name": "Sensacine",
-    "domain": "sensacine.com",
-    "rss_url": "https://www.sensacine.com/rss/noticias.xml",
-    "base_url": "https://www.sensacine.com",
-    "language": "es",
-    "country": "ES"
-  },
-  {
-    "category": "Cultura y Entretenimiento",
     "name": "Rolling Stone España",
     "domain": "rollingstone.es",
     "rss_url": "https://www.rollingstone.es/feed/",
     "base_url": "https://www.rollingstone.es",
-    "language": "es",
-    "country": "ES"
-  },
-  {
-    "category": "Deporte",
-    "name": "El País - Deportes",
-    "domain": "elpais.com",
-    "rss_url": "https://feeds.elpais.com/mrss-s/pages/ep/site/elpais.com/section/deportes/portada",
-    "base_url": "https://elpais.com/deportes/",
     "language": "es",
     "country": "ES"
   },
@@ -4315,15 +4144,6 @@
   },
   {
     "category": "Deporte",
-    "name": "Marca - Portada",
-    "domain": "marca.com",
-    "rss_url": "https://e00-marca.uecdn.es/rss/portada.xml",
-    "base_url": "https://www.marca.com",
-    "language": "es",
-    "country": "ES"
-  },
-  {
-    "category": "Deporte",
     "name": "Marca - Real Madrid",
     "domain": "marca.com",
     "rss_url": "https://e00-marca.uecdn.es/rss/futbol/real-madrid.xml",
@@ -4337,24 +4157,6 @@
     "domain": "marca.com",
     "rss_url": "https://e00-marca.uecdn.es/rss/futbol/barcelona.xml",
     "base_url": "https://www.marca.com/futbol/barcelona.html",
-    "language": "es",
-    "country": "ES"
-  },
-  {
-    "category": "Deporte",
-    "name": "Marca - F1",
-    "domain": "marca.com",
-    "rss_url": "https://e00-marca.uecdn.es/rss/motor/formula1.xml",
-    "base_url": "https://www.marca.com/motor/formula1.html",
-    "language": "es",
-    "country": "ES"
-  },
-  {
-    "category": "Deporte",
-    "name": "AS - Portada",
-    "domain": "as.com",
-    "rss_url": "https://feeds.as.com/mrss-s/pages/as/site/as.com/portada",
-    "base_url": "https://as.com",
     "language": "es",
     "country": "ES"
   },
@@ -4425,19 +4227,6 @@
   },
   {
     "category": "Ciencia e Investigación",
-    "name": "National Geographic ES",
-    "domain": "nationalgeographic.com.es",
-    "rss_url": "https://www.nationalgeographic.com.es/feeds/rss",
-    "base_url": "https://www.nationalgeographic.com.es",
-    "language": "es",
-    "country": "ES",
-    "bias": "neutral",
-    "bias_tag": "centro",
-    "region": "Internacional",
-    "reliability": "high"
-  },
-  {
-    "category": "Ciencia e Investigación",
     "name": "PLOS ONE",
     "domain": "journals.plos.org",
     "rss_url": "https://journals.plos.org/plosone/feed/atom",
@@ -4455,19 +4244,6 @@
     "domain": "muyinteresante.es",
     "rss_url": "https://www.muyinteresante.com/feed/",
     "base_url": "https://www.muyinteresante.es",
-    "language": "es",
-    "country": "ES",
-    "bias": "neutral",
-    "bias_tag": "centro",
-    "region": "Internacional",
-    "reliability": "high"
-  },
-  {
-    "category": "Ciencia e Investigación",
-    "name": "National Geographic – Ciencia",
-    "domain": "nationalgeographic.com.es",
-    "rss_url": "https://www.nationalgeographic.com.es/feeds/rss",
-    "base_url": "https://www.nationalgeographic.com.es",
     "language": "es",
     "country": "ES",
     "bias": "neutral",
@@ -5039,19 +4815,6 @@
     "reliability": "high"
   },
   {
-    "category": "Energía",
-    "name": "Biofuels Digest",
-    "domain": "biofuelsdigest.com",
-    "rss_url": "https://www.biofuelsdigest.com/bdigest/feed/",
-    "base_url": "https://www.biofuelsdigest.com",
-    "language": "en",
-    "country": "US",
-    "bias": "centro",
-    "bias_tag": "centro",
-    "region": "Internacional",
-    "reliability": "medium"
-  },
-  {
     "category": "Deporte",
     "name": "Motorsport.com F1",
     "domain": "motorsport.com",
@@ -5219,19 +4982,6 @@
     "bias_tag": "centro",
     "region": "Internacional",
     "reliability": "medium"
-  },
-  {
-    "category": "Economía y Finanzas",
-    "name": "Trade.gov News",
-    "domain": "trade.gov",
-    "rss_url": "https://www.trade.gov/rss.xml",
-    "base_url": "https://www.trade.gov",
-    "language": "en",
-    "country": "US",
-    "bias": "neutral",
-    "bias_tag": "centro",
-    "region": "Norteamérica",
-    "reliability": "high"
   },
   {
     "category": "Política",

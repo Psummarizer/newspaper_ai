@@ -113,34 +113,40 @@ CATEGORY_EMOJIS = {
 WEB_APP_URL = "https://podsummarizer.xyz/"
 
 
-def build_mid_banner(web_url: str = WEB_APP_URL) -> str:
+def build_mid_banner(web_url: str = WEB_APP_URL, lang: str = "es") -> str:
     """
     Banner promocional para el centro del email.
-    100% compatible con Gmail, Outlook, Apple Mail, Yahoo Mail:
-    - Tablas para layout, sin flexbox ni CSS grid
-    - Inline styles únicamente
-    - Sin web fonts externas (usa system fonts stack)
-    - Botón CTA como tabla (no <button>)
-    - Sin background gradients (degrade a solid dark, Outlook-safe)
+    100% compatible con Gmail, Outlook, Apple Mail, Yahoo Mail.
     """
+    is_en = lang.lower() in ("en", "english")
+    eyebrow = "PRIVATE AREA · JUST FOR YOU" if is_en else "ÁREA PRIVADA · SOLO PARA TI"
+    heading_1 = "This is just a" if is_en else "Esto es solo una"
+    heading_em = "preview" if is_en else "muestra"
+    heading_2 = "The full story awaits inside." if is_en else "La historia completa te espera dentro."
+    body_text = ("Hundreds of stories on your favorite topics, "
+                 "in-depth analysis and global trends that email can't contain. "
+                 "Your private dashboard has it all — sorted, filtered and ready.") if is_en else (
+                 "Cientos de noticias sobre tus temas favoritos, "
+                 "análisis en profundidad y tendencias globales que "
+                 "el email no puede contener. "
+                 "Tu panel privado lo tiene todo —ordenado, filtrado y listo.")
+    cta_text = "See all the news" if is_en else "Ver todas las noticias"
+
     return f'''
     <!-- MID NEWSLETTER BANNER -->
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"
            style="max-width:600px; margin:32px 0; border-radius:12px; overflow:hidden;
                   border:2px solid #1DA1F2; background-color:#0D1B2A;">
         <tr>
-            <!-- Franja lateral de color como acento visual (Outlook-safe) -->
             <td width="6" style="background-color:#1DA1F2; padding:0;">&nbsp;</td>
             <td style="padding:32px 28px;">
-
-                <!-- Icono + Eyebrow label -->
                 <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
                     <tr>
                         <td>
                             <p style="margin:0 0 10px 0; font-size:11px; font-weight:700;
                                       letter-spacing:2px; text-transform:uppercase;
                                       color:#1DA1F2; font-family:Helvetica,Arial,sans-serif;">
-                                🔭 &nbsp;ÁREA PRIVADA · SOLO PARA TI
+                                🔭 &nbsp;{eyebrow}
                             </p>
                         </td>
                     </tr>
@@ -149,8 +155,8 @@ def build_mid_banner(web_url: str = WEB_APP_URL) -> str:
                             <h2 style="margin:0 0 14px 0; font-size:22px; line-height:1.25;
                                        font-weight:800; color:#FFFFFF;
                                        font-family:Helvetica,Arial,sans-serif;">
-                                Esto es solo una <em style="color:#1DA1F2;">muestra</em>.<br>
-                                La historia completa te espera dentro.
+                                {heading_1} <em style="color:#1DA1F2;">{heading_em}</em>.<br>
+                                {heading_2}
                             </h2>
                         </td>
                     </tr>
@@ -158,16 +164,12 @@ def build_mid_banner(web_url: str = WEB_APP_URL) -> str:
                         <td>
                             <p style="margin:0 0 24px 0; font-size:15px; line-height:1.6;
                                       color:#8ECDF7; font-family:Helvetica,Arial,sans-serif;">
-                                Cientos de noticias sobre tus temas favoritos,
-                                análisis en profundidad y tendencias globales que
-                                el email no puede contener.
-                                Tu panel privado lo tiene todo —ordenado, filtrado y listo.
+                                {body_text}
                             </p>
                         </td>
                     </tr>
                     <tr>
                         <td>
-                            <!-- CTA Button (table method, Outlook-safe) -->
                             <table role="presentation" cellpadding="0" cellspacing="0" border="0">
                                 <tr>
                                     <td style="border-radius:8px; background-color:#1DA1F2;">
@@ -178,7 +180,7 @@ def build_mid_banner(web_url: str = WEB_APP_URL) -> str:
                                                   font-family:Helvetica,Arial,sans-serif;
                                                   border-radius:8px; letter-spacing:0.3px;"
                                            target="_blank">
-                                            Ver todas las noticias &nbsp;→
+                                            {cta_text} &nbsp;→
                                         </a>
                                     </td>
                                 </tr>
@@ -186,7 +188,6 @@ def build_mid_banner(web_url: str = WEB_APP_URL) -> str:
                         </td>
                     </tr>
                 </table>
-
             </td>
         </tr>
     </table>
@@ -194,7 +195,7 @@ def build_mid_banner(web_url: str = WEB_APP_URL) -> str:
     '''
 
 
-def build_front_page(headlines: list) -> str:
+def build_front_page(headlines: list, lang: str = "es") -> str:
     """
     Construye la portada con tabla. Email compatible.
     """
@@ -278,7 +279,7 @@ def build_front_page(headlines: list) -> str:
             <tr>
                 <td>
                     <p style="margin: 0 0 8px 0; font-size: 11px; font-weight: bold; color: {TEXT_SECONDARY}; text-transform: uppercase; letter-spacing: 1px;">
-                        📰 Portada
+                        📰 {"Headlines" if lang.lower() in ("en", "english") else "Portada"}
                     </p>
                     {featured_html}
                 </td>
@@ -345,7 +346,7 @@ def build_front_page(headlines: list) -> str:
         <tr>
             <td>
                 <p style="margin: 0 0 8px 0; font-size: 11px; font-weight: bold; color: {TEXT_SECONDARY}; text-transform: uppercase; letter-spacing: 1px;">
-                    📰 Portada
+                    📰 {"Headlines" if lang.lower() in ("en", "english") else "Portada"}
                 </p>
                 {featured_html}
                 {"".join(html_parts)}
@@ -355,22 +356,83 @@ def build_front_page(headlines: list) -> str:
     '''
 
 
-def build_newsletter_html(content_body: str, front_page_html: str = "") -> str:
+def build_market_ticker(prices: list, lang: str = "es") -> str:
+    """
+    Renders a compact commodity futures price ticker bar.
+    prices: list of {symbol, name, price, change_pct}
+    """
+    if not prices:
+        return ""
+
+    is_en = lang.lower() in ("en", "english")
+    header_text = "MARKET SNAPSHOT" if is_en else "MERCADOS"
+
+    cells = []
+    for p in prices:
+        pct = p.get("change_pct", 0)
+        arrow = "&#9650;" if pct >= 0 else "&#9660;"  # ▲ or ▼
+        color = "#00C853" if pct >= 0 else "#FF1744"
+        sign = "+" if pct >= 0 else ""
+        price_str = f"${p['price']:,.2f}" if p.get('price') else "N/A"
+
+        cells.append(f'''
+            <td style="padding:8px 10px; text-align:center; border-right:1px solid {BORDER};">
+                <p style="margin:0; font-size:10px; color:{TEXT_SECONDARY}; font-weight:600; letter-spacing:0.5px;">
+                    {p.get('name', p.get('symbol', ''))}
+                </p>
+                <p style="margin:2px 0 0 0; font-size:13px; color:{TEXT_PRIMARY}; font-weight:700;">
+                    {price_str}
+                </p>
+                <p style="margin:1px 0 0 0; font-size:11px; color:{color}; font-weight:600;">
+                    {arrow} {sign}{pct:.2f}%
+                </p>
+            </td>''')
+
+    # Split into rows of 4 for email compatibility
+    rows_html = ""
+    for i in range(0, len(cells), 4):
+        chunk = cells[i:i+4]
+        rows_html += f'<tr>{"".join(chunk)}</tr>'
+
+    return f'''
+    <!-- MARKET TICKER -->
+    <table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0"
+           style="max-width:600px; width:100%; background-color:{BG_CARD}; border:1px solid {BORDER}; border-radius:8px; margin:15px 0;">
+        <tr>
+            <td colspan="4" style="padding:10px 15px 5px; border-bottom:1px solid {BORDER};">
+                <p style="margin:0; font-size:10px; font-weight:700; color:{ACCENT}; letter-spacing:1.5px; text-transform:uppercase;">
+                    📊 {header_text}
+                </p>
+            </td>
+        </tr>
+        {rows_html}
+    </table>
+    '''
+
+
+def build_newsletter_html(content_body: str, front_page_html: str = "", lang: str = "es", market_ticker_html: str = "") -> str:
     """
     Genera el HTML completo del newsletter. 100% Email Compatible.
     """
-    today_date = datetime.now().strftime("%d-%m-%Y")
+    is_en = lang.lower() in ("en", "english")
+    today_date = datetime.now().strftime("%m/%d/%Y" if is_en else "%d-%m-%Y")
     year = datetime.now().year
+
+    title_word = "Daily" if is_en else "Diario"
+    html_lang = "en" if is_en else "es"
+    page_title = "Daily Briefing AI" if is_en else "Briefing Diario AI"
+    news_label = "News" if is_en else "Noticias"
+    footer_text = "Automatically generated." if is_en else "Generado automáticamente."
 
     html = f"""
 <!DOCTYPE html>
-<html lang="es" xmlns="http://www.w3.org/1999/xhtml" xmlns:v="urn:schemas-microsoft-com:vml" xmlns:o="urn:schemas-microsoft-com:office:office">
+<html lang="{html_lang}" xmlns="http://www.w3.org/1999/xhtml" xmlns:v="urn:schemas-microsoft-com:vml" xmlns:o="urn:schemas-microsoft-com:office:office">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta name="x-apple-disable-message-reformatting">
-    <title>Briefing Diario AI</title>
+    <title>{page_title}</title>
     <!--[if mso]>
     <style>
         table {{border-collapse: collapse;}}
@@ -379,18 +441,18 @@ def build_newsletter_html(content_body: str, front_page_html: str = "") -> str:
     <![endif]-->
 </head>
 <body style="margin: 0; padding: 0; background-color: {BG_DARK}; font-family: Arial, Helvetica, sans-serif; -webkit-text-size-adjust: 100%; -ms-text-size-adjust: 100%;">
-    
+
     <!-- WRAPPER TABLE -->
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color: {BG_DARK};">
         <tr>
             <td align="center" style="padding: 10px;">
-                
+
                 <!-- HEADER -->
                 <table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="max-width: 600px; width: 100%;">
                     <tr>
                         <td style="background-color: {BG_HEADER}; padding: 20px; text-align: center; border-bottom: 3px solid {ACCENT};">
                             <h1 style="margin: 0; font-size: 24px; font-weight: bold; color: {TEXT_PRIMARY}; letter-spacing: -0.5px;">
-                                Briefing <span style="color: {ACCENT};">Diario</span>
+                                Briefing <span style="color: {ACCENT};">{title_word}</span>
                             </h1>
                             <p style="margin: 5px 0 0 0; font-size: 11px; color: {TEXT_SECONDARY}; font-weight: 500;">📅 {today_date} | AI Curated</p>
                         </td>
@@ -406,12 +468,14 @@ def build_newsletter_html(content_body: str, front_page_html: str = "") -> str:
                     </tr>
                 </table>
 
+                {market_ticker_html}
+
                 <!-- DIVIDER -->
                 <table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="max-width: 600px; width: 100%;">
                     <tr>
                         <td style="padding: 30px 0 20px 0;">
                             <p style="margin: 0 0 5px 0; font-size: 11px; font-weight: bold; color: {TEXT_SECONDARY}; text-transform: uppercase; letter-spacing: 1px;">
-                                📰 Noticias
+                                📰 {news_label}
                             </p>
                             <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
                                 <tr>
@@ -430,12 +494,12 @@ def build_newsletter_html(content_body: str, front_page_html: str = "") -> str:
                         </td>
                     </tr>
                 </table>
-                
+
                 <!-- FOOTER -->
                 <table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="max-width: 600px; width: 100%;">
                     <tr>
                         <td style="background-color: {BG_HEADER}; padding: 20px; text-align: center; border-top: 1px solid {BORDER};">
-                            <p style="margin: 0; font-size: 10px; color: {TEXT_SECONDARY};">© {year} AI Briefing Agent. Generado automáticamente.</p>
+                            <p style="margin: 0; font-size: 10px; color: {TEXT_SECONDARY};">© {year} AI Briefing Agent. {footer_text}</p>
                         </td>
                     </tr>
                 </table>

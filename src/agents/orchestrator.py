@@ -21,7 +21,7 @@ except ImportError:
 
 from src.services.classifier_service import ClassifierService
 from src.agents.content_processor import ContentProcessorAgent
-from src.utils.html_builder import build_newsletter_html, build_front_page, build_section_html, build_mid_banner
+from src.utils.html_builder import build_newsletter_html, build_front_page, build_section_html, build_mid_banner, build_market_ticker
 from src.services.email_service import EmailService
 from src.services.firebase_service import FirebaseService
 from src.services.gcs_service import GCSService
@@ -394,18 +394,13 @@ class Orchestrator:
                 print(f"   ⚠️ Sin noticias de 16h. Buscando en ventana de 24h...")
                 fresh_news = get_fresh_news(24)
 
-            # FALLBACK 2: 48h (fin de semana etc)
+            # FALLBACK 2: 36h (max T-1.5 days, no older articles)
             if not fresh_news:
-                print(f"   ⚠️ Sin noticias de 24h. Buscando en ventana de 48h...")
-                fresh_news = get_fresh_news(48)
-
-            # FALLBACK 3: 72h (último recurso)
-            if not fresh_news:
-                print(f"   ⚠️ Sin noticias de 48h. Buscando en ventana de 72h...")
-                fresh_news = get_fresh_news(72)
+                print(f"   ⚠️ Sin noticias de 24h. Buscando en ventana de 36h...")
+                fresh_news = get_fresh_news(36)
 
             if not fresh_news:
-                print(f"   ❌ Sin noticias recientes (72h) para '{topic}'. Saltando.")
+                print(f"   ❌ Sin noticias recientes (36h) para '{topic}'. Saltando.")
                 continue
                 
             # Category‑specific keyword lists (simple heuristic)
@@ -659,7 +654,7 @@ class Orchestrator:
         
         # Selección Portada
         front_page_data = await self.processor.select_front_page_stories(all_articles_flat, user_lang)
-        front_page_html = build_front_page(front_page_data)
+        front_page_html = build_front_page(front_page_data, lang=user_lang)
         print(f"   ✅ Portada generada ({len(front_page_data)} noticias)")
 
         # Generación Secciones (Join HTML pre-renderizado)
@@ -725,7 +720,7 @@ class Orchestrator:
                 # Insertar banner promocional a mitad del contenido
                 mid_point = max(1, len(sorted_cats) // 2)
                 if cat_idx == mid_point - 1:
-                    final_html_parts.append(build_mid_banner())
+                    final_html_parts.append(build_mid_banner(lang=user_lang))
                     print("   🌐 Banner promocional insertado")
 
         # --- FASE 3: PODCAST (SI ACTIVADO) ---
@@ -847,19 +842,29 @@ class Orchestrator:
                     
                     <!-- DASHBOARD PROMO -->
                     <div style="background: #002136; padding: 20px; text-align: center; color: white;">
-                        <p style="font-size: 16px; font-weight: bold; margin: 0 0 10px 0;">📊 Tu Ecosistema de Noticias</p>
+                        <p style="font-size: 16px; font-weight: bold; margin: 0 0 10px 0;">📊 {"Your News Ecosystem" if user_lang.lower() in ("en", "english") else "Tu Ecosistema de Noticias"}</p>
                         <p style="font-size: 13px; margin: 0 0 15px 0; line-height: 1.5; color: #cfd8dc;">
-                            Accede a tu <strong>Dashboard Privado</strong> para ver más noticias sobre tus temas, 
-                            explorar tendencias globales y gestionar tus fuentes.
+                            {"Access your <strong>Private Dashboard</strong> to see more stories on your topics, explore global trends and manage your sources." if user_lang.lower() in ("en", "english") else "Accede a tu <strong>Dashboard Privado</strong> para ver más noticias sobre tus temas, explorar tendencias globales y gestionar tus fuentes."}
                         </p>
-                        <a href="https://www.podsummarizer.xyz/" target="_blank" style="display: inline-block; background: #269fcf; color: white; text-decoration: none; padding: 10px 20px; border-radius: 20px; font-size: 14px; font-weight: bold;">Accede a tu Dashboard Privado &rarr;</a>
+                        <a href="https://www.podsummarizer.xyz/" target="_blank" style="display: inline-block; background: #269fcf; color: white; text-decoration: none; padding: 10px 20px; border-radius: 20px; font-size: 14px; font-weight: bold;">{"Access your Private Dashboard" if user_lang.lower() in ("en", "english") else "Accede a tu Dashboard Privado"} &rarr;</a>
                     </div>
                 </div>
                 """
                 full_body_html += podcast_footer
             
-            final_html = build_newsletter_html(full_body_html, front_page_html)
-            
+            # Fetch market prices if Finnhub key available
+            market_html = ""
+            try:
+                from src.services.finnhub_service import get_commodity_prices
+                prices = await get_commodity_prices()
+                if prices:
+                    market_html = build_market_ticker(prices, lang=user_lang)
+                    print(f"   📊 Market ticker: {len(prices)} quotes")
+            except Exception as e:
+                print(f"   ⚠️ Finnhub ticker skipped: {e}")
+
+            final_html = build_newsletter_html(full_body_html, front_page_html, lang=user_lang, market_ticker_html=market_html)
+
             if user_lang.lower() in ("en", "english"):
                 subject = f"📰 Daily Briefing - {datetime.now().strftime('%m/%d/%Y')}"
             else:
