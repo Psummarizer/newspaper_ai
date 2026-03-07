@@ -5658,5 +5658,95 @@
     "bias_tag": "derecha",
     "region": "Europa",
     "reliability": "medium"
+  },
+  {
+    "category": "Economia y Finanzas",
+    "name": "Google News - Mineral Commodities",
+    "domain": "news.google.com",
+    "rss_url": "https://news.google.com/rss/search?q=mineral+commodities+prices+copper+lithium&hl=en&gl=US&ceid=US:en",
+    "base_url": "https://news.google.com",
+    "language": "en",
+    "country": "INT"
+  },
+  {
+    "category": "Economia y Finanzas",
+    "name": "Google News - Copper Prices",
+    "domain": "news.google.com",
+    "rss_url": "https://news.google.com/rss/search?q=copper+price+market&hl=en&gl=US&ceid=US:en",
+    "base_url": "https://news.google.com",
+    "language": "en",
+    "country": "INT"
+  },
+  {
+    "category": "Economia y Finanzas",
+    "name": "Google News - Lithium Market",
+    "domain": "news.google.com",
+    "rss_url": "https://news.google.com/rss/search?q=lithium+market+price&hl=en&gl=US&ceid=US:en",
+    "base_url": "https://news.google.com",
+    "language": "en",
+    "country": "INT"
+  },
+  {
+    "category": "Economia y Finanzas",
+    "name": "Google News - Iron Ore Market",
+    "domain": "news.google.com",
+    "rss_url": "https://news.google.com/rss/search?q=iron+ore+price+market&hl=en&gl=US&ceid=US:en",
+    "base_url": "https://news.google.com",
+    "language": "en",
+    "country": "INT"
+  },
+  {
+    "category": "Economia y Finanzas",
+    "name": "Google News - Rare Earth Minerals",
+    "domain": "news.google.com",
+    "rss_url": "https://news.google.com/rss/search?q=rare+earth+minerals+market&hl=en&gl=US&ceid=US:en",
+    "base_url": "https://news.google.com",
+    "language": "en",
+    "country": "INT"
+  },
+  {
+    "category": "Economia y Finanzas",
+    "name": "Google News - Nickel Cobalt Market",
+    "domain": "news.google.com",
+    "rss_url": "https://news.google.com/rss/search?q=nickel+cobalt+commodity+price&hl=en&gl=US&ceid=US:en",
+    "base_url": "https://news.google.com",
+    "language": "en",
+    "country": "INT"
+  },
+  {
+    "category": "Economia y Finanzas",
+    "name": "Google News - Mining Industry",
+    "domain": "news.google.com",
+    "rss_url": "https://news.google.com/rss/search?q=mining+industry+metals+commodity&hl=en&gl=US&ceid=US:en",
+    "base_url": "https://news.google.com",
+    "language": "en",
+    "country": "INT"
+  },
+  {
+    "category": "Geopolitica",
+    "name": "Google News - Iran War Commodities",
+    "domain": "news.google.com",
+    "rss_url": "https://news.google.com/rss/search?q=Iran+war+commodities+minerals&hl=en&gl=US&ceid=US:en",
+    "base_url": "https://news.google.com",
+    "language": "en",
+    "country": "INT"
+  },
+  {
+    "category": "Geopolitica",
+    "name": "Google News - Iran Conflict Supply Chain",
+    "domain": "news.google.com",
+    "rss_url": "https://news.google.com/rss/search?q=Iran+conflict+supply+chain+minerals+oil&hl=en&gl=US&ceid=US:en",
+    "base_url": "https://news.google.com",
+    "language": "en",
+    "country": "INT"
+  },
+  {
+    "category": "Geopolitica",
+    "name": "Google News - Middle East Geopolitics Commodities",
+    "domain": "news.google.com",
+    "rss_url": "https://news.google.com/rss/search?q=middle+east+geopolitics+commodities+impact&hl=en&gl=US&ceid=US:en",
+    "base_url": "https://news.google.com",
+    "language": "en",
+    "country": "INT"
   }
 ]

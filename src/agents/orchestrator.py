@@ -90,6 +90,19 @@ class Orchestrator:
         self.gcs = gcs_service or GCSService()  # Usar GCS para artículos
         self.fb_service = FirebaseService()  # Solo para usuarios
 
+        # Build domain → country lookup from sources.json for country filtering
+        self._domain_country_map: Dict[str, str] = {}
+        try:
+            sources_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'data', 'sources.json')
+            with open(sources_path, 'r', encoding='utf-8') as f:
+                for src in json.load(f):
+                    domain = src.get("domain", "").lower().replace("www.", "")
+                    country = src.get("country", "").upper()
+                    if domain and country:
+                        self._domain_country_map[domain] = country
+        except Exception:
+            pass  # Non-critical: scoring will just skip country filtering
+
         # Load scoring config
         config_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'config', 'scoring_config.json')
         try:
@@ -97,6 +110,47 @@ class Orchestrator:
                 self.scoring_cfg = json.load(f)
         except Exception:
             self.scoring_cfg = {}
+    # Country name → ISO 2-letter code mapping
+    _COUNTRY_NAME_TO_ISO = {
+        "spain": "ES", "españa": "ES", "es": "ES",
+        "the netherlands": "NL", "netherlands": "NL", "holland": "NL", "nl": "NL",
+        "united states": "US", "usa": "US", "us": "US",
+        "united kingdom": "GB", "uk": "GB", "gb": "GB", "england": "GB",
+        "france": "FR", "fr": "FR", "francia": "FR",
+        "germany": "DE", "de": "DE", "alemania": "DE", "deutschland": "DE",
+        "italy": "IT", "it": "IT", "italia": "IT",
+        "brazil": "BR", "br": "BR", "brasil": "BR",
+        "mexico": "MX", "mx": "MX", "méxico": "MX",
+        "argentina": "AR", "ar": "AR",
+        "colombia": "CO", "co": "CO",
+        "chile": "CL", "cl": "CL",
+        "peru": "PE", "pe": "PE", "perú": "PE",
+        "china": "CN", "cn": "CN",
+        "japan": "JP", "jp": "JP", "japón": "JP",
+        "india": "IN", "in": "IN",
+        "australia": "AU", "au": "AU",
+        "canada": "CA", "ca": "CA",
+        "switzerland": "CH", "ch": "CH", "suiza": "CH",
+        "israel": "IL", "il": "IL",
+        "south africa": "ZA", "za": "ZA",
+        "russia": "RU", "ru": "RU", "rusia": "RU",
+        "norway": "NO", "no": "NO", "noruega": "NO",
+    }
+
+    def _country_to_iso(self, country: str) -> str:
+        """Convert country name or code to ISO 2-letter code."""
+        if not country:
+            return ""
+        key = country.strip().lower()
+        # Direct lookup
+        iso = self._COUNTRY_NAME_TO_ISO.get(key, "")
+        if iso:
+            return iso
+        # Already an ISO code (2 letters uppercase)?
+        if len(key) == 2:
+            return key.upper()
+        return ""
+
     def _normalize_id(self, name: str) -> str:
         """Convierte nombre a ID normalizado (sin tildes para matching consistente)"""
         import unicodedata
@@ -435,11 +489,28 @@ class Orchestrator:
                 keyword_hits = sum(1 for kw in keywords if kw in title or kw in summary_text)
                 category_score = keyword_hits * 0.1  # each hit adds 0.1
 
-                # --- Country boost ---
-                country_boost = 0.0
-                article_country = article.get("fuente_pais", "").lower()
-                if article_country and article_country == user_country.lower():
-                    country_boost = 1.0
+                # --- Country filtering ---
+                # Derive article's source country from URLs
+                country_score = 0.0
+                article_countries = set()
+                for src_url in article.get("fuentes", []):
+                    src_domain = urlparse(src_url).netloc.lower().replace("www.", "")
+                    src_country = self._domain_country_map.get(src_domain, "")
+                    if src_country and src_country not in ("INT", "INTL", "EU"):
+                        article_countries.add(src_country)
+
+                user_iso = self._country_to_iso(user_country)
+                if article_countries and user_iso:
+                    if user_iso in article_countries:
+                        country_score = 1.0  # Boost: source matches user country
+                    else:
+                        # Penalize domestic-focused categories from other countries
+                        domestic_cats = {"politica", "sociedad", "justicia y legal",
+                                         "politica y gobierno", "cultura y entretenimiento"}
+                        cat_norm = unicodedata.normalize('NFKD', cat.lower())
+                        cat_norm = ''.join(c for c in cat_norm if not unicodedata.combining(c))
+                        if cat_norm in domestic_cats:
+                            country_score = -5.0  # Strong penalty for foreign domestic news
 
                 # --- Combine (weights can be tuned via config) ---
                 weights = self.scoring_cfg.get('weights', {})
@@ -448,7 +519,7 @@ class Orchestrator:
                     weights.get('source_diversity', 0.15) * source_score +
                     weights.get('summary_len', 0.05) * summary_score +
                     weights.get('category', 0.15) * category_score +
-                    weights.get('country_boost', 0.05) * country_boost
+                    weights.get('country_boost', 0.20) * country_score
                 )
                 return total
 

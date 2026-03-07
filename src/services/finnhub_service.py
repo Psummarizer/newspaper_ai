@@ -17,6 +17,7 @@ COMMODITY_QUOTES = [
     {"symbol": "OANDA:WHEAT_USD", "name": "Wheat", "fallback": "ZW"},
     {"symbol": "OANDA:CORN_USD", "name": "Corn", "fallback": "ZC"},
     {"symbol": "OANDA:WTICO_USD", "name": "Crude Oil", "fallback": "CL"},
+    {"symbol": "OANDA:COPPER_USD", "name": "Copper", "fallback": "HG"},
     {"symbol": "BINANCE:BTCUSDT", "name": "Bitcoin", "fallback": None},
 ]
 
