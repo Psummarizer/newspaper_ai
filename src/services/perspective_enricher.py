@@ -313,12 +313,17 @@ def _cosine_similarity(a: List[float], b: List[float]) -> float:
 def _cluster_articles(
     embeddings: List[List[float]],
     threshold: float = SIMILARITY_THRESHOLD,
+    articles: Optional[List[dict]] = None,
+    max_time_diff_hours: float = 24.0,
 ) -> List[List[int]]:
     """
     Union-Find clustering: groups indices of articles whose embeddings
-    are above `threshold` cosine similarity.
+    are above `threshold` cosine similarity AND are within max_time_diff_hours
+    of each other (to avoid comparing different moments of the same story).
     Returns only groups of size >= MIN_PERSPECTIVES.
     """
+    from datetime import datetime
+
     n = len(embeddings)
     parent = list(range(n))
 
@@ -333,9 +338,27 @@ def _cluster_articles(
         if rx != ry:
             parent[rx] = ry
 
+    def _get_date(idx: int) -> Optional[datetime]:
+        if not articles or idx >= len(articles):
+            return None
+        fecha_str = articles[idx].get("fecha_inventariado", "")
+        if not fecha_str:
+            return None
+        try:
+            return datetime.fromisoformat(fecha_str.replace("Z", "+00:00").split("+")[0])
+        except Exception:
+            return None
+
     for i in range(n):
         for j in range(i + 1, n):
             if _cosine_similarity(embeddings[i], embeddings[j]) >= threshold:
+                # Check time proximity if articles are provided
+                if articles:
+                    date_i, date_j = _get_date(i), _get_date(j)
+                    if date_i and date_j:
+                        diff_hours = abs((date_i - date_j).total_seconds()) / 3600
+                        if diff_hours > max_time_diff_hours:
+                            continue  # Too far apart in time, skip
                 union(i, j)
 
     groups: Dict[int, List[int]] = {}
@@ -488,7 +511,8 @@ def enrich_topics_with_perspectives(
             continue
 
         topic_embeddings = [all_embeddings[i] for i in global_indices]
-        groups = _cluster_articles(topic_embeddings)
+        topic_articles = [flat_articles[i] for i in global_indices]
+        groups = _cluster_articles(topic_embeddings, articles=topic_articles)
 
         if groups:
             sizes = [len(g) for g in groups]

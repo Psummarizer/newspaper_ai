@@ -478,7 +478,17 @@ class Orchestrator:
                     try:
                         fecha = datetime.fromisoformat(fecha_str.replace("Z", "+00:00").split("+")[0])
                         age = (current_time - fecha).total_seconds() / 3600
-                        recency = max(0, 24 - age) / 24  # normalised 0‑1
+                        # Aggressive recency: today's news (< 12h) gets massive boost
+                        if age <= 6:
+                            recency = 3.0   # Last 6 hours: maximum priority
+                        elif age <= 12:
+                            recency = 2.0   # Same day: very high priority
+                        elif age <= 18:
+                            recency = 1.0   # Recent: normal priority
+                        elif age <= 24:
+                            recency = 0.3   # Yesterday: low priority
+                        else:
+                            recency = -1.0  # Older than 24h: penalty
                     except Exception:
                         recency = 0.0
                 sources = article.get("fuentes", [])
@@ -535,14 +545,14 @@ class Orchestrator:
                         else:
                             country_score = -1.0  # Light penalty: foreign source, international topic
 
-                # --- Combine (weights can be tuned via config) ---
-                weights = self.scoring_cfg.get('weights', {})
+                # --- Combine ---
+                # Recency is dominant: today's news must always rank above yesterday's
                 total = (
-                    weights.get('recency', 0.25) * recency +
-                    weights.get('source_diversity', 0.15) * source_score +
-                    weights.get('summary_len', 0.05) * summary_score +
-                    weights.get('category', 0.15) * category_score +
-                    weights.get('country_boost', 0.20) * country_score
+                    0.40 * recency +            # Dominant: today > yesterday
+                    0.10 * source_score +        # Multi-source articles
+                    0.05 * summary_score +       # Content depth
+                    0.10 * category_score +      # Keyword relevance
+                    0.20 * country_score          # Country match/penalty
                 )
                 return total
 
