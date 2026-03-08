@@ -509,13 +509,31 @@ class Orchestrator:
                     if user_iso in article_countries:
                         country_score = 1.0  # Boost: source matches user country
                     else:
-                        # Penalize domestic-focused categories from other countries
-                        domestic_cats = {"politica", "sociedad", "justicia y legal",
-                                         "politica y gobierno", "cultura y entretenimiento"}
-                        cat_norm = unicodedata.normalize('NFKD', cat.lower())
-                        cat_norm = ''.join(c for c in cat_norm if not unicodedata.combining(c))
-                        if cat_norm in domestic_cats:
-                            country_score = -5.0  # Strong penalty for foreign domestic news
+                        # Check if article content is about the source country (not user's)
+                        # e.g. Spanish source writing about Spain = domestic news, penalize for NL user
+                        _country_keywords = {
+                            "ES": ["españa", "spain", "spanish", "español", "gobierno español",
+                                   "castilla", "madrid", "barcelona", "andaluc", "cataluñ"],
+                            "US": ["united states", "america", "washington", "congress", "biden", "trump"],
+                            "FR": ["france", "french", "paris", "macron"],
+                            "DE": ["germany", "german", "berlin"],
+                            "GB": ["britain", "british", "london", "uk "],
+                            "IT": ["italy", "italian", "rome", "roma"],
+                        }
+                        combined_text = (title + " " + summary_text).lower()
+                        is_domestic = False
+                        for src_c in article_countries:
+                            for kw in _country_keywords.get(src_c, []):
+                                if kw in combined_text:
+                                    is_domestic = True
+                                    break
+                            if is_domestic:
+                                break
+
+                        if is_domestic:
+                            country_score = -5.0  # Strong penalty: foreign domestic news
+                        else:
+                            country_score = -1.0  # Light penalty: foreign source, international topic
 
                 # --- Combine (weights can be tuned via config) ---
                 weights = self.scoring_cfg.get('weights', {})
@@ -781,13 +799,45 @@ class Orchestrator:
         sorted_cats = [c for c in ordered_cats if c in all_current_cats] + [c for c in all_current_cats if c not in ordered_cats]
         print(f"   ✅ Categorías ordenadas: {sorted_cats}")
 
+        # Build a set of "expected" categories from user topics for relevance filtering
+        _topic_expected_cats = set()
+        _topic_cat_map = {
+            "politica": {"Política", "Justicia y Legal"},
+            "formula 1": {"Deporte"}, "f1": {"Deporte"}, "motogp": {"Deporte"},
+            "real madrid": {"Deporte"}, "futbol": {"Deporte"}, "fútbol": {"Deporte"},
+            "vinos": {"Agricultura y Alimentación", "Consumo y Estilo de Vida", "Economía y Finanzas"},
+            "viajes": {"Consumo y Estilo de Vida", "Transporte y Movilidad"},
+            "bitcoin": {"Economía y Finanzas", "Tecnología y Digital"},
+            "palm oil": {"Agricultura y Alimentación", "Economía y Finanzas"},
+            "soy": {"Agricultura y Alimentación", "Economía y Finanzas"},
+            "tariff": {"Economía y Finanzas", "Geopolítica", "Internacional"},
+            "macro": {"Economía y Finanzas"}, "gold": {"Economía y Finanzas"},
+            "energy": {"Energía", "Economía y Finanzas"},
+            "freight": {"Economía y Finanzas", "Transporte y Movilidad"},
+            "biofuel": {"Energía", "Agricultura y Alimentación"},
+            "biodiesel": {"Energía", "Agricultura y Alimentación"},
+            "iran": {"Geopolítica", "Internacional"},
+            "mineral": {"Economía y Finanzas", "Industria"},
+        }
+        for t in topics:
+            t_lower = t.lower()
+            for key, cats in _topic_cat_map.items():
+                if key in t_lower:
+                    _topic_expected_cats.update(cats)
+        # Always allow Geopolítica and Internacional (globally relevant)
+        _topic_expected_cats.update({"Geopolítica", "Internacional"})
+        print(f"   📋 Expected categories from topics: {_topic_expected_cats}")
+
         for cat_idx, cat in enumerate(sorted_cats):
             articles_dict = category_map[cat]
             if not articles_dict: continue
-            
+
+            # Cap articles per category: 3 for expected categories, 1 for unexpected
+            max_per_cat = 3 if cat in _topic_expected_cats else 1
+
             # Solo unir HTML pre-renderizado
             items_html = []
-            for art in articles_dict.values():
+            for art in list(articles_dict.values())[:max_per_cat]:
                 if art.get("pre_rendered_html"):
                     items_html.append(art["pre_rendered_html"])
             

@@ -348,7 +348,8 @@ class ContentProcessorAgent:
         articles_input = ""
         for i, art in enumerate(all_articles):
             snippet = art.get('content', '')[:200].replace("\n", " ")
-            articles_input += f"ID {i}: [{art.get('category')}] {art.get('title')} | {snippet}\n"
+            img_tag = "[IMG]" if art.get('image_url') else ""
+            articles_input += f"ID {i}: {img_tag}[{art.get('category')}] {art.get('title')} | {snippet}\n"
 
         # Resolve language name for the prompt
         try:
@@ -376,7 +377,8 @@ class ContentProcessorAgent:
            - If multiple stories cover the SAME event, choose only the most complete one.
            - Never include 2 stories that cover basically the same thing.
         5. DISCARD pre-event previews/lineups if post-event results exist, promotional content, and tangential lifestyle filler.
-        
+        6. FEATURED IMAGE: The FIRST story in the array becomes the featured/cover story. STRONGLY prefer a story marked with [IMG] as the first item (it has a photo).
+
         OUTPUT JSON FORMAT:
         {{
             "selected_stories": [

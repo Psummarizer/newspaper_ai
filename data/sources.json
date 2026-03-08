@@ -5748,5 +5748,59 @@
     "base_url": "https://news.google.com",
     "language": "en",
     "country": "INT"
+  },
+  {
+    "category": "Politica",
+    "name": "NOS Nieuws",
+    "domain": "nos.nl",
+    "rss_url": "https://feeds.nos.nl/nosnieuwsalgemeen",
+    "base_url": "https://nos.nl",
+    "language": "nl",
+    "country": "NL"
+  },
+  {
+    "category": "Economia y Finanzas",
+    "name": "NOS Economie",
+    "domain": "nos.nl",
+    "rss_url": "https://feeds.nos.nl/nosnieuwseconomie",
+    "base_url": "https://nos.nl",
+    "language": "nl",
+    "country": "NL"
+  },
+  {
+    "category": "Politica",
+    "name": "RTL Nieuws",
+    "domain": "rtlnieuws.nl",
+    "rss_url": "https://www.rtlnieuws.nl/rss.xml",
+    "base_url": "https://www.rtlnieuws.nl",
+    "language": "nl",
+    "country": "NL"
+  },
+  {
+    "category": "Politica",
+    "name": "NU.nl Algemeen",
+    "domain": "nu.nl",
+    "rss_url": "https://www.nu.nl/rss/Algemeen",
+    "base_url": "https://www.nu.nl",
+    "language": "nl",
+    "country": "NL"
+  },
+  {
+    "category": "Economia y Finanzas",
+    "name": "NU.nl Economie",
+    "domain": "nu.nl",
+    "rss_url": "https://www.nu.nl/rss/Economie",
+    "base_url": "https://www.nu.nl",
+    "language": "nl",
+    "country": "NL"
+  },
+  {
+    "category": "Internacional",
+    "name": "DutchNews.nl",
+    "domain": "dutchnews.nl",
+    "rss_url": "https://www.dutchnews.nl/feed/",
+    "base_url": "https://www.dutchnews.nl",
+    "language": "en",
+    "country": "NL"
   }
 ]
