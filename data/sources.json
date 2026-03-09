@@ -5802,5 +5802,104 @@
     "base_url": "https://www.dutchnews.nl",
     "language": "en",
     "country": "NL"
+  },
+  {
+    "category": "Politica",
+    "name": "The Objective - España",
+    "domain": "theobjective.com",
+    "rss_url": "https://theobjective.com/espana/feed/",
+    "base_url": "https://theobjective.com",
+    "language": "es",
+    "country": "ES"
+  },
+  {
+    "category": "Internacional",
+    "name": "The Objective - Internacional",
+    "domain": "theobjective.com",
+    "rss_url": "https://theobjective.com/internacional/feed/",
+    "base_url": "https://theobjective.com",
+    "language": "es",
+    "country": "ES"
+  },
+  {
+    "category": "Sociedad",
+    "name": "The Objective - Sociedad",
+    "domain": "theobjective.com",
+    "rss_url": "https://theobjective.com/sociedad/feed/",
+    "base_url": "https://theobjective.com",
+    "language": "es",
+    "country": "ES"
+  },
+  {
+    "category": "Politica",
+    "name": "Google - The Objective Política",
+    "domain": "theobjective.com",
+    "rss_url": "https://news.google.com/rss/search?q=site:theobjective.com+politica&hl=es&gl=ES&ceid=ES:es",
+    "base_url": "https://theobjective.com",
+    "language": "es",
+    "country": "ES"
+  },
+  {
+    "category": "Politica",
+    "name": "Google - Voz Pópuli Política",
+    "domain": "vozpopuli.com",
+    "rss_url": "https://news.google.com/rss/search?q=site:vozpopuli.com+politica&hl=es&gl=ES&ceid=ES:es",
+    "base_url": "https://www.vozpopuli.com",
+    "language": "es",
+    "country": "ES"
+  },
+  {
+    "category": "Economia y Finanzas",
+    "name": "Google - Voz Pópuli Economía",
+    "domain": "vozpopuli.com",
+    "rss_url": "https://news.google.com/rss/search?q=site:vozpopuli.com+economia&hl=es&gl=ES&ceid=ES:es",
+    "base_url": "https://www.vozpopuli.com",
+    "language": "es",
+    "country": "ES"
+  },
+  {
+    "category": "Politica",
+    "name": "Google - El Debate Política",
+    "domain": "eldebate.com",
+    "rss_url": "https://news.google.com/rss/search?q=site:eldebate.com+politica&hl=es&gl=ES&ceid=ES:es",
+    "base_url": "https://www.eldebate.com",
+    "language": "es",
+    "country": "ES"
+  },
+  {
+    "category": "Politica",
+    "name": "Google - Libertad Digital Política",
+    "domain": "libertaddigital.com",
+    "rss_url": "https://news.google.com/rss/search?q=site:libertaddigital.com+politica&hl=es&gl=ES&ceid=ES:es",
+    "base_url": "https://www.libertaddigital.com",
+    "language": "es",
+    "country": "ES"
+  },
+  {
+    "category": "Agricultura y Alimentacion",
+    "name": "Google - Vinos España",
+    "domain": "news.google.com",
+    "rss_url": "https://news.google.com/rss/search?q=vinos+espa%C3%B1a+bodegas&hl=es&gl=ES&ceid=ES:es",
+    "base_url": "https://news.google.com",
+    "language": "es",
+    "country": "ES"
+  },
+  {
+    "category": "Agricultura y Alimentacion",
+    "name": "Google - Catas Vino DO",
+    "domain": "news.google.com",
+    "rss_url": "https://news.google.com/rss/search?q=vino+tinto+blanco+DO+cata&hl=es&gl=ES&ceid=ES:es",
+    "base_url": "https://news.google.com",
+    "language": "es",
+    "country": "ES"
+  },
+  {
+    "category": "Consumo y Estilo de Vida",
+    "name": "Google - Viajes Escapadas",
+    "domain": "news.google.com",
+    "rss_url": "https://news.google.com/rss/search?q=viajes+destinos+escapadas+espa%C3%B1a&hl=es&gl=ES&ceid=ES:es",
+    "base_url": "https://news.google.com",
+    "language": "es",
+    "country": "ES"
   }
 ]

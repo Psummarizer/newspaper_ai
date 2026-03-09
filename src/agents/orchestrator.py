@@ -251,57 +251,106 @@ class Orchestrator:
         '''
 
     async def _select_top_3_cached(self, topic: str, news_list: List[Dict], max_count: int = 3, user_contexts: List[str] = None) -> List[Dict]:
-        """Selecciona las top N noticias más relevantes de la lista cacheada usando LLM"""
+        """Selecciona las top N noticias más relevantes de la lista cacheada usando LLM.
+        Guarantees at least 1 article from user-preferred sources if available."""
         if len(news_list) <= max_count:
             return news_list
 
-        # Preparar input
+        # --- Pre-filter by topic context exclusions ---
+        contexts_joined = ""
+        if user_contexts:
+            contexts_joined = " ".join(str(c) for c in user_contexts if c).lower()
+
+        if contexts_joined:
+            filtered_list = []
+            # Exclusion keywords from context
+            exclude_keywords = []
+            if "solo" in contexts_joined and "masculino" in contexts_joined:
+                exclude_keywords = ["femenino", "femenina", "cantera", "infantil", "juvenil",
+                                    "cadete", "sub-19", "sub-17", "women", "u19", "u17"]
+            if "no moda" in contexts_joined:
+                exclude_keywords.extend(["moda", "fashion", "vogue", "tendencia", "outfit"])
+
+            if exclude_keywords:
+                for n in news_list:
+                    title_lower = n.get("titulo", "").lower()
+                    resumen_lower = n.get("resumen", "").lower()
+                    combined = title_lower + " " + resumen_lower
+                    if not any(kw in combined for kw in exclude_keywords):
+                        filtered_list.append(n)
+                if filtered_list:
+                    print(f"   🔍 Pre-filtro contexto: {len(news_list)} -> {len(filtered_list)} artículos")
+                    news_list = filtered_list
+
+        if len(news_list) <= max_count:
+            return news_list
+
+        # --- Extract preferred source domains from context ---
+        _pref_domains = set()
+        _media_map = {
+            "el debate": "eldebate.com", "eldebate": "eldebate.com",
+            "el confidencial": "elconfidencial.com", "elconfidencial": "elconfidencial.com",
+            "libertad digital": "libertaddigital.com", "libertaddigital": "libertaddigital.com",
+            "the objective": "theobjective.com", "theobjective": "theobjective.com",
+            "vozpopuli": "vozpopuli.com", "voz populi": "vozpopuli.com", "voz pópuli": "vozpopuli.com",
+        }
+        for media_name, domain in _media_map.items():
+            if media_name in contexts_joined:
+                _pref_domains.add(domain)
+
+        # --- Force 1 preferred-source article if available ---
+        forced_articles = []
+        remaining_articles = list(news_list)
+        if _pref_domains:
+            for n in news_list:
+                for src_url in n.get("fuentes", []):
+                    src_domain = urlparse(src_url).netloc.lower().replace("www.", "")
+                    if src_domain in _pref_domains:
+                        forced_articles.append(n)
+                        remaining_articles.remove(n)
+                        break
+                if forced_articles:
+                    break  # Force at least 1
+
+        # --- LLM selects the rest ---
+        llm_count = max_count - len(forced_articles)
+        if llm_count <= 0:
+            return forced_articles[:max_count]
+
+        # Preparar input (excluding forced articles)
         prompt_text = ""
-        for i, news in enumerate(news_list):
+        for i, news in enumerate(remaining_articles):
             title = news.get("titulo", "")
-            summary = news.get("resumen", "")
+            summary = news.get("resumen", "")[:200]
             sources = news.get("fuentes", [])
-            # Extract domains for the LLM
             domains = [urlparse(s).netloc.replace("www.", "") for s in sources]
-            domain_str = ", ".join(domains[:2]) # First 2 sources
+            domain_str = ", ".join(domains[:2])
             prompt_text += f"ID {i}: [{domain_str}] {title} | {summary}\n"
 
-        # Build source preference instruction from user_contexts
         source_pref_str = ""
-        if user_contexts:
-            contexts_joined = "; ".join(str(c) for c in user_contexts if c)
-            if contexts_joined.strip():
-                source_pref_str = (
-                    f"\n🔴 MANDATORY USER PREFERENCES: {contexts_joined}\n"
-                    f"- If the user mentions specific media outlets, you MUST include at least 1-2 articles from those outlets (if available in the list).\n"
-                    f"- If the user specifies a sub-topic focus (e.g. 'only men's football', 'especially Aston Martin'), ONLY select articles matching that focus.\n"
-                    f"- Articles NOT matching the user's stated preferences should be deprioritized.\n"
-                )
+        if contexts_joined.strip():
+            source_pref_str = (
+                f"\n🔴 USER PREFERENCES: {contexts_joined}\n"
+                f"- ONLY select articles matching these preferences.\n"
+                f"- If specific media are mentioned, prefer their articles.\n"
+            )
 
         prompt = f"""
-        You are an Editor-in-Chief selecting the {max_count} most relevant and impactful news for topic "{topic}".
+        Select the {llm_count} most relevant news for topic "{topic}".
         {source_pref_str}
-        SELECTION CRITERIA (PRIORITY ORDER):
-        1. 📅 **TODAY'S NEWS FIRST**: Strongly prefer news about events that happened TODAY. If an event already occurred (match finished, vote happened, decision made), prefer the RESULT/ANALYSIS over previews, lineups, or predictions.
-        2. 🎯 **TOPIC RELEVANCE**: The article must be DIRECTLY about "{topic}". Generic or tangential articles should be discarded.
-        3. 🔥 **HIGH IMPACT**: Prefer news with real consequences — policy changes, major events, significant results.
-        4. 📰 **SOURCE DIVERSITY**: Avoid repeating the same outlet for different articles.
-        5. ⚡ **ENGAGEMENT**: News people will talk about today.
+        CRITERIA:
+        1. TODAY'S NEWS FIRST. Post-event results over previews.
+        2. DIRECTLY about "{topic}" — discard tangential articles.
+        3. High impact, source diversity.
 
-        ❌ **DISCARD**:
-        - Pre-event previews/lineups if post-event results exist
-        - Promotional/branded content, PR press releases
-        - Articles only tangentially related to "{topic}"
-        - Celebrity gossip or lifestyle content unless the topic is specifically about that
+        DISCARD: previews if results exist, promotional content, tangential articles.
 
         {prompt_text}
 
-        Respond ONLY JSON: {{"selected_ids": [0, 2, 5]}}
+        JSON only: {{"selected_ids": [0, 2, 5]}}
         """
-        
+
         try:
-            # Usar cliente de ContentProcessor si es público, o crear uno temporal?
-            # Orchestrator tiene self.processor.client
             response = await self.processor.client.chat.completions.create(
                 model=self.processor.model_fast,
                 messages=[{"role": "user", "content": prompt}],
@@ -309,11 +358,11 @@ class Orchestrator:
             )
             result = json.loads(response.choices[0].message.content)
             ids = result.get("selected_ids", [])
-            selected = [news_list[i] for i in ids if i < len(news_list)]
-            return selected[:max_count]
+            llm_selected = [remaining_articles[i] for i in ids if i < len(remaining_articles)]
+            return (forced_articles + llm_selected)[:max_count]
         except Exception as e:
             self.logger.error(f"Error seleccionando top {max_count}: {e}")
-            return news_list[:max_count] # Fallback: first N
+            return (forced_articles + remaining_articles)[:max_count]
 
     async def _translate_news_list(self, news_list: List[Dict], target_lang: str) -> List[Dict]:
         """Traduce una lista de noticias seleccionadas al idioma objetivo sin límite de tokens restrictivo."""
@@ -409,7 +458,7 @@ class Orchestrator:
         # --- FASE 1: RECOLECCIÓN & SELECCIÓN (CACHE ONLY) ---
         # Two-pass: first collect available news counts, then allocate proportionally
         topic_fresh_news: Dict[str, tuple] = {}  # topic -> (fresh_news_list, cached_data)
-        total_budget = len(topics) * 3  # Total news slots across all topics
+        total_budget = len(topics) * 4  # Total news slots across all topics
 
         # User country and time - shared across all topics
         user_country = user_data.get('country', '')
@@ -445,22 +494,20 @@ class Orchestrator:
                     # Sin fecha -> no incluir (probablemente stale)
                 return filtered
 
-            # Intentar ventana de 16h primero (cubre noticias de hoy)
-            fresh_news = get_fresh_news(16)
+            # Intentar ventana de 12h primero (noticias de hoy)
+            fresh_news = get_fresh_news(12)
 
-            # FALLBACK: Si no hay de hoy, buscar 24h
+            # FALLBACK: ampliar a 24h máximo (nunca más)
             if not fresh_news:
-                print(f"   ⚠️ Sin noticias de 16h. Buscando en ventana de 24h...")
+                print(f"   ⚠️ Sin noticias de 12h. Buscando en ventana de 24h...")
                 fresh_news = get_fresh_news(24)
 
-            # FALLBACK 2: 36h (max T-1.5 days, no older articles)
             if not fresh_news:
-                print(f"   ⚠️ Sin noticias de 24h. Buscando en ventana de 36h...")
-                fresh_news = get_fresh_news(36)
-
-            if not fresh_news:
-                print(f"   ❌ Sin noticias recientes (36h) para '{topic}'. Saltando.")
+                print(f"   ❌ Sin noticias recientes (24h) para '{topic}'. Saltando.")
                 continue
+
+            # Sort by date: newest first (before scoring)
+            fresh_news.sort(key=lambda n: n.get("fecha_inventariado", ""), reverse=True)
                 
             # Category‑specific keyword lists (simple heuristic)
             from src.utils.constants import CATEGORY_KEYWORDS
@@ -603,21 +650,31 @@ class Orchestrator:
             topic_fresh_news[topic] = (fresh_news, cached_data)
 
         # --- FASE 1b: BALANCEO DE SECCIONES ---
-        # Distribuir slots: base 3 per topic, redistribute from topics with <3 news
+        # Base slots per topic: 4 for broad topics, 2 for niche
+        _niche_keywords = {"vino", "viaje", "nutrici", "estilo", "ocio", "familia",
+                           "experiencia", "moment", "freight", "gold", "silver"}
+        def _base_slots(topic_name: str) -> int:
+            t_lower = topic_name.lower()
+            for kw in _niche_keywords:
+                if kw in t_lower:
+                    return 2
+            return 4
+
         topic_slots = {}
         surplus = 0
         topics_with_surplus_capacity = []
         for t in topics:
+            base = _base_slots(t)
             if t not in topic_fresh_news:
-                surplus += 3  # This topic has 0 news, redistribute its slots
+                surplus += base
                 topic_slots[t] = 0
             else:
                 available = len(topic_fresh_news[t][0])
-                if available < 3:
-                    surplus += (3 - available)
+                if available < base:
+                    surplus += (base - available)
                     topic_slots[t] = available
                 else:
-                    topic_slots[t] = 3
+                    topic_slots[t] = base
                     topics_with_surplus_capacity.append(t)
 
         # Distribute surplus evenly among topics that have extra news
@@ -751,20 +808,15 @@ class Orchestrator:
                 }
 
         # --- FASE 2: GENERACIÓN DE HTML (PORTADA + SECCIONES) ---
-        
-        print(f"\n📰 Generando PORTADA...")
+
+        # Check we have articles
         all_articles_flat = []
         for cat_articles in category_map.values():
             all_articles_flat.extend(cat_articles.values())
-            
+
         if not all_articles_flat:
             print("📭 No hay noticias seleccionadas para ningún topic.")
             return None
-        
-        # Selección Portada
-        front_page_data = await self.processor.select_front_page_stories(all_articles_flat, user_lang)
-        front_page_html = build_front_page(front_page_data, lang=user_lang)
-        print(f"   ✅ Portada generada ({len(front_page_data)} noticias)")
 
         # Generación Secciones (Join HTML pre-renderizado)
         final_html_parts = []
@@ -816,7 +868,7 @@ class Orchestrator:
             "formula 1": {"Deporte"}, "f1": {"Deporte"}, "motogp": {"Deporte"},
             "real madrid": {"Deporte"}, "futbol": {"Deporte"}, "fútbol": {"Deporte"},
             "vinos": {"Agricultura y Alimentación", "Consumo y Estilo de Vida", "Economía y Finanzas"},
-            "viajes": {"Consumo y Estilo de Vida", "Transporte y Movilidad"},
+            "viajes": {"Consumo y Estilo de Vida"},
             "bitcoin": {"Economía y Finanzas", "Tecnología y Digital"},
             "palm oil": {"Agricultura y Alimentación", "Economía y Finanzas"},
             "soy": {"Agricultura y Alimentación", "Economía y Finanzas"},
@@ -863,6 +915,25 @@ class Orchestrator:
                 if cat_idx == mid_point - 1:
                     final_html_parts.append(build_mid_banner(lang=user_lang))
                     print("   🌐 Banner promocional insertado")
+
+        # --- PORTADA: Generate from capped articles only ---
+        capped_articles = []
+        for cat in sorted_cats:
+            articles_dict = category_map.get(cat, {})
+            if not articles_dict:
+                continue
+            max_per_cat = 3 if cat in _topic_expected_cats else 1
+            for art in list(articles_dict.values())[:max_per_cat]:
+                capped_articles.append(art)
+
+        front_page_html = ""
+        if capped_articles:
+            try:
+                front_page_data = await self.processor.select_front_page_stories(capped_articles, user_lang)
+                front_page_html = build_front_page(front_page_data, lang=user_lang)
+                print(f"   📰 Portada generada con {len(front_page_data)} titulares (de {len(capped_articles)} artículos)")
+            except Exception as e:
+                print(f"   ⚠️ Error generando portada: {e}")
 
         # --- FASE 3: PODCAST (SI ACTIVADO) ---
         podcast_rss_link = None
@@ -995,6 +1066,8 @@ class Orchestrator:
             
             # Fetch market prices if Finnhub key available
             market_html = ""
+            ticker_gif_url = ""
+            prices = []
             try:
                 from src.services.finnhub_service import get_commodity_prices
                 prices = await get_commodity_prices()
@@ -1004,7 +1077,18 @@ class Orchestrator:
             except Exception as e:
                 print(f"   ⚠️ Finnhub ticker skipped: {e}")
 
-            final_html = build_newsletter_html(full_body_html, front_page_html, lang=user_lang, market_ticker_html=market_html)
+            # Generate animated GIFs (header + ticker)
+            header_gif_url = ""
+            try:
+                from src.services.gif_generator import get_header_gif_url, get_ticker_gif_url
+                header_gif_url = get_header_gif_url()
+                if prices:
+                    ticker_gif_url = get_ticker_gif_url(prices)
+                print(f"   🎞️ GIFs: header={'yes' if header_gif_url else 'no'}, ticker={'yes' if ticker_gif_url else 'no'}")
+            except Exception as e:
+                print(f"   ⚠️ GIF generation skipped: {e}")
+
+            final_html = build_newsletter_html(full_body_html, front_page_html, lang=user_lang, market_ticker_html=market_html, header_gif_url=header_gif_url, ticker_gif_url=ticker_gif_url)
 
             if user_lang.lower() in ("en", "english"):
                 subject = f"📰 Daily Briefing - {datetime.now().strftime('%m/%d/%Y')}"

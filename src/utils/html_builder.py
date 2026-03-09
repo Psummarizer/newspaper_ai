@@ -410,7 +410,7 @@ def build_market_ticker(prices: list, lang: str = "es") -> str:
     '''
 
 
-def build_newsletter_html(content_body: str, front_page_html: str = "", lang: str = "es", market_ticker_html: str = "") -> str:
+def build_newsletter_html(content_body: str, front_page_html: str = "", lang: str = "es", market_ticker_html: str = "", header_gif_url: str = "", ticker_gif_url: str = "") -> str:
     """
     Genera el HTML completo del newsletter. 100% Email Compatible.
     """
@@ -450,11 +450,8 @@ def build_newsletter_html(content_body: str, front_page_html: str = "", lang: st
                 <!-- HEADER -->
                 <table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="max-width: 600px; width: 100%;">
                     <tr>
-                        <td style="background-color: {BG_HEADER}; padding: 20px; text-align: center; border-bottom: 3px solid {ACCENT};">
-                            <h1 style="margin: 0; font-size: 24px; font-weight: bold; color: {TEXT_PRIMARY}; letter-spacing: -0.5px;">
-                                Briefing <span style="color: {ACCENT};">{title_word}</span>
-                            </h1>
-                            <p style="margin: 5px 0 0 0; font-size: 11px; color: {TEXT_SECONDARY}; font-weight: 500;">📅 {today_date} | AI Curated</p>
+                        <td style="background-color: {BG_HEADER}; text-align: center; border-bottom: 3px solid {ACCENT};">
+                            {"<img src=\"" + header_gif_url + "\" width=\"600\" height=\"80\" alt=\"Briefing " + title_word + "\" style=\"display: block; width: 100%; max-width: 600px; height: auto;\">" if header_gif_url else '<div style="padding: 20px;"><h1 style="margin: 0; font-size: 24px; font-weight: bold; color: ' + TEXT_PRIMARY + '; letter-spacing: -0.5px;">Briefing <span style="color: ' + ACCENT + ';">' + title_word + '</span></h1><p style="margin: 5px 0 0 0; font-size: 11px; color: ' + TEXT_SECONDARY + '; font-weight: 500;">' + today_date + ' | AI Curated</p></div>'}
                         </td>
                     </tr>
                 </table>
@@ -468,7 +465,7 @@ def build_newsletter_html(content_body: str, front_page_html: str = "", lang: st
                     </tr>
                 </table>
 
-                {market_ticker_html}
+                {"<table role=\"presentation\" width=\"600\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\" style=\"max-width: 600px; width: 100%;\"><tr><td style=\"text-align: center;\"><img src=\"" + ticker_gif_url + "\" width=\"600\" height=\"36\" alt=\"Market Ticker\" style=\"display: block; width: 100%; max-width: 600px; height: auto;\"></td></tr></table>" if ticker_gif_url else market_ticker_html}
 
                 <!-- DIVIDER -->
                 <table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="max-width: 600px; width: 100%;">
