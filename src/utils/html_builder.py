@@ -424,6 +424,18 @@ def build_newsletter_html(content_body: str, front_page_html: str = "", lang: st
     news_label = "News" if is_en else "Noticias"
     footer_text = "Automatically generated." if is_en else "Generado automáticamente."
 
+    # Build header HTML (animated GIF or static fallback)
+    if header_gif_url:
+        header_inner = f'<img src="{header_gif_url}" width="600" height="80" alt="Briefing {title_word}" style="display: block; width: 100%; max-width: 600px; height: auto;">'
+    else:
+        header_inner = f'<div style="padding: 20px;"><h1 style="margin: 0; font-size: 24px; font-weight: bold; color: {TEXT_PRIMARY}; letter-spacing: -0.5px;">Briefing <span style="color: {ACCENT};">{title_word}</span></h1><p style="margin: 5px 0 0 0; font-size: 11px; color: {TEXT_SECONDARY}; font-weight: 500;">{today_date} | AI Curated</p></div>'
+
+    # Build ticker HTML (animated GIF or static fallback)
+    if ticker_gif_url:
+        ticker_section = f'<table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="max-width: 600px; width: 100%;"><tr><td style="text-align: center;"><img src="{ticker_gif_url}" width="600" height="36" alt="Market Ticker" style="display: block; width: 100%; max-width: 600px; height: auto;"></td></tr></table>'
+    else:
+        ticker_section = market_ticker_html
+
     html = f"""
 <!DOCTYPE html>
 <html lang="{html_lang}" xmlns="http://www.w3.org/1999/xhtml" xmlns:v="urn:schemas-microsoft-com:vml" xmlns:o="urn:schemas-microsoft-com:office:office">
@@ -451,7 +463,7 @@ def build_newsletter_html(content_body: str, front_page_html: str = "", lang: st
                 <table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="max-width: 600px; width: 100%;">
                     <tr>
                         <td style="background-color: {BG_HEADER}; text-align: center; border-bottom: 3px solid {ACCENT};">
-                            {"<img src=\"" + header_gif_url + "\" width=\"600\" height=\"80\" alt=\"Briefing " + title_word + "\" style=\"display: block; width: 100%; max-width: 600px; height: auto;\">" if header_gif_url else '<div style="padding: 20px;"><h1 style="margin: 0; font-size: 24px; font-weight: bold; color: ' + TEXT_PRIMARY + '; letter-spacing: -0.5px;">Briefing <span style="color: ' + ACCENT + ';">' + title_word + '</span></h1><p style="margin: 5px 0 0 0; font-size: 11px; color: ' + TEXT_SECONDARY + '; font-weight: 500;">' + today_date + ' | AI Curated</p></div>'}
+                            {header_inner}
                         </td>
                     </tr>
                 </table>
@@ -465,7 +477,7 @@ def build_newsletter_html(content_body: str, front_page_html: str = "", lang: st
                     </tr>
                 </table>
 
-                {"<table role=\"presentation\" width=\"600\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\" style=\"max-width: 600px; width: 100%;\"><tr><td style=\"text-align: center;\"><img src=\"" + ticker_gif_url + "\" width=\"600\" height=\"36\" alt=\"Market Ticker\" style=\"display: block; width: 100%; max-width: 600px; height: auto;\"></td></tr></table>" if ticker_gif_url else market_ticker_html}
+                {ticker_section}
 
                 <!-- DIVIDER -->
                 <table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="max-width: 600px; width: 100%;">
