@@ -497,13 +497,18 @@ class Orchestrator:
             # Intentar ventana de 12h primero (noticias de hoy)
             fresh_news = get_fresh_news(12)
 
-            # FALLBACK: ampliar a 24h máximo (nunca más)
+            # FALLBACK 1: ampliar a 24h
             if not fresh_news:
                 print(f"   ⚠️ Sin noticias de 12h. Buscando en ventana de 24h...")
                 fresh_news = get_fresh_news(24)
 
+            # FALLBACK 2: ampliar a 48h (ingesta pudo fallar)
             if not fresh_news:
-                print(f"   ❌ Sin noticias recientes (24h) para '{topic}'. Saltando.")
+                print(f"   ⚠️ Sin noticias de 24h. Buscando en ventana de 48h...")
+                fresh_news = get_fresh_news(48)
+
+            if not fresh_news:
+                print(f"   ❌ Sin noticias recientes (48h) para '{topic}'. Saltando.")
                 continue
 
             # Sort by date: newest first (before scoring)

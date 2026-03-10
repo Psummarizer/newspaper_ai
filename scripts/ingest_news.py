@@ -49,8 +49,12 @@ MAX_CONCURRENT_REDACTIONS = 3
 
 class HourlyProcessor:
     def __init__(self):
-        self.client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-        self.model = "gpt-5-nano"
+        # Use Gemini via OpenAI-compatible endpoint (OpenAI quota exceeded)
+        self.client = AsyncOpenAI(
+            api_key=os.getenv("GEMINI_API_KEY"),
+            base_url="https://generativelanguage.googleapis.com/v1beta/openai/"
+        )
+        self.model = "gemini-2.0-flash-lite"
         self.gcs = GCSService()
         self.fb = FirebaseService()
         
