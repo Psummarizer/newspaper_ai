@@ -49,7 +49,7 @@ COMMUNITY_NOTE_MIN_SOURCES = 3    # cluster size required for a community note
 COMMUNITY_NOTE_MIN_DIVERSITY = 2  # at least N different countries required
 
 EMBEDDING_MODEL = "gemini-embedding-001"
-FLASH_MODEL = "gemini-2.0-flash-lite"
+FLASH_MODEL = "gemini-2.0-flash"
 
 BATCH_SIZE = 100                   # embeddings per API call (Gemini batch limit)
 BATCH_DELAY_S = 2.5                # seconds between embedding batches (rate-limit safety)

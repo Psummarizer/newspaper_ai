@@ -464,6 +464,11 @@ class Orchestrator:
         user_country = user_data.get('country', '')
         current_time = datetime.now()
 
+        # User topic contexts from Firestore (topic map: {"alias": "context description"})
+        _user_topic_map = user_data.get('topic', {}) or {}
+        if not isinstance(_user_topic_map, dict):
+            _user_topic_map = {}
+
         for idx, topic in enumerate(topics):
             print(f"\n--- [{idx+1}/{len(topics)}] Procesando alias: '{topic}' ---")
 
@@ -475,6 +480,12 @@ class Orchestrator:
                 continue
 
             print(f"   ✅ Alias '{topic}' → Topic '{topic_id}' encontrado")
+
+            # Inject user context from Firestore topic map (if not already in cached_data)
+            user_ctx = _user_topic_map.get(topic, "")
+            if user_ctx and user_ctx not in cached_data.get("user_contexts", []):
+                cached_data.setdefault("user_contexts", []).append(user_ctx)
+
             all_news = cached_data["noticias"]
             print(f"   Total noticias en cache: {len(all_news)}")
 

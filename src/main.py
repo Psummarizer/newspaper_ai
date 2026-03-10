@@ -49,6 +49,32 @@ async def trigger_batch_run():
     await script_ingest_news()
     return {"status": "Legacy Batch completed (Ingest)"}
 
+@app.post("/send-test")
+async def trigger_test_newsletter():
+    """Send a test briefing to psummarizer@gmail.com using jcgarcia2066 topics."""
+    from src.services.email_service import EmailService
+    print("🧪 Triggering TEST Newsletter to psummarizer@gmail.com...")
+    orchestrator = Orchestrator(mock_mode=False)
+    test_input = {
+        "email": "psummarizer@gmail.com",
+        "Topics": ["Política española", "Formula 1", "Real Madrid", "Vinos", "Viajes de ocio", "MotoGP"],
+        "Language": "es",
+        "country": "ES",
+        "forbidden_sources": "",
+        "news_podcast": False,
+        "preferences": {},
+        "topic": {
+            "Política española": "Política nacional, gobierno, parlamento, elecciones. Fuentes preferidas: El Debate, El Confidencial, Libertad Digital, The Objective, Voz Pópuli",
+            "Formula 1": "Aston Martin, Fernando Alonso, Carlos Sainz. Resultados de carreras, clasificaciones, noticias de equipo",
+            "Real Madrid": "Solo fútbol masculino. Resultados de partidos, fichajes, plantilla, Liga y Champions League",
+            "Vinos": "Bodegas españolas, vinos tintos y blancos, DO, catas, maridajes, sector vinícola",
+            "Viajes de ocio": "Destinos turísticos, escapadas fin de semana, rutas, hoteles con encanto, gastronomía local. No moda ni lujo",
+            "MotoGP": "Resultados de carreras, pilotos españoles, calendario, noticias de equipos",
+        },
+    }
+    result = await orchestrator.run_for_user(test_input)
+    return {"status": "Test sent" if result else "No content generated"}
+
 # =============================================================================
 # FASE 0: INGESTA DE NOTICIAS (GCS - Ultra rápido + Paralelo)
 # =============================================================================

@@ -54,7 +54,7 @@ class HourlyProcessor:
             api_key=os.getenv("GEMINI_API_KEY"),
             base_url="https://generativelanguage.googleapis.com/v1beta/openai/"
         )
-        self.model = "gemini-2.0-flash-lite"
+        self.model = "gemini-2.0-flash"
         self.gcs = GCSService()
         self.fb = FirebaseService()
         

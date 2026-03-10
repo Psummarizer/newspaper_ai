@@ -432,4 +432,16 @@ class ContentProcessorAgent:
 
         except Exception as e:
             self.logger.error(f"❌ Error seleccionando portada: {e}")
-            return []
+            # Fallback: use first 5 articles directly
+            fallback = []
+            for art in all_articles[:5]:
+                fallback.append({
+                    "headline": art.get("title", art.get("titulo", ""))[:80],
+                    "summary": art.get("content", art.get("resumen", ""))[:100],
+                    "category": art.get("category", ""),
+                    "emoji": "📰",
+                    "original_url": art.get("url"),
+                    "image_url": art.get("image_url"),
+                })
+            self.logger.info(f"   ⚠️ Portada fallback con {len(fallback)} noticias.")
+            return fallback
