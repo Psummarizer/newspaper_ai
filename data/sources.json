@@ -5901,5 +5901,212 @@
     "base_url": "https://news.google.com",
     "language": "es",
     "country": "ES"
+  },
+  {
+    "category": "Deporte",
+    "name": "GPone MotoGP",
+    "domain": "gpone.com",
+    "rss_url": "https://www.gpone.com/it/rss.xml",
+    "base_url": "https://www.gpone.com",
+    "language": "it",
+    "country": "IT"
+  },
+  {
+    "category": "Deporte",
+    "name": "Corse di Moto",
+    "domain": "corsedimoto.com",
+    "rss_url": "https://www.corsedimoto.com/feed/",
+    "base_url": "https://www.corsedimoto.com",
+    "language": "it",
+    "country": "IT"
+  },
+  {
+    "category": "Deporte",
+    "name": "Moto.it MotoGP",
+    "domain": "moto.it",
+    "rss_url": "https://www.moto.it/rss/motogp.xml",
+    "base_url": "https://www.moto.it",
+    "language": "it",
+    "country": "IT"
+  },
+  {
+    "category": "Deporte",
+    "name": "Google News MotoGP IT",
+    "domain": "news.google.com",
+    "rss_url": "https://news.google.com/rss/search?q=MotoGP+2025&hl=it&gl=IT&ceid=IT:it",
+    "base_url": "https://news.google.com",
+    "language": "it",
+    "country": "IT"
+  },
+  {
+    "category": "Deporte",
+    "name": "Autosport F1",
+    "domain": "autosport.com",
+    "rss_url": "https://www.autosport.com/rss/feed/f1",
+    "base_url": "https://www.autosport.com",
+    "language": "en",
+    "country": "UK"
+  },
+  {
+    "category": "Deporte",
+    "name": "RaceFans F1",
+    "domain": "racefans.net",
+    "rss_url": "https://www.racefans.net/feed/",
+    "base_url": "https://www.racefans.net",
+    "language": "en",
+    "country": "UK"
+  },
+  {
+    "category": "Deporte",
+    "name": "PlanetF1",
+    "domain": "planetf1.com",
+    "rss_url": "https://www.planetf1.com/feed/",
+    "base_url": "https://www.planetf1.com",
+    "language": "en",
+    "country": "UK"
+  },
+  {
+    "category": "Deporte",
+    "name": "The Race F1",
+    "domain": "the-race.com",
+    "rss_url": "https://the-race.com/feed/",
+    "base_url": "https://the-race.com",
+    "language": "en",
+    "country": "UK"
+  },
+  {
+    "category": "Deporte",
+    "name": "Auto Motor und Sport F1",
+    "domain": "auto-motor-und-sport.de",
+    "rss_url": "https://www.auto-motor-und-sport.de/rss/formel-1.xml",
+    "base_url": "https://www.auto-motor-und-sport.de",
+    "language": "de",
+    "country": "DE"
+  },
+  {
+    "category": "Deporte",
+    "name": "Google News F1 EN",
+    "domain": "news.google.com",
+    "rss_url": "https://news.google.com/rss/search?q=Formula+1+F1+racing&hl=en&gl=US&ceid=US:en",
+    "base_url": "https://news.google.com",
+    "language": "en",
+    "country": "US"
+  },
+  {
+    "category": "Consumo y Estilo de Vida",
+    "name": "Wine Spectator",
+    "domain": "winespectator.com",
+    "rss_url": "https://www.winespectator.com/rss/rss",
+    "base_url": "https://www.winespectator.com",
+    "language": "en",
+    "country": "US"
+  },
+  {
+    "category": "Consumo y Estilo de Vida",
+    "name": "Wine Enthusiast",
+    "domain": "wineenthusiast.com",
+    "rss_url": "https://www.wineenthusiast.com/feed/",
+    "base_url": "https://www.wineenthusiast.com",
+    "language": "en",
+    "country": "US"
+  },
+  {
+    "category": "Consumo y Estilo de Vida",
+    "name": "Decanter",
+    "domain": "decanter.com",
+    "rss_url": "https://www.decanter.com/feed/",
+    "base_url": "https://www.decanter.com",
+    "language": "en",
+    "country": "UK"
+  },
+  {
+    "category": "Consumo y Estilo de Vida",
+    "name": "Wine-Searcher News",
+    "domain": "wine-searcher.com",
+    "rss_url": "https://www.wine-searcher.com/rss/news.xml",
+    "base_url": "https://www.wine-searcher.com",
+    "language": "en",
+    "country": "US"
+  },
+  {
+    "category": "Consumo y Estilo de Vida",
+    "name": "Gambero Rosso Vino",
+    "domain": "gamberorosso.it",
+    "rss_url": "https://www.gamberorosso.it/feed/",
+    "base_url": "https://www.gamberorosso.it",
+    "language": "it",
+    "country": "IT"
+  },
+  {
+    "category": "Consumo y Estilo de Vida",
+    "name": "Google News Vinos Argentina",
+    "domain": "news.google.com",
+    "rss_url": "https://news.google.com/rss/search?q=vinos+bodegas+malbec+argentina&hl=es&gl=AR&ceid=AR:es",
+    "base_url": "https://news.google.com",
+    "language": "es",
+    "country": "AR"
+  },
+  {
+    "category": "Consumo y Estilo de Vida",
+    "name": "Google News Wine USA",
+    "domain": "news.google.com",
+    "rss_url": "https://news.google.com/rss/search?q=wine+winery+vineyard&hl=en&gl=US&ceid=US:en",
+    "base_url": "https://news.google.com",
+    "language": "en",
+    "country": "US"
+  },
+  {
+    "category": "Consumo y Estilo de Vida",
+    "name": "Google News Vino Italia",
+    "domain": "news.google.com",
+    "rss_url": "https://news.google.com/rss/search?q=vino+italiano+cantina+barolo+chianti&hl=it&gl=IT&ceid=IT:it",
+    "base_url": "https://news.google.com",
+    "language": "it",
+    "country": "IT"
+  },
+  {
+    "category": "Consumo y Estilo de Vida",
+    "name": "Traveler Condé Nast España",
+    "domain": "traveler.es",
+    "rss_url": "https://www.traveler.es/rss",
+    "base_url": "https://www.traveler.es",
+    "language": "es",
+    "country": "ES"
+  },
+  {
+    "category": "Consumo y Estilo de Vida",
+    "name": "Google News Viajes España",
+    "domain": "news.google.com",
+    "rss_url": "https://news.google.com/rss/search?q=viajes+turismo+escapadas+hoteles+rutas&hl=es&gl=ES&ceid=ES:es",
+    "base_url": "https://news.google.com",
+    "language": "es",
+    "country": "ES"
+  },
+  {
+    "category": "Consumo y Estilo de Vida",
+    "name": "Google News Travel Europe",
+    "domain": "news.google.com",
+    "rss_url": "https://news.google.com/rss/search?q=travel+destinations+europe+weekend+getaway&hl=en&gl=US&ceid=US:en",
+    "base_url": "https://news.google.com",
+    "language": "en",
+    "country": "US"
+  },
+  {
+    "category": "Consumo y Estilo de Vida",
+    "name": "Lonely Planet",
+    "domain": "lonelyplanet.com",
+    "rss_url": "https://www.lonelyplanet.com/feed.xml",
+    "base_url": "https://www.lonelyplanet.com",
+    "language": "en",
+    "country": "US"
+  },
+  {
+    "category": "Consumo y Estilo de Vida",
+    "name": "National Geographic Travel",
+    "domain": "nationalgeographic.com",
+    "rss_url": "https://www.nationalgeographic.com/travel/feed",
+    "base_url": "https://www.nationalgeographic.com",
+    "language": "en",
+    "country": "US"
   }
 ]

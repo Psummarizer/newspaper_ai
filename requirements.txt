@@ -1,35 +1,32 @@
+# Core web framework
 fastapi>=0.109.0
 uvicorn>=0.27.0
 pydantic>=2.6.0
-pydantic-settings>=2.1.0
-email-validator>=2.1.0
+
+# LLM clients (OpenAI-compatible SDK used for Gemini, Groq, Mistral)
 openai>=1.12.0
-beautifulsoup4>=4.12.3
-httpx>=0.27.0
-redis>=5.0.1
-python-dotenv>=1.0.1
-tenacity>=8.2.3
-google-cloud-pubsub>=2.19.0
+
+# Google Cloud services
 google-cloud-firestore>=2.19.0
 google-cloud-storage>=2.10.0
 google-api-core>=2.10.0
 grpcio>=1.60.0
 grpcio-status>=1.60.0
+firebase-admin>=6.2.0
 google-cloud-texttospeech
-ddgs
-sqlalchemy>=2.0.25
-asyncpg>=0.29.0
-greenlet>=3.0.3
-trafilatura
-python-dateutil
-duckduckgo_search
-curl_cffi
+
+# RSS & web
 feedparser
 googlenewsdecoder
-aiosqlite
+beautifulsoup4>=4.12.3
 aiohttp
-firebase-admin>=6.2.0
-google-genai>=1.0.0
+requests
+
+# TTS & media
 edge-tts>=7.0.0
-selenium>=4.10.0
 Pillow>=10.0.0
+selenium>=4.10.0
+
+# Utils
+python-dotenv>=1.0.1
+python-dateutil

@@ -8,15 +8,15 @@ ENV PYTHONUNBUFFERED=1
 # Directorio de trabajo
 WORKDIR /app
 
-# Instalar dependencias
+# Instalar dependencias Python primero (mejor cache de Docker layers)
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Instalar Chromium, Driver y FFmpeg (Audio + Selenium)
-RUN apt-get update && apt-get install -y \
+# Instalar Chromium y Driver (para Castos podcast upload via Selenium)
+# ffmpeg removed - not used in cloud pipeline
+RUN apt-get update && apt-get install -y --no-install-recommends \
     chromium \
     chromium-driver \
-    ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
 # Configurar variables de entorno para Selenium
@@ -31,12 +31,9 @@ COPY src/ src/
 COPY scripts/ scripts/
 COPY data/ data/
 COPY assets/ assets/
-# Copiar main.py a la raíz o asegurar path
-# En este caso, main.py está en src/main.py, pero el WORKDIR es /app
-# Docker espera ejecutar desde ahí.
 
-# Exponer puerto (necesario para Cloud Run aunque sea un job, por health checks)
+# Exponer puerto
 EXPOSE 8080
 
-# Comando de inicio: Ejecutar el script principal
+# Comando de inicio
 CMD ["python", "src/main.py"]

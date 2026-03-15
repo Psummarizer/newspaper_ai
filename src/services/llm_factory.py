@@ -35,49 +35,64 @@ class LLMFactory:
         return cls._config
 
     @classmethod
+    def _get_or_create_client(cls, provider: str) -> "AsyncOpenAI":
+        """Creates or returns a cached AsyncOpenAI client for the given provider."""
+        if provider not in cls._clients:
+            load_dotenv()
+            config = cls._load_config()
+            provider_config = config.get("llm_providers", {}).get(provider, {})
+
+            # Map provider name → env var key
+            env_keys = {
+                "openai": "OPENAI_API_KEY",
+                "gemini": "GEMINI_API_KEY",
+                "groq": "GROQ_API_KEY",
+                "mistral": "MISTRAL_API_KEY",
+            }
+            env_key = env_keys.get(provider, f"{provider.upper()}_API_KEY")
+            api_key = os.getenv(env_key)
+            if not api_key:
+                logger.warning(f"{env_key} no encontrada en entorno")
+
+            base_url = provider_config.get("base_url")
+            if base_url:
+                cls._clients[provider] = AsyncOpenAI(api_key=api_key, base_url=base_url)
+            else:
+                cls._clients[provider] = AsyncOpenAI(api_key=api_key)
+
+        return cls._clients[provider]
+
+    @classmethod
     def get_client(cls, task_type="fast"):
         """
         Devuelve el cliente configurado y el nombre del modelo.
         task_type: "fast" o "quality"
+
+        Supports per-task provider routing via 'task_provider_routing' in config.
+        Example: {"fast": "mistral", "quality": "gemini"} routes cheap tasks
+        to Mistral and expensive tasks to Gemini.
         """
         config = cls._load_config()
-        provider = config.get("active_llm_provider", "openai")
+
+        # Per-task routing: allows different providers for fast vs quality
+        routing = config.get("task_provider_routing", {})
+        provider = routing.get(task_type) or config.get("active_llm_provider", "openai")
+
         provider_config = config.get("llm_providers", {}).get(provider, {})
-        
-        # Obtener el modelo según el task_type
         model_key = f"{task_type}_model"
         model_name = provider_config.get(model_key)
-        
-        # Si no se encuentra el modelo específico, intentar hardcoded fallbacks
+
         if not model_name:
-            if provider == "openai":
-                model_name = "gpt-5-nano" if task_type == "fast" else "gpt-4o-mini"
-            elif provider == "gemini":
-                model_name = "gemini-2.5-flash" if task_type == "fast" else "gemini-2.5-pro"
-                
-        # Singleton client per provider
-        if provider not in cls._clients:
-            load_dotenv()
-            
-            if provider == "openai":
-                api_key = os.getenv("OPENAI_API_KEY")
-                if not api_key:
-                    logger.warning("OPENAI_API_KEY no encontrada en entorno")
-                cls._clients[provider] = AsyncOpenAI(api_key=api_key)
-                
-            elif provider == "gemini":
-                api_key = os.getenv("GEMINI_API_KEY")
-                if not api_key:
-                    logger.warning("GEMINI_API_KEY no encontrada en entorno")
-                base_url = provider_config.get("base_url", "https://generativelanguage.googleapis.com/v1beta/openai/")
-                cls._clients[provider] = AsyncOpenAI(
-                    api_key=api_key,
-                    base_url=base_url
-                )
-            else:
-                raise ValueError(f"Proveedor LLM no soportado: {provider}")
-                
-        return cls._clients[provider], model_name
+            fallbacks = {
+                "openai": {"fast": "gpt-5-nano", "quality": "gpt-4o-mini"},
+                "gemini": {"fast": "gemini-2.5-flash", "quality": "gemini-2.5-pro"},
+                "groq": {"fast": "gemma2-9b-it", "quality": "llama-3.3-70b-versatile"},
+                "mistral": {"fast": "mistral-small-latest", "quality": "mistral-small-latest"},
+            }
+            model_name = fallbacks.get(provider, {}).get(task_type, "mistral-small-latest")
+
+        client = cls._get_or_create_client(provider)
+        return client, model_name
 
     @classmethod
     def get_tts_config(cls, language: str = "es"):

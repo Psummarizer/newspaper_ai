@@ -1,5 +1,9 @@
 {
-    "active_llm_provider": "gemini",
+    "active_llm_provider": "mistral",
+    "task_provider_routing": {
+        "fast": "mistral",
+        "quality": "gemini"
+    },
     "active_tts_provider": "google",
     "llm_providers": {
         "openai": {
@@ -11,6 +15,16 @@
             "fast_model": "gemini-2.5-flash",
             "quality_model": "gemini-2.5-flash",
             "base_url": "https://generativelanguage.googleapis.com/v1beta/openai/"
+        },
+        "groq": {
+            "fast_model": "gemma2-9b-it",
+            "quality_model": "llama-3.3-70b-versatile",
+            "base_url": "https://api.groq.com/openai/v1"
+        },
+        "mistral": {
+            "fast_model": "mistral-small-latest",
+            "quality_model": "mistral-small-latest",
+            "base_url": "https://api.mistral.ai/v1"
         }
     },
     "language_config": {

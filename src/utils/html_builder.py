@@ -113,7 +113,7 @@ CATEGORY_EMOJIS = {
 WEB_APP_URL = "https://podsummarizer.xyz/"
 
 
-def build_mid_banner(web_url: str = WEB_APP_URL, lang: str = "es") -> str:
+def build_mid_banner(web_url: str = WEB_APP_URL, lang: str = "es", banner_gif_url: str = "") -> str:
     """
     Banner promocional para el centro del email.
     100% compatible con Gmail, Outlook, Apple Mail, Yahoo Mail.
@@ -132,6 +132,16 @@ def build_mid_banner(web_url: str = WEB_APP_URL, lang: str = "es") -> str:
                  "Tu panel privado lo tiene todo —ordenado, filtrado y listo.")
     cta_text = "See all the news" if is_en else "Ver todas las noticias"
 
+    # Optional GIF at top of banner
+    gif_row = ""
+    if banner_gif_url:
+        gif_row = f'''
+                    <tr>
+                        <td style="padding-bottom:16px; text-align:center;">
+                            <img src="{banner_gif_url}" width="520" height="70" alt="Briefing" style="display:block; width:100%; max-width:520px; height:auto; border-radius:6px;">
+                        </td>
+                    </tr>'''
+
     return f'''
     <!-- MID NEWSLETTER BANNER -->
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"
@@ -141,6 +151,7 @@ def build_mid_banner(web_url: str = WEB_APP_URL, lang: str = "es") -> str:
             <td width="6" style="background-color:#1DA1F2; padding:0;">&nbsp;</td>
             <td style="padding:32px 28px;">
                 <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+                    {gif_row}
                     <tr>
                         <td>
                             <p style="margin:0 0 10px 0; font-size:11px; font-weight:700;
@@ -209,10 +220,22 @@ def build_front_page(headlines: list, lang: str = "es") -> str:
     featured_title = featured.get('headline', '')
     featured_summary = featured.get('summary', '') or ''
     
-    # Truncar resumen a ~28 palabras
-    words = featured_summary.split()
-    if len(words) > 28:
-        featured_summary = " ".join(words[:28]) + "..."
+    # Truncar resumen a frases completas (~200 chars max, never mid-sentence)
+    if len(featured_summary) > 200:
+        # Find the last sentence boundary before 200 chars
+        truncated = featured_summary[:200]
+        for sep in ['. ', '! ', '? ']:
+            last_sep = truncated.rfind(sep)
+            if last_sep > 50:  # At least 50 chars of content
+                featured_summary = truncated[:last_sep + 1]
+                break
+        else:
+            # No sentence boundary found, try comma
+            last_comma = truncated.rfind(', ')
+            if last_comma > 50:
+                featured_summary = truncated[:last_comma + 1]
+            else:
+                featured_summary = truncated.rsplit(' ', 1)[0] + "..."
     
     # Imagen de fondo (Prioridad: Imagen noticia -> Imagen categoría -> General)
     bg_image = featured.get('image_url')
@@ -424,11 +447,8 @@ def build_newsletter_html(content_body: str, front_page_html: str = "", lang: st
     news_label = "News" if is_en else "Noticias"
     footer_text = "Automatically generated." if is_en else "Generado automáticamente."
 
-    # Build header HTML (animated GIF or static fallback)
-    if header_gif_url:
-        header_inner = f'<img src="{header_gif_url}" width="600" height="80" alt="Briefing {title_word}" style="display: block; width: 100%; max-width: 600px; height: auto;">'
-    else:
-        header_inner = f'<div style="padding: 20px;"><h1 style="margin: 0; font-size: 24px; font-weight: bold; color: {TEXT_PRIMARY}; letter-spacing: -0.5px;">Briefing <span style="color: {ACCENT};">{title_word}</span></h1><p style="margin: 5px 0 0 0; font-size: 11px; color: {TEXT_SECONDARY}; font-weight: 500;">{today_date} | AI Curated</p></div>'
+    # Build header HTML (always static text — GIF moved to CTA banner)
+    header_inner = f'<div style="padding: 20px;"><h1 style="margin: 0; font-size: 24px; font-weight: bold; color: {TEXT_PRIMARY}; letter-spacing: -0.5px;">Briefing <span style="color: {ACCENT};">{title_word}</span></h1><p style="margin: 5px 0 0 0; font-size: 11px; color: {TEXT_SECONDARY}; font-weight: 500;">{today_date} | AI Curated</p></div>'
 
     # Build ticker HTML (animated GIF or static fallback)
     if ticker_gif_url:

@@ -115,6 +115,8 @@ async def generate_and_send():
         
         # 4. Run Orchestrator
         # 4. Run Orchestrator
+        # Include 'topic' map so orchestrator can extract user context & preferred sources
+        raw_topic_map = sub_data.get("topic", {})
         user_input = {
             "email": email,
             "Topics": user_topics_list,
@@ -122,7 +124,8 @@ async def generate_and_send():
             "country": sub_data.get("country") or sub_data.get("Country", ""),
             "forbidden_sources": sub_data.get("forbidden_sources", ""),
             "news_podcast": sub_data.get("news_podcast") or sub_data.get("NewsPodcast"),
-            "preferences": sub_data.get("preferences") or sub_data.get("Preferences", {})
+            "preferences": sub_data.get("preferences") or sub_data.get("Preferences", {}),
+            "topic": raw_topic_map if isinstance(raw_topic_map, dict) else {}
         }
         
         # Run!

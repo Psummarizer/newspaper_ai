@@ -22,7 +22,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import aiohttp
 import feedparser
-from openai import AsyncOpenAI
+from src.services.llm_factory import LLMFactory
 from src.services.gcs_service import GCSService
 from src.services.firebase_service import FirebaseService
 from src.utils.html_builder import CATEGORY_IMAGES
@@ -44,17 +44,13 @@ VALID_CATEGORIES = list(CATEGORY_IMAGES.keys())
 
 # Configuración de paralelismo
 MAX_CONCURRENT_TOPICS = 5
-MAX_CONCURRENT_REDACTIONS = 3
+BATCH_REDACTION_SIZE = 3  # Articles per LLM redaction call
 
 
 class HourlyProcessor:
     def __init__(self):
-        # Use Gemini via OpenAI-compatible endpoint (OpenAI quota exceeded)
-        self.client = AsyncOpenAI(
-            api_key=os.getenv("GEMINI_API_KEY"),
-            base_url="https://generativelanguage.googleapis.com/v1beta/openai/"
-        )
-        self.model = "gemini-2.5-flash"
+        # Use LLMFactory for provider-agnostic client (supports Gemini, Groq, Mistral, etc.)
+        self.client, self.model = LLMFactory.get_client("fast")
         self.gcs = GCSService()
         self.fb = FirebaseService()
         
@@ -148,11 +144,11 @@ class HourlyProcessor:
                     if topic_id:
                         topics_data[topic_id] = result.get("data")
                         msg_counter += 1
-                        
-                        # Guardar cada 1 topic (o ajustar si es mucho I/O, pero GCS aguanta)
-                        # Para máxima seguridad: Guardar SIEMPRE
-                        logger.info(f"💾 Guardado incremental ({msg_counter}/{len(topic_names)}): {topic_id}")
-                        self._save_topics_json(topics_data)
+
+                        # Save every 5 topics to reduce GCS writes (was every 1)
+                        if msg_counter % 5 == 0 or msg_counter == len(topic_names):
+                            logger.info(f"💾 Guardado incremental ({msg_counter}/{len(topic_names)})")
+                            self._save_topics_json(topics_data)
             except Exception as e:
                 logger.error(f"❌ Error en topic task: {e}")
         
@@ -174,7 +170,7 @@ class HourlyProcessor:
                 enrich_topics_with_perspectives,
                 topics_data,
                 None,  # api_key=None → usa GEMINI_API_KEY del entorno
-                True,  # generate_community_notes
+                False,  # generate_community_notes=False to save LLM costs
             )
             # Re-guardar con perspectivas añadidas
             self._save_topics_json(topics_data)
@@ -258,39 +254,88 @@ class HourlyProcessor:
         relevant = await self._filter_relevant(topic_name, candidates, user_contexts) if candidates else []
         logger.info(f"✅ {topic_name}: {len(relevant)} relevantes")
         
-        # Redactar noticias nuevas (con deduplicación)
-        redaction_semaphore = asyncio.Semaphore(MAX_CONCURRENT_REDACTIONS)
-        
-        async def redact_with_dedup(art):
-            async with redaction_semaphore:
-                return await self._redact_with_deduplication(art, topic_name, categories, topics_data)
-        
-        # Solo redactar los que no están en cache
+        # Solo redactar los que no están en cache, con cap para ahorrar LLM calls
+        MAX_REDACTIONS_PER_TOPIC = 10  # Max 10 new articles redacted per topic per run
         new_to_redact = []
         for art in relevant:
             url = art.get("url", "")
-            if url not in self.redacted_cache:
-                new_to_redact.append(art)
-            else:
-                # Ya está en cache, reutilizar
+            title = art.get("title", "")
+            # Skip if URL already in cache or historical
+            if url in self.redacted_cache:
                 cached = self.redacted_cache[url]
                 if cached and cached not in topic_info.get("noticias", []):
                     topic_info["noticias"].append(cached)
-        
+                continue
+            if url in self.existing_urls:
+                self.redacted_cache[url] = None
+                continue
+            # Skip if title is a duplicate of existing news
+            dedup = self._check_duplicate_or_update(title, "")
+            if dedup.get("status") == "duplicate":
+                matched_key = dedup.get("matched_key")
+                # Add URL as source to existing article
+                existing_info = self.existing_news.get(matched_key)
+                if existing_info and existing_info.get("news"):
+                    existing_sources = existing_info["news"].get("fuentes", [])
+                    if url and url not in existing_sources:
+                        existing_sources.append(url)
+                        existing_info["news"]["fuentes"] = existing_sources[:5]
+                self.redacted_cache[url] = None
+                continue
+            new_to_redact.append(art)
+
+        if len(new_to_redact) > MAX_REDACTIONS_PER_TOPIC:
+            logger.info(f"✂️ {topic_name}: Limitando redacciones de {len(new_to_redact)} a {MAX_REDACTIONS_PER_TOPIC}")
+            new_to_redact = new_to_redact[:MAX_REDACTIONS_PER_TOPIC]
+
         if new_to_redact:
-            redaction_tasks = [redact_with_dedup(art) for art in new_to_redact]
-            redacted_results = await asyncio.gather(*redaction_tasks, return_exceptions=True)
-            
-            for result in redacted_results:
-                if isinstance(result, dict) and result.get("titulo"):
-                    topic_info["noticias"].append(result)
-                    logger.info(f"✍️ {topic_name}: {result['titulo'][:40]}...")
+            # Prepare all articles first (fetch content/images in parallel)
+            prep_tasks = [self._prepare_article_for_redaction(art) for art in new_to_redact]
+            prepared = await asyncio.gather(*prep_tasks, return_exceptions=True)
+
+            # Filter out None/failed preparations, keeping original article reference
+            valid_pairs = []  # [(original_article, prepared_data)]
+            for art, prep in zip(new_to_redact, prepared):
+                if isinstance(prep, dict) and prep.get("title"):
+                    valid_pairs.append((art, prep))
+                else:
+                    url = art.get("url", "")
+                    self.redacted_cache[url] = None
+
+            # Batch redaction: process in groups of BATCH_REDACTION_SIZE
+            for batch_start in range(0, len(valid_pairs), BATCH_REDACTION_SIZE):
+                batch_pairs = valid_pairs[batch_start:batch_start + BATCH_REDACTION_SIZE]
+                batch_prepared = [p for _, p in batch_pairs]
+                batch_originals = [a for a, _ in batch_pairs]
+
+                results = await self._redact_batch(batch_prepared, topic_name)
+
+                for art, result in zip(batch_originals, results):
+                    url = art.get("url", "")
+                    if isinstance(result, dict) and result.get("titulo"):
+                        # Dedup check before adding
+                        dedup = self._check_duplicate_or_update(result["titulo"], "")
+                        if dedup.get("status") == "duplicate":
+                            self.redacted_cache[url] = None
+                            continue
+                        topic_info["noticias"].append(result)
+                        self.redacted_cache[url] = result
+                        for cat in categories:
+                            if cat not in self.category_news_cache:
+                                self.category_news_cache[cat] = []
+                            self.category_news_cache[cat].append(result)
+                        self.existing_news[self._normalize_title(result["titulo"])] = {
+                            "news": result, "topic_id": topic_id, "index": -1
+                        }
+                        logger.info(f"✍️ {topic_name}: {result['titulo'][:40]}...")
+                    else:
+                        self.redacted_cache[url] = None
         
         # Añadir noticias de cache de categoría si son relevantes
         for cached_news_item in cached_news:
             if cached_news_item not in topic_info.get("noticias", []):
                 # Verificar relevancia rápida
-                if await self._is_relevant_for_topic(cached_news_item, topic_name):
+                if self._is_relevant_for_topic(cached_news_item, topic_name):
                     topic_info["noticias"].append(cached_news_item)
                     logger.info(f"♻️ {topic_name}: Reutilizada noticia de cache")
         
@@ -333,9 +378,9 @@ class HourlyProcessor:
                 common = len(words_a & words_b)
                 similarity = common / max(len(words_a), len(words_b))
                 
-                # LOWER THRESHOLD from 0.6 to 0.35 to catch more sources for same event
-                # e.g. "Madrid gana Supercopa" vs "Real Madrid campeón de Supercopa"
-                if similarity > 0.35:
+                # Threshold for merging sources - 0.50 balances catching same event
+                # without merging distinct articles
+                if similarity > 0.50:
                     # Fusionar fuentes
                     for src in news_b.get("fuentes", []):
                         if src and src not in sources_a:
@@ -358,196 +403,81 @@ class HourlyProcessor:
                 result.extend(self.category_news_cache[cat])
         return result
     
-    async def _redact_with_deduplication(self, article: dict, topic: str, categories: list, topics_data: dict = None) -> dict:
-        """Redacta con verificación de duplicados semánticos y detección de actualizaciones"""
-        url = article.get("url", "")
-        title = article.get("title", "")
-        content = article.get("content", "")
-        
-        # Check 1: URL ya procesada (Cache efímera O Histórica)
-        if url in self.redacted_cache:
-            return self.redacted_cache[url]
-        
-        if url in self.existing_urls:
-            # Ya existe en el histórico -> Es un DUPLICADO exacto
-            # Retornamos None para que no se vuelva a añadir (ni siquiera gastamos LLM en dedup check)
-            logger.info(f"⏭️ URL ya existente (Histórico): {url[:40]}...")
-            self.redacted_cache[url] = None 
-            return None
-        
-        # Check 2: Deduplicación semántica con detección de actualizaciones
-        dedup_result = await self._check_duplicate_or_update(title, content)
-        status = dedup_result.get("status", "different")
-        matched_key = dedup_result.get("matched_key")
-        
-        if status == "duplicate" and matched_key:
-            # Es DUPLICADO - añadir esta URL a las fuentes de la noticia existente
-            logger.info(f"🔄 Duplicado detectado: añadiendo fuente a '{matched_key[:40]}...'")
-            existing_info = self.existing_news.get(matched_key)
-            if existing_info and existing_info.get("news"):
-                existing_news = existing_info["news"]
-                existing_sources = existing_news.get("fuentes", [])
-                if url and url not in existing_sources:
-                    existing_sources.append(url)
-                    existing_news["fuentes"] = existing_sources[:5]  # Max 5 fuentes
-                    logger.info(f"   ✅ Fuentes ahora: {len(existing_news['fuentes'])}")
-            self.redacted_cache[url] = None
-            return None
-        
-        elif status == "update" and matched_key and topics_data:
-            # Es una ACTUALIZACIÓN - redactar y reemplazar la vieja
-            logger.info(f"📝 ACTUALIZACIÓN detectada: {title[:50]}...")
-            redacted = await self._redact_article(article, topic)
-            
-            if redacted:
-                # Reemplazar la noticia vieja
-                old_info = self.existing_news.get(matched_key)
-                if old_info:
-                    old_topic_id = old_info["topic_id"]
-                    old_index = old_info["index"]
-                    if old_topic_id in topics_data:
-                        noticias = topics_data[old_topic_id].get("noticias", [])
-                        if old_index < len(noticias):
-                            noticias[old_index] = redacted
-                            logger.info(f"♻️ Reemplazada noticia antigua en {old_topic_id}")
-                
-                # Actualizar caches
-                self.redacted_cache[url] = redacted
-                self.existing_news[self._normalize_title(redacted.get("titulo", ""))] = {
-                    "news": redacted,
-                    "topic_id": self._normalize_id(topic),
-                    "index": -1  # Se actualizará al guardar
-                }
-            return redacted
-        
-        # status == "different" - Noticia nueva, redactar normalmente
-        redacted = await self._redact_article(article, topic)
-        
-        if redacted:
-            self.redacted_cache[url] = redacted
-            
-            for cat in categories:
-                if cat not in self.category_news_cache:
-                    self.category_news_cache[cat] = []
-                self.category_news_cache[cat].append(redacted)
-            
-            self.existing_news[self._normalize_title(redacted.get("titulo", ""))] = {
-                "news": redacted,
-                "topic_id": self._normalize_id(topic),
-                "index": -1
-            }
-        
-        return redacted
-    
-    async def _check_duplicate_or_update(self, new_title: str, new_content: str) -> dict:
+    def _check_duplicate_or_update(self, new_title: str, new_content: str) -> dict:
         """
-        Detecta si la noticia es:
-        - 'duplicate': Misma noticia, sin info nueva -> SKIP
-        - 'update': Misma noticia pero con MÁS información (Resultados, Confirmaciones) -> REEMPLAZAR
-        - 'different': Noticia diferente -> REDACTAR
-        
+        Detecta duplicados usando similitud de título (sin LLM).
+        - 'duplicate': >50% palabras clave coinciden con un artículo existente
+        - 'different': Noticia nueva, redactar
+
         Returns: {"status": str, "matched_key": str or None}
         """
         if not self.existing_news:
             return {"status": "different", "matched_key": None}
-        
-        # Check rápido: título normalizado exacto
+
+        # Check 1: título normalizado exacto
         normalized_new = self._normalize_title(new_title)
         if normalized_new in self.existing_news:
             return {"status": "duplicate", "matched_key": normalized_new}
-        
-        # Check con LLM solo si hay suficientes noticias existentes
-        if len(self.existing_news) < 3:
+
+        # Check 2: similitud de palabras clave del título
+        import unicodedata
+        def _keywords(text):
+            text = unicodedata.normalize('NFD', text.lower())
+            text = ''.join(c for c in text if unicodedata.category(c) != 'Mn')
+            # Remove emojis and short words
+            words = set(text.split())
+            stopwords = {'el', 'la', 'los', 'las', 'un', 'una', 'de', 'del', 'al',
+                        'en', 'y', 'o', 'que', 'es', 'por', 'con', 'para', 'se', 'su',
+                        'no', 'a', 'lo', 'como', 'mas', 'pero', 'sus', 'the', 'of',
+                        'and', 'to', 'in', 'is', 'that', 'for', 'on', 'with'}
+            return {w for w in words if len(w) > 2 and w not in stopwords}
+
+        new_kw = _keywords(new_title)
+        if not new_kw:
             return {"status": "different", "matched_key": None}
-        
-        # Tomar muestra de títulos existentes CON RESUMEN (Contexto enriquecido)
-        sample_keys = list(self.existing_news.keys())
-        # Limitar a las últimas 15 para no saturar el prompt, priorizando las más recientes si hay logica temporal
-        sample_keys = sample_keys[:15]
-        
-        titles_text = ""
-        for i, k in enumerate(sample_keys):
-            news_item = self.existing_news[k].get("news", {})
-            existing_title = news_item.get("titulo", k)
-            existing_summary = news_item.get("resumen", "")[:300].replace("\n", " ")
-            titles_text += f"ID_{i}:\nTÍTULO: {existing_title}\nRESUMEN: {existing_summary}\n---\n"
-        
-        prompt = f"""
-        Actúa como un Editor Jefe Inteligente.
-        Tu tarea es detectar si una NOTICIA NUEVA se solapa con alguna YA EXISTENTE.
 
-        NOTICIA NUEVA:
-        Titulo: {new_title}
-        Contenido: {new_content[:500]}
-        
-        NOTICIAS YA PROCESADAS (Contexto):
-        {titles_text}
-        
-        INSTRUCCIONES DE LÓGICA (STRICT):
-        Debes comparar la NOTICIA NUEVA con cada ID existente y decidir:
+        best_sim = 0.0
+        best_key = None
+        for key in self.existing_news:
+            existing_kw = _keywords(key)
+            if not existing_kw:
+                continue
+            common = len(new_kw & existing_kw)
+            sim = common / max(len(new_kw), len(existing_kw))
+            if sim > best_sim:
+                best_sim = sim
+                best_key = key
 
-        1. DUPLICATE (Duplicado):
-           - Se refiere al MISMO evento, anuncio, declaración o hecho principal.
-           - Aunque cambie la fuente, el enfoque o algunas palabras, la información central es la misma.
-           - Ejemplo abstracto: "X anuncia Y" vs "Y es anunciado por X". -> DUPLICATE.
+        if best_sim > 0.50:
+            return {"status": "duplicate", "matched_key": best_key}
 
-        2. UPDATE (Actualización / Obsolescencia):
-           - La NOTICIA NUEVA contiene información POSTERIOR que hace obsoleta a la anterior.
-           - Casos típicos:
-             * PREVIA vs RESULTADO (El partido se jugó y hay marcador).
-             * RUMOR vs CONFIRMACIÓN (Oficialización de un fichaje o medida).
-             * INICIO vs DESENLACE (Una reunión empezó vs Terminó con acuerdo).
-           - Si la nueva noticia aporta el RESULTADO FINAL o un estado MÁS AVANZADO -> UPDATE.
-
-        3. DIFFERENT (Diferente):
-           - Hechos distintos, personas distintas, o eventos sin relación directa.
-           - Si son dos partidos diferentes de la misma jornada -> DIFFERENT.
-        
-        SALIDA ESPERADA (JSON):
-        {{"status": "duplicate" | "update" | "different", "matched_id": <numero_id_existente> | null}}
-        """
-        
-        try:
-            response = await self.client.chat.completions.create(
-                model=self.model,
-                messages=[{"role": "user", "content": prompt}]
-            )
-            result = _extract_json(response.choices[0].message.content)
-            status = result.get("status", "different")
-            matched_id = result.get("matched_id")
-            
-            matched_key = None
-            if matched_id is not None and isinstance(matched_id, int) and 0 <= matched_id < len(sample_keys):
-                matched_key = sample_keys[matched_id]
-            
-            return {"status": status, "matched_key": matched_key}
-        except Exception as e:
-            logger.warning(f"Error en dedup check: {e}")
-            return {"status": "different", "matched_key": None}
+        return {"status": "different", "matched_key": None}
     
-    async def _is_relevant_for_topic(self, news_item: dict, topic: str) -> bool:
-        """Verifica si una noticia cacheada es relevante para el topic"""
+    def _is_relevant_for_topic(self, news_item: dict, topic: str) -> bool:
+        """Verifica relevancia con keywords (sin LLM, ahorra costes)"""
+        import unicodedata
         title = news_item.get("titulo", "")
         resumen = news_item.get("resumen", "")
-        
-        prompt = f"""
-        ¿Esta noticia es relevante para el topic "{topic}"?
-        
-        Título: {title}
-        Resumen: {resumen}
-        
-        Responde JSON: {{"is_relevant": true/false}}
-        """
-        
-        try:
-            response = await self.client.chat.completions.create(
-                model=self.model,
-                messages=[{"role": "user", "content": prompt}]
-            )
-            result = _extract_json(response.choices[0].message.content)
-            return result.get("is_relevant", False)
-        except:
-            return False
+        combined = f"{title} {resumen}".lower()
+        combined = unicodedata.normalize('NFD', combined)
+        combined = ''.join(c for c in combined if unicodedata.category(c) != 'Mn')
+
+        topic_lower = unicodedata.normalize('NFD', topic.lower())
+        topic_lower = ''.join(c for c in topic_lower if unicodedata.category(c) != 'Mn')
+
+        # Extract topic keywords (split on spaces, semicolons, commas)
+        topic_words = set()
+        for sep in [';', ',', ' ']:
+            for w in topic_lower.split(sep):
+                w = w.strip()
+                if len(w) > 2:
+                    topic_words.add(w)
+
+        # If any topic keyword appears in title+summary, it's relevant
+        for kw in topic_words:
+            if kw in combined:
+                return True
+        return False
     
     # =========================================================================
     # MÉTODOS EXISTENTES (sin cambios significativos)
@@ -820,28 +750,20 @@ class HourlyProcessor:
         if not fresh_articles:
             logger.info(f"⏰ {topic}: 0 artículos frescos (todos > 48h)")
             return []
-        
-        # Increase limit to allow more candidates for merging
-        articles = fresh_articles[:60]
-        
-        articles_text = ""
-        for i, a in enumerate(articles):
-            snippet = (a.get("content") or a.get("description") or "")[:200]
-            # INCLUIR FUENTE PARA QUE EL LLM PUEDA FILTRAR POR MEDIO SI EL USUARIO LO PIDE
-            source = a.get("source_name", "Desconocido")
-            articles_text += f"ID {i}: [FUENTE: {source}] {a.get('title')} | {snippet}\n"
-        
+
+        # Process up to 150 candidates in batches of 50
+        max_candidates = 150
+        batch_size = 50
+        articles = fresh_articles[:max_candidates]
+        logger.info(f"🔍 {topic}: {len(fresh_articles)} frescos, evaluando {len(articles)} candidatos en lotes de {batch_size}")
+
         # Build User Context String for Optimized Filtering
         context_str = ""
         if user_contexts:
-             # Clean and deduplicate contexts
              cleaned_contexts = [str(c).strip() for c in user_contexts if c and len(str(c).strip()) > 3]
-             # Get unique contexts
              cleaned_contexts = list(set(cleaned_contexts))
-             
              if cleaned_contexts:
-                 # Limit to avoid huge prompts
-                 list_str = "\n".join([f"- {c}" for c in cleaned_contexts[:20]]) 
+                 list_str = "\n".join([f"- {c}" for c in cleaned_contexts[:20]])
                  context_str = (
                      f"\n⚠️ INTERESES ESPECÍFICOS DE LOS USUARIOS:\n"
                      f"{list_str}\n"
@@ -850,60 +772,78 @@ class HourlyProcessor:
                      f"Incluye también noticias relevantes del tema '{topic}' de otros medios de calidad.\n"
                  )
 
-        prompt = f"""
-        Eres un FILTRO DE RELEVANCIA inteligente para el topic: "{topic}".
-        {context_str}
-        Tu trabajo: Identificar noticias RELACIONADAS con "{topic}".
-        
-        INSTRUCCIÓN SOBRE FUENTES Y MEDIOS:
-        - Si el topic o los intereses del usuario mencionan medios concretos (ej: "El Confidencial", "Libertad Digital"), PRIORIZA noticias de esos medios (dales preferencia), pero NO descartes noticias de otros medios si son muy relevantes para el tema.
-        - Si el topic es genérico, ignora la fuente y céntrate en el contenido.
-        
-        ENFOQUE PARA TOPICS CIENTÍFICOS/TÉCNICOS (ej: física cuántica, IA, blockchain):
-        - SÉ INCLUSIVO: acepta investigaciones, papers, descubrimientos, avances
-        - Acepta temas relacionados (física cuántica → mecánica cuántica, computación cuántica, entrelazamiento)
-        - Acepta noticias de universidades, laboratorios, centros de investigación
-        - La palabra clave o tema debe aparecer o ser claramente implícito
-        
-        ENFOQUE PARA TOPICS DE ENTRETENIMIENTO/DEPORTE (ej: F1, Real Madrid):
-        - Acepta noticias del equipo, competición, fichajes, partidos, declaraciones
-        - Acepta contenido relacionado (ej: F1 → carreras, pilotos, equipos, FIA, circuitos)
-        
-        RECHAZAR SIEMPRE:
-        - Contenido publicitario/promocional/patrocinado
-        - Reviews de productos de consumo (móviles, gadgets, electrodomésticos)
-        - Ofertas, descuentos, rebajas de tiendas
-        - "Mejores productos", "guías de compra"
-        - Cobertura en directo sin sustancia
-        
-        ACEPTAR:
-        - Noticias informativas serias
-        - Investigación científica o técnica
-        - Análisis de profundidad
-        - Eventos relevantes del sector
-        - Declaraciones de expertos, empresas o instituciones
-        
-        NOTICIAS A EVALUAR:
-        {articles_text}
-        
-        Responde JSON con los IDs relevantes para "{topic}":
-        {{"relevant_ids": [0, 2, 5]}}
-        
-        Si NINGUNA es relevante: {{"relevant_ids": []}}
-        """
-        
-        try:
-            response = await self.client.chat.completions.create(
-                model=self.model,
-                messages=[{"role": "user", "content": prompt}],
-            )
-            result = _extract_json(response.choices[0].message.content)
-            ids = result.get("relevant_ids", [])
-            # Devolver todas las relevantes - la deduplicación fusionará fuentes
-            return [articles[i] for i in ids if i < len(articles)]
-        except Exception as e:
-            logger.error(f"Error filtrando: {e}")
-            return []
+        # Process in batches
+        all_relevant = []
+        for batch_start in range(0, len(articles), batch_size):
+            batch = articles[batch_start:batch_start + batch_size]
+
+            articles_text = ""
+            for i, a in enumerate(batch):
+                snippet = (a.get("content") or a.get("description") or "")[:200]
+                source = a.get("source_name", "Desconocido")
+                articles_text += f"ID {i}: [FUENTE: {source}] {a.get('title')} | {snippet}\n"
+
+            prompt = f"""
+            Eres un FILTRO DE RELEVANCIA inteligente para el topic: "{topic}".
+            {context_str}
+            Tu trabajo: Identificar noticias RELACIONADAS con "{topic}".
+
+            INSTRUCCIÓN SOBRE FUENTES Y MEDIOS:
+            - Si el topic o los intereses del usuario mencionan medios concretos (ej: "El Confidencial", "Libertad Digital"), PRIORIZA noticias de esos medios (dales preferencia), pero NO descartes noticias de otros medios si son muy relevantes para el tema.
+            - Si el topic es genérico, ignora la fuente y céntrate en el contenido.
+
+            ENFOQUE PARA TOPICS CIENTÍFICOS/TÉCNICOS (ej: física cuántica, IA, blockchain):
+            - SÉ INCLUSIVO: acepta investigaciones, papers, descubrimientos, avances
+            - Acepta temas relacionados (física cuántica → mecánica cuántica, computación cuántica, entrelazamiento)
+            - Acepta noticias de universidades, laboratorios, centros de investigación
+            - La palabra clave o tema debe aparecer o ser claramente implícito
+
+            ENFOQUE PARA TOPICS DE ENTRETENIMIENTO/DEPORTE (ej: F1, Real Madrid):
+            - Acepta noticias del equipo, competición, fichajes, partidos, declaraciones
+            - Acepta contenido relacionado (ej: F1 → carreras, pilotos, equipos, FIA, circuitos)
+
+            ENFOQUE PARA TOPICS DE VIAJES/OCIO (ej: Viajes de ocio, turismo):
+            - SOLO aceptar: destinos turísticos, experiencias de viaje, rutas, gastronomía local, hoteles, spas, escapadas, guías de viaje, turismo cultural
+            - RECHAZAR: noticias de aviación comercial (aerolíneas, rutas aéreas, precios combustible), transporte público, logística, carburantes, coches, normativa de tráfico, eventos artísticos/culturales sin relación directa con turismo
+
+            RECHAZAR SIEMPRE:
+            - Contenido publicitario/promocional/patrocinado
+            - Reviews de productos de consumo (móviles, gadgets, electrodomésticos)
+            - Ofertas, descuentos, rebajas de tiendas
+            - "Mejores productos", "guías de compra"
+            - Cobertura en directo sin sustancia
+
+            ACEPTAR:
+            - Noticias informativas serias
+            - Investigación científica o técnica
+            - Análisis de profundidad
+            - Eventos relevantes del sector
+            - Declaraciones de expertos, empresas o instituciones
+
+            NOTICIAS A EVALUAR:
+            {articles_text}
+
+            Responde JSON con los IDs relevantes para "{topic}":
+            {{"relevant_ids": [0, 2, 5]}}
+
+            Si NINGUNA es relevante: {{"relevant_ids": []}}
+            """
+
+            try:
+                response = await self.client.chat.completions.create(
+                    model=self.model,
+                    messages=[{"role": "user", "content": prompt}],
+                )
+                result = _extract_json(response.choices[0].message.content)
+                ids = result.get("relevant_ids", [])
+                batch_relevant = [batch[i] for i in ids if i < len(batch)]
+                all_relevant.extend(batch_relevant)
+                logger.info(f"   📊 Lote {batch_start//batch_size + 1}: {len(batch_relevant)}/{len(batch)} relevantes")
+            except Exception as e:
+                logger.error(f"Error filtrando lote: {e}")
+
+        logger.info(f"✅ {topic}: {len(all_relevant)} relevantes de {len(articles)} evaluados")
+        return all_relevant
     
     async def _fetch_og_image(self, url: str) -> str:
         """Extrae og:image de una URL usando Open Graph, filtrando logos/iconos"""
@@ -992,115 +932,110 @@ class HourlyProcessor:
             logger.debug(f"Error extrayendo contenido de {url}: {e}")
             return ""
 
-    async def _redact_article(self, article: dict, topic: str) -> dict:
-        """Redacta un articulo con gpt-5-nano"""
+    async def _prepare_article_for_redaction(self, article: dict) -> dict:
+        """Prepara un artículo para redacción: extrae contenido e imagen si es necesario."""
         title = article.get("title", "")
         content = article.get("content") or article.get("description") or ""
         url = article.get("url", article.get("link", ""))
-        
-        # FILTRO: Si el RSS no tiene suficiente contenido, intentar extraerlo de la fuente
-        MIN_CONTENT_LENGTH = 400  # caracteres mínimos ideales
-        MIN_CONTENT_FALLBACK = 80  # mínimo absoluto (título + summary corto de RSS)
+
+        MIN_CONTENT_LENGTH = 400
+        MIN_CONTENT_FALLBACK = 80
         if len(content) < MIN_CONTENT_LENGTH and url:
-            logger.info(f"📥 Contenido corto ({len(content)} chars), intentando extraer de la fuente...")
             fetched_content = await self._fetch_article_content(url)
             if fetched_content and len(fetched_content) >= MIN_CONTENT_LENGTH:
                 content = fetched_content
-                logger.info(f"   ✅ Extraído: {len(content)} chars")
             elif len(content) >= MIN_CONTENT_FALLBACK or (len(title) > 20 and len(content) >= 30):
-                # Scraping failed but RSS has enough for LLM to work with (title + short summary)
-                # Combine title + content for better LLM input
                 content = f"{title}. {content}" if content else title
-                logger.info(f"   ⚠️ Scraping falló, usando RSS content ({len(content)} chars)")
             elif len(title) > 30:
-                # Last resort: use just the title if it's descriptive enough
                 content = title
-                logger.info(f"   ⚠️ Scraping falló, usando solo título ({len(content)} chars)")
             else:
-                logger.info(f"⏭️ Descartando '{title[:40]}...' - contenido insuficiente ({len(content)} chars)")
                 return None
         elif len(content) < MIN_CONTENT_FALLBACK and len(title) > 30:
-            # Content very short but title is descriptive - use title
             content = f"{title}. {content}" if content else title
-            logger.info(f"   ⚠️ Contenido corto, combinando con título ({len(content)} chars)")
         elif len(content) < MIN_CONTENT_FALLBACK:
-            logger.info(f"⏭️ Descartando '{title[:40]}...' - contenido muy corto ({len(content)} chars)")
             return None
-        
-        # Intentar obtener imagen del articulo o via Open Graph
+
         image = article.get("image_url", article.get("urlToImage", ""))
         if not image and url:
             image = await self._fetch_og_image(url)
-        
-        # Recopilar todas las fuentes (URLs) disponibles
+
         all_sources = [url] if url else []
         if article.get("extra_urls"):
             all_sources.extend(article.get("extra_urls", []))
-        # Dedup
-        all_sources = list(dict.fromkeys(all_sources))[:5]  # Max 5 fuentes
-        
+        all_sources = list(dict.fromkeys(all_sources))[:5]
+
+        return {"title": title, "content": content, "image": image, "sources": all_sources}
+
+    async def _redact_batch(self, prepared_articles: list, topic: str) -> list:
+        """Redacta un lote de artículos en una sola llamada LLM (hasta 5 artículos)."""
+        articles_input = ""
+        for i, art in enumerate(prepared_articles):
+            articles_input += f"\n--- ARTÍCULO {i} ---\nTítulo: {art['title']}\nContenido: {art['content'][:1500]}\n"
+
         prompt = f"""
-        Eres un periodista experto. Redacta esta noticia DE CERO con tus propias palabras.
-        
-        Titulo original: {title}
-        Contenido original: {content[:2000]}
-        
+        Eres un periodista experto. Redacta estas {len(prepared_articles)} noticias DE CERO con tus propias palabras.
+
+        {articles_input}
+
         REGLAS CRITICAS DE REDACCIÓN (OBLIGATORIAS):
-        
-        1. 🚫 PROHIBIDO COPIAR Y PEGAR:
-           - NO copies frases literales de la fuente.
-           - Reescribe TODO el contenido con tu propio estilo.
-        
-        2. 🚫 LIMPIEZA DE "BASURA" PERIODÍSTICA:
-           - ELIMINA prefijos del título como "EN DIRECTO", "Última Hora", "Noticia", etc. Crea un título NUEVO y atractivo.
-           - ELIMINA del cuerpo frases como "En una videoconferencia desde...", "Según informa el diario...", "Desde la redacción de...".
-           - Redacta solo los HECHOS, sin meta-referencias a cómo se obtuvo la noticia.
-        
+
+        1. 🚫 PROHIBIDO COPIAR Y PEGAR: Reescribe TODO con tu propio estilo.
+        2. 🚫 LIMPIEZA: ELIMINA prefijos como "EN DIRECTO", "Última Hora". Crea títulos NUEVOS y atractivos.
+           Redacta solo los HECHOS, sin meta-referencias a cómo se obtuvo la noticia.
         3. FORMATO E IDIOMA:
            - IDIOMA: Español peninsular. Traduce todo.
-           - TÍTULO: Aterrizado, descriptivo y claro. Que se sepa EL SUJETO y LA ACCIÓN. (Ej: "Apple lanza el nuevo iPhone" en vez de "El nuevo dispositivo ya está aquí"). Emoji al principio.
-           - RESUMEN: Exactamente entre 10 y 25 palabras.
-           - NOTICIA: 150-250 palabras. Divide en parrafos con etiquetas <p>.
-           - ESTILO: Informativo, directo y profesional.
-           - IMPORTANTE: Usa <b>negrita</b> para 3 frases clave.
+           - TÍTULO: Descriptivo y claro (sujeto + acción). Emoji al principio.
+           - RESUMEN: 10-25 palabras.
+           - NOTICIA: 150-250 palabras con etiquetas <p>. Usa <b>negrita</b> para 3 frases clave.
+        4. 🛡️ FILTRO: Si la noticia es ambigua (no nombra sujetos) o depende de contexto externo, DESCÁRTALA.
 
-        4. 🛡️ FILTRO ANTI-AMBIGÜEDAD (CRÍTICO):
-           - Si la noticia habla de "la compañía", "el servicio", "la actualización" PERO NO NOMBRA explícitamente a quién se refiere (ej: falta el nombre de la empresa o producto), ¡DESCÁRTALA!
-           - Si la noticia depende de un contexto externo que no está en el texto ("Como dijimos ayer..."), ¡DESCÁRTALA!
-           - PARA DESCARTAR: Responde con un JSON vacío: {{}}
-
-        Responde JSON:
+        Responde JSON con un array. Para artículos descartados, pon null:
         {{
-          "titulo": "Emoji Título Descriptivo",
-          "resumen": "Resumen breve...",
-          "noticia": "<p>Contenido...</p>"
+          "articles": [
+            {{"id": 0, "titulo": "...", "resumen": "...", "noticia": "<p>...</p>"}},
+            null,
+            {{"id": 2, "titulo": "...", "resumen": "...", "noticia": "<p>...</p>"}}
+          ]
         }}
-        o {{}} si es inválida.
         """
-        
+
         try:
             response = await self.client.chat.completions.create(
                 model=self.model,
                 messages=[{"role": "user", "content": prompt}],
             )
             result = _extract_json(response.choices[0].message.content)
+            items = result.get("articles", [])
 
-            # VALIDACIÓN: Si devolvió JSON vacío o sin título, descartar.
-            if not result or not result.get("titulo"):
-                logger.info(f"⏭️ Descartando '{title[:40]}...' - AMBIGUA o INVÁLIDA (Filtro LLM)")
-                return None
-            
-            return {
-                "fecha_inventariado": datetime.now().isoformat(),
-                "titulo": result.get("titulo"),
-                "resumen": result.get("resumen", ""),
-                "noticia": result.get("noticia", ""),
-                "imagen_url": image,
-                "fuentes": all_sources
-            }
+            results = []
+            for i, art_data in enumerate(items):
+                if i >= len(prepared_articles):
+                    break
+                prep = prepared_articles[i]
+                if not art_data or not art_data.get("titulo"):
+                    logger.info(f"⏭️ Descartando '{prep['title'][:40]}...' - AMBIGUA (Filtro LLM)")
+                    results.append(None)
+                    continue
+                results.append({
+                    "fecha_inventariado": datetime.now().isoformat(),
+                    "titulo": art_data.get("titulo"),
+                    "resumen": art_data.get("resumen", ""),
+                    "noticia": art_data.get("noticia", ""),
+                    "imagen_url": prep["image"],
+                    "fuentes": prep["sources"]
+                })
+            return results
         except Exception as e:
-            logger.error(f"Error redactando: {e}")
+            logger.error(f"Error redactando batch: {e}")
+            return [None] * len(prepared_articles)
+
+    async def _redact_article(self, article: dict, topic: str) -> dict:
+        """Redacta un solo artículo (wrapper para compatibilidad)."""
+        prep = await self._prepare_article_for_redaction(article)
+        if not prep:
             return None
+        results = await self._redact_batch([prep], topic)
+        return results[0] if results else None
 
     # =========================================================================
     # RSS INGESTION HELPERS

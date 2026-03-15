@@ -141,8 +141,8 @@ def generate_ticker_gif(prices: list) -> bytes:
         return b""
 
     frames = []
-    num_frames = 120  # More frames for smoother, slower scroll
-    duration_per_frame = 60  # ms per frame (~7.2s full cycle)
+    num_frames = 300  # Many frames for very slow, smooth scroll
+    duration_per_frame = 80  # ms per frame (~24s full cycle)
 
     font = _get_font(13, bold=True)
     font_sm = _get_font(11)

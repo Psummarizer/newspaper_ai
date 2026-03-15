@@ -5,19 +5,8 @@ import os
 import re
 import unicodedata
 from datetime import datetime
-from typing import List, Dict, Set
+from typing import List, Dict
 from urllib.parse import urlparse
-
-# Imports Locales
-# Database imports are optional (only for local SQLite mode)
-try:
-    from src.database.connection import AsyncSessionLocal
-    from src.database.repository import ArticleRepository
-    HAS_LOCAL_DB = True
-except ImportError:
-    HAS_LOCAL_DB = False
-    AsyncSessionLocal = None
-    ArticleRepository = None
 
 from src.services.classifier_service import ClassifierService
 from src.agents.content_processor import ContentProcessorAgent
@@ -298,19 +287,22 @@ class Orchestrator:
             if media_name in contexts_joined:
                 _pref_domains.add(domain)
 
-        # --- Force 1 preferred-source article if available ---
+        # --- Force preferred-source articles: 1 if max_count<=3, 2 if max_count>=4 ---
         forced_articles = []
         remaining_articles = list(news_list)
+        force_count = 2 if max_count >= 4 else 1
+        used_domains = set()  # Ensure source diversity in forced articles
         if _pref_domains:
             for n in news_list:
                 for src_url in n.get("fuentes", []):
                     src_domain = urlparse(src_url).netloc.lower().replace("www.", "")
-                    if src_domain in _pref_domains:
+                    if src_domain in _pref_domains and src_domain not in used_domains:
                         forced_articles.append(n)
                         remaining_articles.remove(n)
+                        used_domains.add(src_domain)
                         break
-                if forced_articles:
-                    break  # Force at least 1
+                if len(forced_articles) >= force_count:
+                    break
 
         # --- LLM selects the rest ---
         llm_count = max_count - len(forced_articles)
@@ -338,12 +330,15 @@ class Orchestrator:
         prompt = f"""
         Select the {llm_count} most relevant news for topic "{topic}".
         {source_pref_str}
-        CRITERIA:
-        1. TODAY'S NEWS FIRST. Post-event results over previews.
-        2. DIRECTLY about "{topic}" — discard tangential articles.
-        3. High impact, source diversity.
+        SELECTION CRITERIA (in priority order):
+        1. HIGH IMPACT & TRENDING: Choose news that are generating the most debate, that are breaking news, that affect many people, or that represent major developments. Avoid minor/local news when bigger stories exist.
+        2. DIRECTLY about "{topic}" - not tangential.
+        3. SOURCE DIVERSITY: Pick articles from DIFFERENT media outlets. Never select 2 articles from the same source.
+        4. NO DUPLICATES: If two articles cover the same event, pick only the best one.
+        5. TODAY'S NEWS FIRST. Post-event results over previews.
 
-        DISCARD: previews if results exist, promotional content, tangential articles.
+        DISCARD: tangential articles, promotional content, previews if results exist, minor local news.
+        If fewer than {llm_count} articles are truly relevant, return fewer.
 
         {prompt_text}
 
@@ -508,15 +503,19 @@ class Orchestrator:
             # Intentar ventana de 12h primero (noticias de hoy)
             fresh_news = get_fresh_news(12)
 
-            # FALLBACK 1: ampliar a 24h
-            if not fresh_news:
-                print(f"   ⚠️ Sin noticias de 12h. Buscando en ventana de 24h...")
-                fresh_news = get_fresh_news(24)
+            # FALLBACK 1: if too few articles (<3), expand to 24h
+            if len(fresh_news) < 3:
+                news_24h = get_fresh_news(24)
+                if len(news_24h) > len(fresh_news):
+                    print(f"   ⚠️ Solo {len(fresh_news)} noticias en 12h. Ampliando a 24h ({len(news_24h)} encontradas)")
+                    fresh_news = news_24h
 
-            # FALLBACK 2: ampliar a 48h (ingesta pudo fallar)
-            if not fresh_news:
-                print(f"   ⚠️ Sin noticias de 24h. Buscando en ventana de 48h...")
-                fresh_news = get_fresh_news(48)
+            # FALLBACK 2: if still too few, expand to 48h
+            if len(fresh_news) < 3:
+                news_48h = get_fresh_news(48)
+                if len(news_48h) > len(fresh_news):
+                    print(f"   ⚠️ Solo {len(fresh_news)} noticias en 24h. Ampliando a 48h ({len(news_48h)} encontradas)")
+                    fresh_news = news_48h
 
             if not fresh_news:
                 print(f"   ❌ Sin noticias recientes (48h) para '{topic}'. Saltando.")
@@ -623,10 +622,10 @@ class Orchestrator:
             fresh_news.sort(key=lambda a: _compute_article_score(a, current_time, user_country), reverse=True)
             print(f"   Noticias ordenadas por relevancia: {len(fresh_news)}")
 
-            # Extract preferred source domains from user_contexts for scoring boost
+            # Extract preferred source domains from THIS USER's topic context ONLY
+            # (not from cached shared contexts which mix all users)
             _preferred_domains = set()
-            _ctx_list = cached_data.get("user_contexts", [])
-            # Known media name -> domain mapping
+            _user_ctx_for_topic = _user_topic_map.get(topic, "")
             _media_domain_map = {
                 "el debate": "eldebate.com", "eldebate": "eldebate.com",
                 "el confidencial": "elconfidencial.com", "elconfidencial": "elconfidencial.com",
@@ -635,18 +634,20 @@ class Orchestrator:
                 "vozpopuli": "vozpopuli.com", "voz populi": "vozpopuli.com", "voz pópuli": "vozpopuli.com",
                 "el mundo": "elmundo.es", "elmundo": "elmundo.es",
                 "el país": "elpais.com", "elpais": "elpais.com",
-                "abc": "abc.es", "la razón": "larazon.es", "la razon": "larazon.es",
+                "la razón": "larazon.es", "la razon": "larazon.es",
                 "okdiario": "okdiario.com", "esdiario": "esdiario.com",
-                "as": "as.com", "diario as": "as.com",
-                "marca": "marca.com", "sport": "sport.es",
+                "diario as": "as.com",
+                "marca": "marca.com",
                 "motorsport": "es.motorsport.com", "motorsport.com": "es.motorsport.com",
                 "la vanguardia": "lavanguardia.com", "lavanguardia": "lavanguardia.com",
                 "20 minutos": "20minutos.es", "20minutos": "20minutos.es",
             }
-            for ctx in _ctx_list:
-                ctx_lower = str(ctx).lower()
+            if _user_ctx_for_topic:
+                ctx_lower = str(_user_ctx_for_topic).lower()
                 for media_name, domain in _media_domain_map.items():
-                    if media_name in ctx_lower:
+                    # Word boundary check to avoid "as" matching "carreras"
+                    import re
+                    if re.search(r'\b' + re.escape(media_name) + r'\b', ctx_lower):
                         _preferred_domains.add(domain)
 
             # Re-sort with preferred source boost if any
@@ -673,7 +674,7 @@ class Orchestrator:
             t_lower = topic_name.lower()
             for kw in _niche_keywords:
                 if kw in t_lower:
-                    return 2
+                    return 3  # Minimum 3 even for niche topics
             return 4
 
         topic_slots = {}
@@ -706,6 +707,26 @@ class Orchestrator:
 
         print(f"\n📊 Distribución de slots: {topic_slots}")
 
+        # Topic-to-category map (used for reclassification guard + expected categories)
+        _topic_cat_map = {
+            "politica": {"Política", "Justicia y Legal"},
+            "formula 1": {"Deporte"}, "f1": {"Deporte"}, "motogp": {"Deporte"},
+            "real madrid": {"Deporte"}, "futbol": {"Deporte"}, "fútbol": {"Deporte"},
+            "vinos": {"Agricultura y Alimentación", "Consumo y Estilo de Vida", "Economía y Finanzas"},
+            "viajes": {"Consumo y Estilo de Vida", "Transporte y Movilidad"},
+            "bitcoin": {"Economía y Finanzas", "Tecnología y Digital"},
+            "palm oil": {"Agricultura y Alimentación", "Economía y Finanzas"},
+            "soy": {"Agricultura y Alimentación", "Economía y Finanzas"},
+            "tariff": {"Economía y Finanzas", "Geopolítica", "Internacional"},
+            "macro": {"Economía y Finanzas"}, "gold": {"Economía y Finanzas"},
+            "energy": {"Energía", "Economía y Finanzas"},
+            "freight": {"Economía y Finanzas", "Transporte y Movilidad"},
+            "biofuel": {"Energía", "Agricultura y Alimentación"},
+            "biodiesel": {"Energía", "Agricultura y Alimentación"},
+            "iran": {"Geopolítica", "Internacional"},
+            "mineral": {"Economía y Finanzas", "Industria"},
+        }
+
         # --- Second pass: select and process ---
         for idx, topic in enumerate(topics):
             if topic not in topic_fresh_news:
@@ -714,8 +735,9 @@ class Orchestrator:
             fresh_news, cached_data = topic_fresh_news[topic]
             max_for_topic = topic_slots.get(topic, 3)
 
-            # SELECCION TOP N (balanced) - pass user_contexts for source preferences
-            topic_user_contexts = cached_data.get("user_contexts", [])
+            # SELECCION TOP N (balanced) - pass ONLY this user's context for the topic
+            _this_user_ctx = _user_topic_map.get(topic, "")
+            topic_user_contexts = [_this_user_ctx] if _this_user_ctx else []
             selected_news = await self._select_top_3_cached(topic, fresh_news, max_count=max_for_topic, user_contexts=topic_user_contexts)
             print(f"   ✅ [{topic}] Seleccionadas Top {len(selected_news)} para el boletín.")
             
@@ -798,9 +820,29 @@ class Orchestrator:
                 new_cat = await self.classifier.reclassify_article(title, summary, user_country)
                 
                 if new_cat:
-                    if new_cat != original_cat:
+                    # Don't reclassify away from the topic's expected category
+                    # e.g. a MotoGP article should stay in "Deporte" even if LLM says "Tecnología"
+                    topic_expected = set()
+                    t_norm = ''.join(ch for ch in unicodedata.normalize('NFD', topic.lower()) if unicodedata.category(ch) != 'Mn')
+                    for key, cats in _topic_cat_map.items():
+                        if key in t_norm:
+                            topic_expected.update(cats)
+
+                    # Normalize for accent-insensitive comparison
+                    def _norm_cat(c):
+                        return ''.join(ch for ch in unicodedata.normalize('NFD', c) if unicodedata.category(ch) != 'Mn').lower().strip()
+                    norm_expected = {_norm_cat(c) for c in topic_expected}
+                    norm_original = _norm_cat(original_cat)
+                    norm_new = _norm_cat(new_cat)
+
+                    if norm_original in norm_expected and norm_new not in norm_expected:
+                        print(f"         🛡️ Manteniendo {original_cat} (topic '{topic}' espera esta categoría, LLM sugería {new_cat})")
+                        final_cat = original_cat
+                    elif new_cat != original_cat:
                         print(f"         🔀 Cambio: {original_cat} -> {new_cat}")
-                    final_cat = new_cat
+                        final_cat = new_cat
+                    else:
+                        final_cat = new_cat
                 else:
                     print(f"         Plan B: Manteniendo {original_cat}")
 
@@ -820,7 +862,8 @@ class Orchestrator:
                     "url": art_url,
                     "category": final_cat,
                     "image_url": news.get("imagen_url"),
-                    "pre_rendered_html": pre_html
+                    "pre_rendered_html": pre_html,
+                    "source_topic": topic,  # Track which user topic this came from
                 }
 
         # --- FASE 2: GENERACIÓN DE HTML (PORTADA + SECCIONES) ---
@@ -833,6 +876,14 @@ class Orchestrator:
         if not all_articles_flat:
             print("📭 No hay noticias seleccionadas para ningún topic.")
             return None
+
+        # Pre-fetch banner GIF URL for CTA mid-banner
+        _banner_gif_url = ""
+        try:
+            from src.services.gif_generator import get_header_gif_url
+            _banner_gif_url = get_header_gif_url()
+        except Exception:
+            pass
 
         # Generación Secciones (Join HTML pre-renderizado)
         final_html_parts = []
@@ -872,35 +923,19 @@ class Orchestrator:
         print(f"   📋 Orden definido: {ordered_cats}")
         
         all_current_cats = list(category_map.keys())
-        print(f"   📋 Categorías encontradas: {all_current_cats}")
+        cat_counts = {c: len(v) for c, v in category_map.items()}
+        print(f"   📋 Categorías encontradas: {cat_counts}")
         
         sorted_cats = [c for c in ordered_cats if c in all_current_cats] + [c for c in all_current_cats if c not in ordered_cats]
         print(f"   ✅ Categorías ordenadas: {sorted_cats}")
 
         # Build a set of "expected" categories from user topics for relevance filtering
         _topic_expected_cats = set()
-        _topic_cat_map = {
-            "politica": {"Política", "Justicia y Legal"},
-            "formula 1": {"Deporte"}, "f1": {"Deporte"}, "motogp": {"Deporte"},
-            "real madrid": {"Deporte"}, "futbol": {"Deporte"}, "fútbol": {"Deporte"},
-            "vinos": {"Agricultura y Alimentación", "Consumo y Estilo de Vida", "Economía y Finanzas"},
-            "viajes": {"Consumo y Estilo de Vida"},
-            "bitcoin": {"Economía y Finanzas", "Tecnología y Digital"},
-            "palm oil": {"Agricultura y Alimentación", "Economía y Finanzas"},
-            "soy": {"Agricultura y Alimentación", "Economía y Finanzas"},
-            "tariff": {"Economía y Finanzas", "Geopolítica", "Internacional"},
-            "macro": {"Economía y Finanzas"}, "gold": {"Economía y Finanzas"},
-            "energy": {"Energía", "Economía y Finanzas"},
-            "freight": {"Economía y Finanzas", "Transporte y Movilidad"},
-            "biofuel": {"Energía", "Agricultura y Alimentación"},
-            "biodiesel": {"Energía", "Agricultura y Alimentación"},
-            "iran": {"Geopolítica", "Internacional"},
-            "mineral": {"Economía y Finanzas", "Industria"},
-        }
         for t in topics:
-            t_lower = t.lower()
+            # Normalize accents for matching (e.g. "Política" -> "politica")
+            t_norm = ''.join(ch for ch in unicodedata.normalize('NFD', t.lower()) if unicodedata.category(ch) != 'Mn')
             for key, cats in _topic_cat_map.items():
-                if key in t_lower:
+                if key in t_norm:
                     _topic_expected_cats.update(cats)
         # Always allow Geopolítica and Internacional (globally relevant)
         _topic_expected_cats.update({"Geopolítica", "Internacional"})
@@ -910,12 +945,41 @@ class Orchestrator:
             articles_dict = category_map[cat]
             if not articles_dict: continue
 
-            # Cap articles per category: 3 for expected categories, 1 for unexpected
-            max_per_cat = 3 if cat in _topic_expected_cats else 1
+            # --- TOPIC-AWARE CAPPING ---
+            # Ensure every user topic gets at least 1 article, even within shared categories
+            max_per_cat = 5 if cat in _topic_expected_cats else 1
+
+            # Group articles by source_topic within this category
+            topic_groups = {}
+            for art in articles_dict.values():
+                src_topic = art.get("source_topic", "unknown")
+                topic_groups.setdefault(src_topic, []).append(art)
+
+            # Build selection: 1 article per topic first, then fill remaining slots
+            selected_articles = []
+            topics_in_cat = list(topic_groups.keys())
+
+            # Phase 1: guarantee 1 article per topic
+            for t in topics_in_cat:
+                if topic_groups[t]:
+                    selected_articles.append(topic_groups[t][0])
+
+            # Phase 2: fill remaining slots with remaining articles (round-robin)
+            remaining_slots = max(max_per_cat, len(topics_in_cat)) - len(selected_articles)
+            if remaining_slots > 0:
+                selected_urls = {a.get("url") for a in selected_articles}
+                for t in topics_in_cat:
+                    for art in topic_groups[t][1:]:
+                        if remaining_slots <= 0:
+                            break
+                        if art.get("url") not in selected_urls:
+                            selected_articles.append(art)
+                            selected_urls.add(art.get("url"))
+                            remaining_slots -= 1
 
             # Solo unir HTML pre-renderizado
             items_html = []
-            for art in list(articles_dict.values())[:max_per_cat]:
+            for art in selected_articles:
                 if art.get("pre_rendered_html"):
                     items_html.append(art["pre_rendered_html"])
             
@@ -929,18 +993,37 @@ class Orchestrator:
                 # Insertar banner promocional a mitad del contenido
                 mid_point = max(1, len(sorted_cats) // 2)
                 if cat_idx == mid_point - 1:
-                    final_html_parts.append(build_mid_banner(lang=user_lang))
+                    final_html_parts.append(build_mid_banner(lang=user_lang, banner_gif_url=_banner_gif_url))
                     print("   🌐 Banner promocional insertado")
 
-        # --- PORTADA: Generate from capped articles only ---
+        # --- PORTADA: Generate from capped articles only (topic-aware) ---
         capped_articles = []
         for cat in sorted_cats:
             articles_dict = category_map.get(cat, {})
             if not articles_dict:
                 continue
-            max_per_cat = 3 if cat in _topic_expected_cats else 1
-            for art in list(articles_dict.values())[:max_per_cat]:
-                capped_articles.append(art)
+            max_per_cat = 5 if cat in _topic_expected_cats else 1
+            # Same topic-aware selection as above
+            topic_groups_p = {}
+            for art in articles_dict.values():
+                src_topic = art.get("source_topic", "unknown")
+                topic_groups_p.setdefault(src_topic, []).append(art)
+            selected_p = []
+            for t in topic_groups_p:
+                if topic_groups_p[t]:
+                    selected_p.append(topic_groups_p[t][0])
+            remaining_p = max(max_per_cat, len(topic_groups_p)) - len(selected_p)
+            if remaining_p > 0:
+                sel_urls = {a.get("url") for a in selected_p}
+                for t in topic_groups_p:
+                    for art in topic_groups_p[t][1:]:
+                        if remaining_p <= 0:
+                            break
+                        if art.get("url") not in sel_urls:
+                            selected_p.append(art)
+                            sel_urls.add(art.get("url"))
+                            remaining_p -= 1
+            capped_articles.extend(selected_p)
 
         front_page_html = ""
         if capped_articles:
@@ -1093,14 +1176,13 @@ class Orchestrator:
             except Exception as e:
                 print(f"   ⚠️ Finnhub ticker skipped: {e}")
 
-            # Generate animated GIFs (header + ticker)
+            # Generate animated GIFs (ticker only — banner GIF moved to CTA mid-banner above)
             header_gif_url = ""
             try:
-                from src.services.gif_generator import get_header_gif_url, get_ticker_gif_url
-                header_gif_url = get_header_gif_url()
+                from src.services.gif_generator import get_ticker_gif_url
                 if prices:
                     ticker_gif_url = get_ticker_gif_url(prices)
-                print(f"   🎞️ GIFs: header={'yes' if header_gif_url else 'no'}, ticker={'yes' if ticker_gif_url else 'no'}")
+                print(f"   🎞️ GIFs: banner={'yes' if _banner_gif_url else 'no'}, ticker={'yes' if ticker_gif_url else 'no'}")
             except Exception as e:
                 print(f"   ⚠️ GIF generation skipped: {e}")
 
