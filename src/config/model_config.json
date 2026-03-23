@@ -92,8 +92,8 @@
     "tts_voices_by_language": {
         "es": {
             "google": {
-                "Host 1": "es-ES-Neural2-C",
-                "Host 2": "es-ES-Neural2-F"
+                "Host 1": "es-ES-Neural2-F",
+                "Host 2": "es-ES-Neural2-C"
             },
             "edge": {
                 "Host 1": "es-ES-AlvaroNeural",

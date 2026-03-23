@@ -14,6 +14,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Instalar Chromium y Driver (para Castos podcast upload via Selenium)
 # ffmpeg removed - not used in cloud pipeline
+ARG DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
     chromium \
     chromium-driver \
