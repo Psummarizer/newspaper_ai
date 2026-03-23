@@ -987,7 +987,12 @@ class HourlyProcessor:
            - TÍTULO: Descriptivo y claro (sujeto + acción). Emoji al principio.
            - RESUMEN: 10-25 palabras.
            - NOTICIA: 150-250 palabras con etiquetas <p>. Usa <b>negrita</b> para 3 frases clave.
-        4. 🛡️ FILTRO: Si la noticia es ambigua (no nombra sujetos) o depende de contexto externo, DESCÁRTALA.
+        4. 🛡️ FILTRO — DESCARTAR (responder null) si la noticia es:
+           - Ambigua (no nombra sujetos concretos) o depende de contexto externo
+           - Contenido promocional, publirreportaje o patrocinado
+           - Gossip de famosos/celebridades sin relevancia informativa
+           - "Listicle" superficial ("los 10 mejores...", "las claves de...")
+           - Noticia cuyo gancho principal es una celebridad consumiendo/usando un producto
 
         Responde JSON con un array. Para artículos descartados, pon null:
         {{

@@ -6108,5 +6108,14 @@
     "base_url": "https://www.nationalgeographic.com",
     "language": "en",
     "country": "US"
+  },
+  {
+    "category": "Consumo y Estilo de Vida",
+    "name": "Lonely Planet España",
+    "domain": "lonelyplanet.es",
+    "rss_url": "https://www.lonelyplanet.es/feed",
+    "base_url": "https://www.lonelyplanet.es",
+    "language": "es",
+    "country": "ES"
   }
 ]
