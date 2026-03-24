@@ -39,11 +39,31 @@ def _extract_json(text: str) -> dict:
     text = text.strip()
     return json.loads(text)
 
+async def _llm_call_with_retry(client, model, messages, max_retries=3):
+    """Wrapper for LLM calls with exponential backoff on rate-limit (429) errors."""
+    delays = [10, 30, 60]  # seconds between retries (generous for Mistral free-tier)
+    for attempt in range(max_retries + 1):
+        try:
+            response = await client.chat.completions.create(
+                model=model,
+                messages=messages,
+            )
+            return response
+        except Exception as e:
+            error_str = str(e)
+            is_rate_limit = '429' in error_str or 'rate_limit' in error_str.lower() or 'rate limit' in error_str.lower()
+            if is_rate_limit and attempt < max_retries:
+                wait = delays[min(attempt, len(delays) - 1)]
+                logger.warning(f"⏳ Rate limit (intento {attempt + 1}/{max_retries}), esperando {wait}s...")
+                await asyncio.sleep(wait)
+            else:
+                raise
+
 # Lista oficial de categorías
 VALID_CATEGORIES = list(CATEGORY_IMAGES.keys())
 
 # Configuración de paralelismo
-MAX_CONCURRENT_TOPICS = 5
+MAX_CONCURRENT_TOPICS = 2  # Reduced from 5 to avoid Mistral rate limits
 BATCH_REDACTION_SIZE = 3  # Articles per LLM redaction call
 
 
@@ -564,8 +584,8 @@ class HourlyProcessor:
         """
         
         try:
-            response = await self.client.chat.completions.create(
-                model=self.model,
+            response = await _llm_call_with_retry(
+                self.client, self.model,
                 messages=[{"role": "user", "content": prompt}]
             )
             result = _extract_json(response.choices[0].message.content)
@@ -686,11 +706,11 @@ class HourlyProcessor:
         Responde SOLO con un JSON: {{"categories": ["Cat1", "Cat2"]}}
         """
         try:
-            response = await self.client.chat.completions.create(
-                model=self.model,
+            response = await _llm_call_with_retry(
+                self.client, self.model,
                 messages=[{"role": "user", "content": prompt}],
             )
-            result = json.loads(response.choices[0].message.content)
+            result = _extract_json(response.choices[0].message.content)
             cats = result.get("categories", [])[:2]
             return [c for c in cats if c in VALID_CATEGORIES][:2] or ["General", "Sociedad"]
         except Exception as e:
@@ -830,8 +850,8 @@ class HourlyProcessor:
             """
 
             try:
-                response = await self.client.chat.completions.create(
-                    model=self.model,
+                response = await _llm_call_with_retry(
+                    self.client, self.model,
                     messages=[{"role": "user", "content": prompt}],
                 )
                 result = _extract_json(response.choices[0].message.content)
@@ -841,6 +861,9 @@ class HourlyProcessor:
                 logger.info(f"   📊 Lote {batch_start//batch_size + 1}: {len(batch_relevant)}/{len(batch)} relevantes")
             except Exception as e:
                 logger.error(f"Error filtrando lote: {e}")
+            # Delay between batches to avoid Mistral rate limits
+            if batch_start + batch_size < len(articles):
+                await asyncio.sleep(2)
 
         logger.info(f"✅ {topic}: {len(all_relevant)} relevantes de {len(articles)} evaluados")
         return all_relevant
@@ -1005,8 +1028,8 @@ class HourlyProcessor:
         """
 
         try:
-            response = await self.client.chat.completions.create(
-                model=self.model,
+            response = await _llm_call_with_retry(
+                self.client, self.model,
                 messages=[{"role": "user", "content": prompt}],
             )
             result = _extract_json(response.choices[0].message.content)

@@ -12,12 +12,12 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Instalar Chromium y Driver (para Castos podcast upload via Selenium)
-# ffmpeg removed - not used in cloud pipeline
+# Instalar Chromium, Driver y FFmpeg
 ARG DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
     chromium \
     chromium-driver \
+    ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
 # Configurar variables de entorno para Selenium
