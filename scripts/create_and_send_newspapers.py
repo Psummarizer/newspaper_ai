@@ -130,8 +130,11 @@ async def generate_and_send():
         
         # Run!
         result_html = await orchestrator.run_for_user(user_input)
-        
-        if result_html:
+
+        # Solo cobrar si hay contenido real: al menos 1 noticia (presencia de clase de artículo en HTML)
+        has_content = bool(result_html) and ('h3' in result_html or 'noticia' in result_html.lower())
+
+        if has_content:
             # 5. Deduct Credits if successful
             new_current = current_credits - cost
             new_total = credits_data.get("totalUsed", 0) + cost
@@ -144,6 +147,8 @@ async def generate_and_send():
             })
             logger.info(f"✅ Cobrado a {email}. Restante: {new_current}")
             processed_count += 1
+        elif result_html and not has_content:
+            logger.warning(f"⚠️ HTML generado pero sin artículos reales para {email}. No se cobra.")
         else:
             logger.warning(f"⚠️ No se envió email a {email} (sin noticias o error). No se cobra.")
 

@@ -182,10 +182,12 @@ class Orchestrator:
                 if self._normalize_id(alias) == normalized_alias:
                     return (topic_id, topic_data)
         
-        # 3. Búsqueda parcial en nombre del topic
+        # 3. Búsqueda parcial: el alias debe ser una palabra completa dentro del nombre del topic
+        # (evita que "ia" matchee "política", "física", etc.)
         for topic_id, topic_data in topics_cache.items():
-            topic_name = topic_data.get("name", "")
-            if normalized_alias in self._normalize_id(topic_name):
+            topic_name_norm = self._normalize_id(topic_data.get("name", ""))
+            # Require word-boundary match: alias must be a full word in topic name
+            if re.search(r'(?<![a-z0-9])' + re.escape(normalized_alias) + r'(?![a-z0-9])', topic_name_norm):
                 return (topic_id, topic_data)
         
         return (None, None)
@@ -429,13 +431,15 @@ class Orchestrator:
         user_email = user_data.get('email')
         self.logger.info(f"🚀 ORCHESTRATOR: Pipeline Cache-Optimized para {user_email}")
         
-        # Cargar Topics de Usuario (puede ser string o list)
-        topics_raw = user_data.get('Topics') or user_data.get('topics', [])
+        # Cargar Topics de Usuario — soporta nuevo schema 'topic' (map), 'Topics' (list/str legacy)
+        topics_raw = user_data.get('topic') or user_data.get('Topics') or user_data.get('topics', [])
         if not topics_raw:
             print(f"Usuario sin topics definidos.")
             return None
         
-        if isinstance(topics_raw, str):
+        if isinstance(topics_raw, dict):
+            topics = [t.strip() for t in topics_raw.keys() if t.strip()]
+        elif isinstance(topics_raw, str):
             topics = [t.strip() for t in topics_raw.split(',') if t.strip()]
         else:
             topics = [t.strip() for t in topics_raw if t.strip()]
@@ -782,45 +786,37 @@ class Orchestrator:
                     continue
                 used_titles.add(norm_title)
                 
-                # Filtrado de Fuentes Prohibidas (STRICT DOMAIN CHECK)
+                # Filtrado de Fuentes Prohibidas — comparación EXACTA de dominio
                 sources = news.get("fuentes", [])
                 is_forbidden = False
+
+                # Pre-normalizar la lista de forbidden domains una sola vez
+                forbidden_domains = set()
+                for f in (forbidden or []):
+                    if not f:
+                        continue
+                    f_clean = str(f).lower().strip()
+                    # Extraer dominio si viene como URL completa
+                    if f_clean.startswith("http"):
+                        try:
+                            f_clean = urlparse(f_clean).netloc.lower().replace("www.", "")
+                        except Exception:
+                            pass
+                    else:
+                        # Quitar path si viene como "elpais.com/algo"
+                        f_clean = f_clean.split("/")[0].replace("www.", "")
+                    if f_clean:
+                        forbidden_domains.add(f_clean)
+
                 for src in sources:
                     try:
                         src_domain = urlparse(src).netloc.lower().replace("www.", "")
-                        
-                        for f in forbidden:
-                            if not f: continue
-                            
-                            # Normalize forbidden entry (it might be a URL or just a string)
-                            f_clean = f.lower().strip()
-                            
-                            # If it looks like a URL, extract domain
-                            if "http" in f_clean or ".com" in f_clean or ".es" in f_clean:
-                                try:
-                                    # Handle 'elpais.com' without http
-                                    if not f_clean.startswith("http"):
-                                        f_parse = "https://" + f_clean
-                                    else:
-                                        f_parse = f_clean
-                                    
-                                    f_domain = urlparse(f_parse).netloc.lower().replace("www.", "")
-                                    if f_domain:
-                                        f_clean = f_domain
-                                except:
-                                    pass
-                            
-                            # Comparar dominios
-                            # src_domain: nationalgeographic.es
-                            # f_clean: elpais.com
-                            if f_clean == src_domain or (f_clean in src_domain and len(f_clean) > 4):
-                                print(f"      ⛔ Saltando '{title[:30]}...' (Fuente prohibida: '{f_clean}' coincide con '{src_domain}')")
-                                is_forbidden = True
-                                break
-                    except:
+                        if src_domain in forbidden_domains:
+                            self.logger.info(f"      ⛔ Saltando '{title[:30]}...' (Fuente prohibida: {src_domain})")
+                            is_forbidden = True
+                            break
+                    except Exception:
                         pass
-                    if is_forbidden:
-                        break
                 
                 if is_forbidden:
                      continue
