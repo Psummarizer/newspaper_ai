@@ -658,9 +658,12 @@ class HourlyProcessor:
         return topics_data
     
     def _normalize_id(self, name: str) -> str:
-        """Convierte nombre a ID normalizado"""
-        id_str = name.lower().strip()
-        id_str = re.sub(r'[^a-záéíóúüñ0-9\s]', '', id_str)
+        """Convierte nombre a ID normalizado (sin tildes, consistente con Orchestrator)"""
+        import unicodedata as _ud
+        nfkd = _ud.normalize('NFKD', name)
+        id_str = ''.join(c for c in nfkd if not _ud.combining(c))
+        id_str = id_str.lower().strip()
+        id_str = re.sub(r'[^a-z0-9\s]', '', id_str)
         id_str = re.sub(r'\s+', '_', id_str)
         return id_str
     
@@ -750,7 +753,31 @@ class HourlyProcessor:
         """Filtra artículos relevantes con gpt-5-nano"""
         if not articles:
             return []
-        
+
+        # --- Pre-filtro por exclusiones de contexto de usuario (sin LLM) ---
+        contexts_joined = " ".join(str(c) for c in (user_contexts or []) if c).lower()
+        exclude_keywords = []
+        if contexts_joined:
+            if ("solo" in contexts_joined and "masculino" in contexts_joined) or \
+               ("no" in contexts_joined and "femenin" in contexts_joined):
+                exclude_keywords = ["femenino", "femenina", "women", "female",
+                                    "cantera", "infantil", "juvenil", "cadete",
+                                    "sub-19", "sub-17", "u19", "u17", "sub19", "sub17"]
+            if "no moda" in contexts_joined or "sin moda" in contexts_joined:
+                exclude_keywords.extend(["moda", "fashion", "vogue", "tendencia", "outfit"])
+        if exclude_keywords:
+            pre_count = len(articles)
+            articles = [
+                a for a in articles
+                if not any(kw in (a.get("title", "") + " " + (a.get("description") or "")).lower()
+                           for kw in exclude_keywords)
+            ]
+            if len(articles) < pre_count:
+                logger.info(f"🚫 {topic}: Pre-filtro exclusiones eliminó {pre_count - len(articles)} artículos")
+
+        if not articles:
+            return []
+
         # Filtrar artículos muy antiguos (más de 24h)
         from datetime import datetime, timedelta
         cutoff = datetime.now() - timedelta(hours=24)
@@ -861,6 +888,22 @@ class HourlyProcessor:
                 logger.info(f"   📊 Lote {batch_start//batch_size + 1}: {len(batch_relevant)}/{len(batch)} relevantes")
             except Exception as e:
                 logger.error(f"Error filtrando lote: {e}")
+                # Si es rate limit (429), intentar con clave secundaria o proveedor alternativo
+                if "429" in str(e) or "rate_limited" in str(e).lower() or "rate limit" in str(e).lower():
+                    try:
+                        logger.warning("🔄 Rate limit detectado, usando fallback...")
+                        fallback_client, fallback_model = LLMFactory.get_fallback_client("mistral")
+                        response = await fallback_client.chat.completions.create(
+                            model=fallback_model,
+                            messages=[{"role": "user", "content": prompt}],
+                        )
+                        result = _extract_json(response.choices[0].message.content)
+                        ids = result.get("relevant_ids", [])
+                        batch_relevant = [batch[i] for i in ids if i < len(batch)]
+                        all_relevant.extend(batch_relevant)
+                        logger.info(f"   📊 [FALLBACK] Lote {batch_start//batch_size + 1}: {len(batch_relevant)}/{len(batch)} relevantes")
+                    except Exception as e2:
+                        logger.error(f"Error en fallback filtrando lote: {e2}")
             # Delay between batches to avoid Mistral rate limits
             if batch_start + batch_size < len(articles):
                 await asyncio.sleep(2)
@@ -1055,6 +1098,36 @@ class HourlyProcessor:
             return results
         except Exception as e:
             logger.error(f"Error redactando batch: {e}")
+            # Rate limit fallback
+            if "429" in str(e) or "rate_limited" in str(e).lower() or "rate limit" in str(e).lower():
+                try:
+                    logger.warning("🔄 Rate limit en redacción, usando fallback...")
+                    fallback_client, fallback_model = LLMFactory.get_fallback_client("mistral")
+                    response = await fallback_client.chat.completions.create(
+                        model=fallback_model,
+                        messages=[{"role": "user", "content": prompt}],
+                    )
+                    result = _extract_json(response.choices[0].message.content)
+                    items = result.get("articles", [])
+                    results = []
+                    for i, art_data in enumerate(items):
+                        if i >= len(prepared_articles):
+                            break
+                        prep = prepared_articles[i]
+                        if not art_data or not art_data.get("titulo"):
+                            results.append(None)
+                            continue
+                        results.append({
+                            "fecha_inventariado": datetime.now().isoformat(),
+                            "titulo": art_data.get("titulo"),
+                            "resumen": art_data.get("resumen", ""),
+                            "noticia": art_data.get("noticia", ""),
+                            "imagen_url": prep["image"],
+                            "fuentes": prep["sources"]
+                        })
+                    return results
+                except Exception as e2:
+                    logger.error(f"Error en fallback redactando batch: {e2}")
             return [None] * len(prepared_articles)
 
     async def _redact_article(self, article: dict, topic: str) -> dict:

@@ -78,8 +78,8 @@ class ContentProcessorAgent:
         }}
 
         SUMMARIES:
-        - FEATURED (1st): Exactly 28 words. No prefix, just the text.
-        - REST: 10-15 words. No prefix, just the text.
+        - FEATURED (1st): 1-2 complete sentences, max 30 words total. Must end with a period. No mid-sentence cuts.
+        - REST: 1 complete sentence, 10-15 words. Must end with a period.
         - ALL IN {lang_name.upper()}.
         """
 

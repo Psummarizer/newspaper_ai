@@ -220,22 +220,22 @@ def build_front_page(headlines: list, lang: str = "es") -> str:
     featured_title = featured.get('headline', '')
     featured_summary = featured.get('summary', '') or ''
     
-    # Truncar resumen a frases completas (~200 chars max, never mid-sentence)
-    if len(featured_summary) > 200:
-        # Find the last sentence boundary before 200 chars
-        truncated = featured_summary[:200]
+    # Truncar resumen a la última frase completa (<= 220 chars)
+    # Nunca cortar a mitad de frase, nunca añadir "..."
+    if len(featured_summary) > 220:
+        truncated = featured_summary[:220]
+        cut = None
         for sep in ['. ', '! ', '? ']:
-            last_sep = truncated.rfind(sep)
-            if last_sep > 50:  # At least 50 chars of content
-                featured_summary = truncated[:last_sep + 1]
+            pos = truncated.rfind(sep)
+            if pos > 50:
+                cut = pos + 1  # include the punctuation mark
                 break
-        else:
-            # No sentence boundary found, try comma
-            last_comma = truncated.rfind(', ')
-            if last_comma > 50:
-                featured_summary = truncated[:last_comma + 1]
-            else:
-                featured_summary = truncated.rsplit(' ', 1)[0] + "..."
+        if cut:
+            featured_summary = featured_summary[:cut].rstrip()
+        # If no sentence boundary found within 220 chars, keep as-is (LLM should not produce this)
+    # Ensure ends with sentence-final punctuation
+    if featured_summary and featured_summary[-1] not in '.!?':
+        featured_summary = featured_summary + "."
     
     # Imagen de fondo (Prioridad: Imagen noticia -> Imagen categoría -> General)
     bg_image = featured.get('image_url')

@@ -8,5 +8,19 @@
       "Bash(xargs grep -l \"Flask\\\\|FastAPI\\\\|Streamlit\\\\|@app\\\\|@router\")",
       "Bash(xargs grep -l \"perspectiva\\\\|verificado\\\\|fuentes\")"
     ]
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python -c \"import json,sys; d=json.load(sys.stdin); f=d.get('tool_input',{}).get('file_path') or d.get('tool_response',{}).get('filePath',''); f.endswith('.py') and print(json.dumps({'systemMessage': '\\u26a1 COSTES: batch=3art/llamada \\u00b7 Mistral=fast \\u00b7 Gemini=quality \\u00b7 MAX_REDACTIONS=10 \\u00b7 community_notes=OFF. Revisa CLAUDE.md antes de cambiar LLM calls.'}))\" 2>/dev/null || true",
+            "statusMessage": "Verificando reglas de costes..."
+          }
+        ]
+      }
+    ]
   }
 }

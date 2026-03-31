@@ -35,9 +35,12 @@ class LLMFactory:
         return cls._config
 
     @classmethod
-    def _get_or_create_client(cls, provider: str) -> "AsyncOpenAI":
-        """Creates or returns a cached AsyncOpenAI client for the given provider."""
-        if provider not in cls._clients:
+    def _get_or_create_client(cls, provider: str, key_suffix: str = "") -> "AsyncOpenAI":
+        """Creates or returns a cached AsyncOpenAI client for the given provider.
+        key_suffix: "" for primary key, "2" for secondary fallback key (e.g. MISTRAL_API_KEY2)
+        """
+        cache_key = f"{provider}{key_suffix}"
+        if cache_key not in cls._clients:
             load_dotenv()
             config = cls._load_config()
             provider_config = config.get("llm_providers", {}).get(provider, {})
@@ -49,18 +52,44 @@ class LLMFactory:
                 "groq": "GROQ_API_KEY",
                 "mistral": "MISTRAL_API_KEY",
             }
-            env_key = env_keys.get(provider, f"{provider.upper()}_API_KEY")
+            base_env_key = env_keys.get(provider, f"{provider.upper()}_API_KEY")
+            env_key = base_env_key + key_suffix
             api_key = os.getenv(env_key)
             if not api_key:
                 logger.warning(f"{env_key} no encontrada en entorno")
 
             base_url = provider_config.get("base_url")
             if base_url:
-                cls._clients[provider] = AsyncOpenAI(api_key=api_key, base_url=base_url)
+                cls._clients[cache_key] = AsyncOpenAI(api_key=api_key, base_url=base_url)
             else:
-                cls._clients[provider] = AsyncOpenAI(api_key=api_key)
+                cls._clients[cache_key] = AsyncOpenAI(api_key=api_key)
 
-        return cls._clients[provider]
+        return cls._clients[cache_key]
+
+    @classmethod
+    def get_fallback_client(cls, provider: str):
+        """Returns (client, model_name) using secondary API key (e.g. MISTRAL_API_KEY2).
+        Used when primary key hits rate limits (429).
+        Falls back to 'gemini' quality provider if no secondary key exists.
+        """
+        config = cls._load_config()
+        provider_config = config.get("llm_providers", {}).get(provider, {})
+        model_name = provider_config.get("fast_model") or provider_config.get("quality_model", "mistral-small-latest")
+
+        # Check if a secondary key exists
+        env_keys = {"openai": "OPENAI_API_KEY", "gemini": "GEMINI_API_KEY",
+                    "groq": "GROQ_API_KEY", "mistral": "MISTRAL_API_KEY"}
+        base_env_key = env_keys.get(provider, f"{provider.upper()}_API_KEY")
+        secondary_key = os.getenv(base_env_key + "2")
+
+        if secondary_key:
+            logger.info(f"🔄 Usando clave secundaria {base_env_key}2 como fallback")
+            client = cls._get_or_create_client(provider, key_suffix="2")
+            return client, model_name
+        else:
+            # Fall back to gemini quality provider
+            logger.warning(f"No hay clave secundaria para {provider}, usando Gemini como fallback")
+            return cls.get_client("quality")
 
     @classmethod
     def get_client(cls, task_type="fast"):

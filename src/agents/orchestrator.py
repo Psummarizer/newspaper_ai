@@ -725,6 +725,19 @@ class Orchestrator:
             "biodiesel": {"Energía", "Agricultura y Alimentación"},
             "iran": {"Geopolítica", "Internacional"},
             "mineral": {"Economía y Finanzas", "Industria"},
+            # Tech/AI topics
+            "inteligencia artificial": {"Tecnología y Digital"},
+            "ia": {"Tecnología y Digital"}, "ai": {"Tecnología y Digital"},
+            "tecnolog": {"Tecnología y Digital"},
+            "geopolit": {"Geopolítica", "Internacional"},
+            "aeronaut": {"Tecnología y Digital", "Industria"},
+            "astronomia": {"Ciencia e Investigación"}, "astronomía": {"Ciencia e Investigación"},
+            "astrofisica": {"Ciencia e Investigación"}, "astrofísica": {"Ciencia e Investigación"},
+            "fisica": {"Ciencia e Investigación"}, "física": {"Ciencia e Investigación"},
+            "empresa": {"Negocios y Empresas", "Economía y Finanzas"},
+            "startup": {"Negocios y Empresas", "Tecnología y Digital"},
+            "arabia": {"Geopolítica", "Internacional"},
+            "inteligencia": {"Geopolítica", "Internacional"},  # Inteligencia y Contrainteligencia
         }
 
         # --- Second pass: select and process ---
@@ -937,8 +950,16 @@ class Orchestrator:
             for key, cats in _topic_cat_map.items():
                 if key in t_norm:
                     _topic_expected_cats.update(cats)
-        # Always allow Geopolítica and Internacional (globally relevant)
-        _topic_expected_cats.update({"Geopolítica", "Internacional"})
+        # Allow Geopolítica/Internacional only if user has a geopolitics-related topic
+        _geopolitics_keywords = {"geopolit", "intern", "iran", "arabia", "contraintelig"}
+        _user_has_geopolitics = False
+        for t in topics:
+            t_n = ''.join(ch for ch in unicodedata.normalize('NFD', t.lower()) if unicodedata.category(ch) != 'Mn')
+            if any(kw in t_n for kw in _geopolitics_keywords):
+                _user_has_geopolitics = True
+                break
+        if _user_has_geopolitics:
+            _topic_expected_cats.update({"Geopolítica", "Internacional"})
         print(f"   📋 Expected categories from topics: {_topic_expected_cats}")
 
         for cat_idx, cat in enumerate(sorted_cats):
