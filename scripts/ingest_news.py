@@ -1030,7 +1030,8 @@ class HourlyProcessor:
             all_sources.extend(article.get("extra_urls", []))
         all_sources = list(dict.fromkeys(all_sources))[:5]
 
-        return {"title": title, "content": content, "image": image, "sources": all_sources}
+        return {"title": title, "content": content, "image": image, "sources": all_sources,
+                "published_at": article.get("published_at", "")}
 
     async def _redact_batch(self, prepared_articles: list, topic: str) -> list:
         """Redacta un lote de artículos en una sola llamada LLM (hasta 5 artículos)."""
@@ -1089,6 +1090,7 @@ class HourlyProcessor:
                     continue
                 results.append({
                     "fecha_inventariado": datetime.now().isoformat(),
+                    "published_at": prep.get("published_at", ""),
                     "titulo": art_data.get("titulo"),
                     "resumen": art_data.get("resumen", ""),
                     "noticia": art_data.get("noticia", ""),
@@ -1119,6 +1121,7 @@ class HourlyProcessor:
                             continue
                         results.append({
                             "fecha_inventariado": datetime.now().isoformat(),
+                            "published_at": prep.get("published_at", ""),
                             "titulo": art_data.get("titulo"),
                             "resumen": art_data.get("resumen", ""),
                             "noticia": art_data.get("noticia", ""),

@@ -22,6 +22,24 @@ Redact batch (LLM) →             Select top-N (LLM) →
 topics.json en GCS               Build HTML → Email
 ```
 
+---
+
+## Conceptos: Topic vs Categoría
+
+**Son dos niveles distintos — no confundirlos.**
+
+| Concepto | Qué es | Ejemplo |
+|----------|--------|---------|
+| **Topic** | Interés del usuario (input de Firestore) | "Real Madrid", "Formula 1", "Inteligencia Artificial" |
+| **Categoría** | Sección del periódico (clasificación editorial) | "Deporte", "Tecnología y Digital", "Geopolítica" |
+
+- Un topic **se mapea a una o varias categorías** via `_topic_cat_map` en `orchestrator.py`.
+- El usuario suscribe topics; el sistema agrupa los artículos resultantes por categoría para el HTML.
+- Ejemplo: topics "Real Madrid" + "Formula 1" → ambos caen en categoría **Deporte** → una sola sección con noticias de ambos.
+- El `_topic_cat_map` controla este mapeo. **Si falta un topic en el mapa, sus artículos pueden acabar en categorías incorrectas** (ej: IA en Geopolítica).
+
+**Mínimo por categoría**: cada sección del email debe tener ≥ 3 artículos. Si una categoría recibe menos, se rellena con artículos adicionales de los topics que mapean a ella.
+
 **Providers LLM**: Mistral (fast) → Gemini (quality). Config en `src/config/model_config.json`.
 **Fallback 429**: `MISTRAL_API_KEY2` en `.env` → si vacío, usa Gemini.
 
@@ -36,7 +54,9 @@ topics.json en GCS               Build HTML → Email
 - [ ] El `_normalize_id` es **idéntico** en `ingest_news.py` y `orchestrator.py` (sin tildes, NFKD)
 
 ### 2. Generación de Briefing
-- [ ] Cada topic del usuario tiene ≥ 3 noticias en la newsletter final
+- [ ] Cada **categoría** resultante tiene ≥ 3 noticias en la sección del email
+- [ ] La recencia usa `published_at` (fecha RSS real) no `fecha_inventariado` (fecha de procesado)
+  → Si un artículo se publicó a las 5am y se inventarió a las 6am, su age = 1h, no 0h
 - [ ] El campo `topic` (map) de Firestore se lee y aplica:
   - Exclusiones: "solo masculino" → no fútbol femenino
   - Fuentes preferidas: boosted +5.0 en score
@@ -59,7 +79,16 @@ Verificar periódicamente que estas fuentes dan artículos:
 
 ---
 
-## Bugs Conocidos y Fixes Aplicados (v0.60.x)
+## Bugs Conocidos y Fixes Aplicados
+
+### v0.62 (2026-04-01)
+- **FIX**: `published_at` (fecha RSS real) se propaga desde ingest hasta scoring en orchestrator
+  → El scoring de recencia ahora usa la fecha de publicación real del artículo, no el momento de procesado
+  → Artículos publicados a las 5am y procesados a las 6am ya no aparecen como "de hace 1h" vs "de hace 13h"
+- **FIX**: Filtro de ventana temporal (12h/24h/48h) usa `published_at` en lugar de `fecha_inventariado`
+- **FIX**: `max_per_cat` escala con el número de topics que mapean a esa categoría (3 art/topic mínimo)
+  → Categorías con 2 topics ahora permiten hasta 6 artículos en lugar de solo 5
+- **DOCS**: CLAUDE.md documenta la distinción topic vs categoría
 
 ### v0.60.1 (2026-03-31)
 - **FIX**: `_normalize_id` unificado en ingest y orchestrator (ambos usan NFKD sin tildes)

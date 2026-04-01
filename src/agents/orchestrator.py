@@ -489,10 +489,11 @@ class Orchestrator:
             print(f"   Total noticias en cache: {len(all_news)}")
 
             # Filtrar por fecha - preferir noticias de hoy, con fallback progresivo
+            # Usa published_at (fecha real de publicación RSS) cuando existe; si no, fecha_inventariado
             def get_fresh_news(hours_limit):
                 filtered = []
                 for n in all_news:
-                    fecha_str = n.get("fecha_inventariado", "")
+                    fecha_str = n.get("published_at") or n.get("fecha_inventariado", "")
                     if fecha_str:
                         try:
                             fecha = datetime.fromisoformat(fecha_str.replace("Z", "+00:00").split("+")[0])
@@ -525,8 +526,8 @@ class Orchestrator:
                 print(f"   ❌ Sin noticias recientes (48h) para '{topic}'. Saltando.")
                 continue
 
-            # Sort by date: newest first (before scoring)
-            fresh_news.sort(key=lambda n: n.get("fecha_inventariado", ""), reverse=True)
+            # Sort by date: newest first (before scoring). Use published_at when available.
+            fresh_news.sort(key=lambda n: n.get("published_at") or n.get("fecha_inventariado", ""), reverse=True)
                 
             # Category‑specific keyword lists (simple heuristic)
             from src.utils.constants import CATEGORY_KEYWORDS
@@ -539,7 +540,8 @@ class Orchestrator:
                 """
                 # --- Generic factors ---
                 recency = 0.0
-                fecha_str = article.get("fecha_inventariado", "")
+                # Use published_at (real RSS publish date) when available; fall back to fecha_inventariado
+                fecha_str = article.get("published_at") or article.get("fecha_inventariado", "")
                 if fecha_str:
                     try:
                         fecha = datetime.fromisoformat(fecha_str.replace("Z", "+00:00").split("+")[0])
@@ -963,8 +965,15 @@ class Orchestrator:
             if not articles_dict: continue
 
             # --- TOPIC-AWARE CAPPING ---
-            # Ensure every user topic gets at least 1 article, even within shared categories
-            max_per_cat = 5 if cat in _topic_expected_cats else 1
+            # Count how many user topics map to this category, to allow proportional articles
+            topics_for_cat = sum(1 for t in topics if any(
+                k in ''.join(ch for ch in unicodedata.normalize('NFD', t.lower()) if unicodedata.category(ch) != 'Mn')
+                for k, cats in _topic_cat_map.items() if cat in cats
+            ))
+            if cat in _topic_expected_cats:
+                max_per_cat = max(5, topics_for_cat * 3)  # At least 3 per topic that maps here
+            else:
+                max_per_cat = 1
 
             # Group articles by source_topic within this category
             topic_groups = {}
@@ -1019,7 +1028,11 @@ class Orchestrator:
             articles_dict = category_map.get(cat, {})
             if not articles_dict:
                 continue
-            max_per_cat = 5 if cat in _topic_expected_cats else 1
+            topics_for_cat_p = sum(1 for t in topics if any(
+                k in ''.join(ch for ch in unicodedata.normalize('NFD', t.lower()) if unicodedata.category(ch) != 'Mn')
+                for k, cats in _topic_cat_map.items() if cat in cats
+            ))
+            max_per_cat = max(5, topics_for_cat_p * 3) if cat in _topic_expected_cats else 1
             # Same topic-aware selection as above
             topic_groups_p = {}
             for art in articles_dict.values():
