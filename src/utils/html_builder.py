@@ -10,6 +10,7 @@ Genera HTML 100% compatible con clientes de correo:
 
 from datetime import datetime
 from collections import defaultdict
+from src.utils.text_utils import truncate_to_sentence
 
 # Colores (Dark Mode)
 BG_DARK = "#15202B"
@@ -221,21 +222,7 @@ def build_front_page(headlines: list, lang: str = "es") -> str:
     featured_summary = featured.get('summary', '') or ''
     
     # Truncar resumen a la última frase completa (<= 220 chars)
-    # Nunca cortar a mitad de frase, nunca añadir "..."
-    if len(featured_summary) > 220:
-        truncated = featured_summary[:220]
-        cut = None
-        for sep in ['. ', '! ', '? ']:
-            pos = truncated.rfind(sep)
-            if pos > 50:
-                cut = pos + 1  # include the punctuation mark
-                break
-        if cut:
-            featured_summary = featured_summary[:cut].rstrip()
-        # If no sentence boundary found within 220 chars, keep as-is (LLM should not produce this)
-    # Ensure ends with sentence-final punctuation
-    if featured_summary and featured_summary[-1] not in '.!?':
-        featured_summary = featured_summary + "."
+    featured_summary = truncate_to_sentence(featured_summary, 220)
     
     # Imagen de fondo (Prioridad: Imagen noticia -> Imagen categoría -> General)
     bg_image = featured.get('image_url')

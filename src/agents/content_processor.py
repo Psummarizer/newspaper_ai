@@ -3,6 +3,7 @@ import json
 import re
 from typing import List, Dict
 from src.services.llm_factory import LLMFactory
+from src.utils.text_utils import truncate_to_sentence
 
 
 def _extract_json(text: str) -> dict:
@@ -114,8 +115,8 @@ class ContentProcessorAgent:
 
         except Exception as e:
             self.logger.error(f"❌ Error seleccionando portada: {e}")
-            return [{"headline": art.get("title", art.get("titulo", ""))[:80],
-                     "summary": art.get("content", art.get("resumen", ""))[:100],
+            return [{"headline": truncate_to_sentence(art.get("title", art.get("titulo", "")), 80),
+                     "summary": truncate_to_sentence(art.get("content", art.get("resumen", "")), 150),
                      "category": art.get("category", ""), "emoji": "📰",
                      "original_url": art.get("url"), "image_url": art.get("image_url"),
                      } for art in all_articles[:5]]

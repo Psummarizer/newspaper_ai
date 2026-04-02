@@ -61,7 +61,7 @@ topics.json en GCS               Build HTML → Email
   - Exclusiones: "solo masculino" → no fútbol femenino
   - Fuentes preferidas: boosted +5.0 en score
   - Contexto: pasa al LLM de filtrado
-- [ ] La portada tiene subtítulo completo (termina en `.!?` o con `...`)
+- [ ] La portada tiene subtítulo completo (frase que termina en `.!?`, nunca cortada a mitad de palabra)
 - [ ] Categorías correctas: IA → Tecnología (no Geopolítica), F1/Real Madrid → Deporte
 
 ### 3. LLM / Costes
@@ -81,13 +81,24 @@ Verificar periódicamente que estas fuentes dan artículos:
 
 ## Bugs Conocidos y Fixes Aplicados
 
+### v0.63 (2026-04-02)
+- **FIX**: Dockerfile: `ENV TZ=Europe/Madrid` → container ahora usa hora Madrid, no UTC
+  → Root cause de que la ventana de 12h estaba desfasada 2h y casi siempre vacía
+- **FIX**: Date parsing simplificado (`fecha_str[:19]`) en lugar de `.replace().split()` roto
+- **FIX**: Subtítulo portada: `truncate_to_sentence()` centralizada en `src/utils/text_utils.py`
+  → content_processor fallback usaba `[:100]` sin respetar frases (causa del "crisis i.")
+  → html_builder simplificado de 14 líneas a 1
+- **FIX**: Floor `max_per_cat=3` para categorías no esperadas (era 1)
+  → Secciones como Justicia o Energía ya no salen con 1 sola noticia
+- **FIX**: `_topic_cat_map` añadido "inteligencia empresarial" → Negocios+Economía
+  → Antes "inteligencia empresarial" solo mapeaba a Geopolítica (match de "inteligencia")
+- **FIX**: `_find_topic_by_alias` paso 4: separadores flexibles + log de fallos
+  → Matchea `real_madrid` dentro de `futbol_real_madrid`
+
 ### v0.62 (2026-04-01)
 - **FIX**: `published_at` (fecha RSS real) se propaga desde ingest hasta scoring en orchestrator
-  → El scoring de recencia ahora usa la fecha de publicación real del artículo, no el momento de procesado
-  → Artículos publicados a las 5am y procesados a las 6am ya no aparecen como "de hace 1h" vs "de hace 13h"
 - **FIX**: Filtro de ventana temporal (12h/24h/48h) usa `published_at` en lugar de `fecha_inventariado`
 - **FIX**: `max_per_cat` escala con el número de topics que mapean a esa categoría (3 art/topic mínimo)
-  → Categorías con 2 topics ahora permiten hasta 6 artículos en lugar de solo 5
 - **DOCS**: CLAUDE.md documenta la distinción topic vs categoría
 
 ### v0.60.1 (2026-03-31)

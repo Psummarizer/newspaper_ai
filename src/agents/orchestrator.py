@@ -189,7 +189,14 @@ class Orchestrator:
             # Require word-boundary match: alias must be a full word in topic name
             if re.search(r'(?<![a-z0-9])' + re.escape(normalized_alias) + r'(?![a-z0-9])', topic_name_norm):
                 return (topic_id, topic_data)
-        
+
+        # 4. Búsqueda en topic_id con separadores flexibles (_ o espacio)
+        alias_pattern = re.escape(normalized_alias).replace("_", "[_ ]?")
+        for topic_id, topic_data in topics_cache.items():
+            if re.search(alias_pattern, topic_id):
+                return (topic_id, topic_data)
+
+        self.logger.warning(f"No topic match for '{user_alias}' (norm: '{normalized_alias}'). Cache keys: {list(topics_cache.keys())[:15]}")
         return (None, None)
         
     def _format_cached_news_to_html(self, news_item: Dict, category: str, user_lang: str = "es") -> str:
@@ -496,7 +503,7 @@ class Orchestrator:
                     fecha_str = n.get("published_at") or n.get("fecha_inventariado", "")
                     if fecha_str:
                         try:
-                            fecha = datetime.fromisoformat(fecha_str.replace("Z", "+00:00").split("+")[0])
+                            fecha = datetime.fromisoformat(fecha_str[:19])
                             age_hours = (current_time - fecha).total_seconds() / 3600
                             if age_hours <= hours_limit:
                                 filtered.append(n)
@@ -544,7 +551,7 @@ class Orchestrator:
                 fecha_str = article.get("published_at") or article.get("fecha_inventariado", "")
                 if fecha_str:
                     try:
-                        fecha = datetime.fromisoformat(fecha_str.replace("Z", "+00:00").split("+")[0])
+                        fecha = datetime.fromisoformat(fecha_str[:19])
                         age = (current_time - fecha).total_seconds() / 3600
                         # Aggressive recency: today's news (< 12h) gets massive boost
                         if age <= 6:
@@ -744,6 +751,8 @@ class Orchestrator:
             "startup": {"Negocios y Empresas", "Tecnología y Digital"},
             "arabia": {"Geopolítica", "Internacional"},
             "inteligencia": {"Geopolítica", "Internacional"},  # Inteligencia y Contrainteligencia
+            "inteligencia empresarial": {"Negocios y Empresas", "Economía y Finanzas"},
+            "negocios": {"Negocios y Empresas"},
         }
 
         # --- Second pass: select and process ---
@@ -973,7 +982,7 @@ class Orchestrator:
             if cat in _topic_expected_cats:
                 max_per_cat = max(5, topics_for_cat * 3)  # At least 3 per topic that maps here
             else:
-                max_per_cat = 1
+                max_per_cat = 3  # Floor: no section with fewer than 3 articles
 
             # Group articles by source_topic within this category
             topic_groups = {}
@@ -1032,7 +1041,7 @@ class Orchestrator:
                 k in ''.join(ch for ch in unicodedata.normalize('NFD', t.lower()) if unicodedata.category(ch) != 'Mn')
                 for k, cats in _topic_cat_map.items() if cat in cats
             ))
-            max_per_cat = max(5, topics_for_cat_p * 3) if cat in _topic_expected_cats else 1
+            max_per_cat = max(5, topics_for_cat_p * 3) if cat in _topic_expected_cats else 3
             # Same topic-aware selection as above
             topic_groups_p = {}
             for art in articles_dict.values():
