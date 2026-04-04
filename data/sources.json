@@ -28,9 +28,9 @@
   },
   {
     "category": "Política",
-    "name": "La Vanguardia - Política",
+    "name": "La Vanguardia - Portada",
     "domain": "lavanguardia.com",
-    "rss_url": "https://www.lavanguardia.com/rss/politica.xml",
+    "rss_url": "https://www.lavanguardia.com/rss/home.xml",
     "base_url": "https://www.lavanguardia.com",
     "language": "es",
     "country": "ES"
@@ -93,6 +93,7 @@
     "category": "Política",
     "name": "RTVE Noticias - España",
     "domain": "rtve.es",
+    "is_active": false,
     "rss_url": "https://api2.rtve.es/rss/temas_noticias.xml",
     "base_url": "https://www.rtve.es",
     "language": "es",
@@ -120,7 +121,7 @@
     "category": "Política",
     "name": "El Independiente - Política",
     "domain": "elindependiente.com",
-    "rss_url": "https://www.elindependiente.com/politica/feed/",
+    "rss_url": "https://www.elindependiente.com/feed/",
     "base_url": "https://www.elindependiente.com",
     "language": "es",
     "country": "ES"
@@ -2276,6 +2277,7 @@
     "category": "Deporte",
     "name": "RTVE - Deportes",
     "domain": "rtve.es",
+    "is_active": false,
     "rss_url": "https://api2.rtve.es/rss/temas_deportes.xml",
     "base_url": "https://www.rtve.es"
   },
@@ -2445,6 +2447,7 @@
     "category": "Cultura y Entretenimiento",
     "name": "RTVE – Cultura",
     "domain": "rtve.es",
+    "is_active": false,
     "rss_url": "https://api2.rtve.es/rss/temas_cultura.xml",
     "base_url": "https://www.rtve.es",
     "language": "es",
@@ -3741,7 +3744,7 @@
     "category": "Política",
     "name": "Libertad Digital",
     "domain": "libertaddigital.com",
-    "rss_url": "https://www.libertaddigital.com/rss/portada.xml",
+    "rss_url": "https://www.libertaddigital.com/rss.xml",
     "base_url": "https://www.libertaddigital.com",
     "language": "es",
     "country": "ES"
@@ -4398,6 +4401,7 @@
     "category": "Política",
     "name": "Vozpópuli",
     "domain": "vozpopuli.com",
+    "is_active": false,
     "rss_url": "https://www.vozpopuli.com/rss/",
     "base_url": "https://www.vozpopuli.com",
     "language": "es",
@@ -5208,6 +5212,7 @@
     "category": "Consumo y Estilo de Vida",
     "name": "La Vanguardia - Viajes",
     "domain": "lavanguardia.com",
+    "is_active": false,
     "rss_url": "https://www.lavanguardia.com/rss/ocio/viajes.xml",
     "base_url": "https://www.lavanguardia.com",
     "language": "es",
@@ -5872,6 +5877,24 @@
     "domain": "libertaddigital.com",
     "rss_url": "https://news.google.com/rss/search?q=site:libertaddigital.com+politica&hl=es&gl=ES&ceid=ES:es",
     "base_url": "https://www.libertaddigital.com",
+    "language": "es",
+    "country": "ES"
+  },
+  {
+    "category": "Política",
+    "name": "Google - La Razón",
+    "domain": "larazon.es",
+    "rss_url": "https://news.google.com/rss/search?q=site:larazon.es&hl=es&gl=ES&ceid=ES:es",
+    "base_url": "https://www.larazon.es",
+    "language": "es",
+    "country": "ES"
+  },
+  {
+    "category": "Política",
+    "name": "Google - RTVE Noticias",
+    "domain": "rtve.es",
+    "rss_url": "https://news.google.com/rss/search?q=site:rtve.es+noticias&hl=es&gl=ES&ceid=ES:es",
+    "base_url": "https://www.rtve.es",
     "language": "es",
     "country": "ES"
   },

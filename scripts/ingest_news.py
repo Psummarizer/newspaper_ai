@@ -763,6 +763,10 @@ class HourlyProcessor:
                 exclude_keywords = ["femenino", "femenina", "women", "female",
                                     "cantera", "infantil", "juvenil", "cadete",
                                     "sub-19", "sub-17", "u19", "u17", "sub19", "sub17"]
+                # If context specifically mentions football/soccer, also exclude basketball
+                if any(kw in contexts_joined for kw in ["futbol", "fútbol", "football", "soccer"]):
+                    exclude_keywords += ["baloncesto", "basket", "basketball",
+                                         "euroliga", "euroleague", "nba", "acb", "canasta"]
             if "no moda" in contexts_joined or "sin moda" in contexts_joined:
                 exclude_keywords.extend(["moda", "fashion", "vogue", "tendencia", "outfit"])
         if exclude_keywords:
@@ -934,7 +938,7 @@ class HourlyProcessor:
                             'twitter.com', 'x.com', 'facebook.com', 'linkedin.com',
                             '/icons/', '/logos/', '/emoji/', '/emojis/',
                             'static.xx.', 'abs.twimg.com', 'pbs.twimg.com',
-                            '.svg', '.ico', 'sprite', 'placeholder',
+                            '.svg', '.ico', '.gif', 'sprite', 'placeholder',
                             'default-', 'og-default', 'share-image', 'social-',
                             'msn.com/static', 'slashdot.org/~',  # Specific problematic sources
                         ]
@@ -1146,9 +1150,13 @@ class HourlyProcessor:
     # =========================================================================
     async def _fetch_feed(self, session, url, timeout=20, retries=2):
         """Fetch a single feed with timeout and retries."""
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+            "Accept": "application/rss+xml, application/atom+xml, application/xml, text/xml, */*",
+        }
         for attempt in range(retries + 1):
             try:
-                async with session.get(url, timeout=aiohttp.ClientTimeout(total=timeout)) as response:
+                async with session.get(url, timeout=aiohttp.ClientTimeout(total=timeout), headers=headers) as response:
                     if response.status != 200:
                         return None
                     return await response.text()

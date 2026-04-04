@@ -266,6 +266,10 @@ class Orchestrator:
             if "solo" in contexts_joined and "masculino" in contexts_joined:
                 exclude_keywords = ["femenino", "femenina", "cantera", "infantil", "juvenil",
                                     "cadete", "sub-19", "sub-17", "women", "u19", "u17"]
+                # If context specifically mentions football/soccer, also exclude basketball
+                if any(kw in contexts_joined for kw in ["futbol", "fútbol", "football", "soccer"]):
+                    exclude_keywords += ["baloncesto", "basket", "basketball",
+                                         "euroliga", "euroleague", "nba", "acb", "canasta"]
             if "no moda" in contexts_joined:
                 exclude_keywords.extend(["moda", "fashion", "vogue", "tendencia", "outfit"])
 
@@ -707,14 +711,15 @@ class Orchestrator:
                     topic_slots[t] = base
                     topics_with_surplus_capacity.append(t)
 
-        # Distribute surplus evenly among topics that have extra news
+        # Distribute surplus evenly among topics that have extra news (max 4 slots per topic)
+        MAX_SLOTS_PER_TOPIC = 4
         if surplus > 0 and topics_with_surplus_capacity:
             extra_per_topic = max(1, surplus // len(topics_with_surplus_capacity))
             for t in topics_with_surplus_capacity:
                 if surplus <= 0:
                     break
                 available = len(topic_fresh_news[t][0])
-                bonus = min(extra_per_topic, surplus, available - topic_slots[t])
+                bonus = min(extra_per_topic, surplus, available - topic_slots[t], MAX_SLOTS_PER_TOPIC - topic_slots[t])
                 topic_slots[t] += bonus
                 surplus -= bonus
 
@@ -789,10 +794,21 @@ class Orchestrator:
             original_cat = cached_cats[0] if cached_cats else "General"
             
             for news in selected_news:
-                # Dedup cross-categoria por titulo normalizado
+                # Dedup cross-categoria: exact match OR keyword similarity ≥55%
                 title = news.get("titulo", "")
                 norm_title = title.lower().strip()
-                if norm_title in used_titles:
+                title_kws = set(w for w in re.sub(r'[^\w\s]', '', norm_title).split() if len(w) > 3)
+                is_dup = norm_title in used_titles
+                if not is_dup and title_kws:
+                    for existing_title in used_titles:
+                        existing_kws = set(w for w in re.sub(r'[^\w\s]', '', existing_title).split() if len(w) > 3)
+                        if existing_kws:
+                            common = len(title_kws & existing_kws)
+                            sim = common / max(len(title_kws), len(existing_kws))
+                            if sim >= 0.55:
+                                is_dup = True
+                                break
+                if is_dup:
                     print(f"      ⏭️ Saltando '{title[:40]}...' (ya aparece en otra categoria)")
                     continue
                 used_titles.add(norm_title)
