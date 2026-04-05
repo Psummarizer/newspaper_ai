@@ -663,7 +663,6 @@ class Orchestrator:
                 ctx_lower = str(_user_ctx_for_topic).lower()
                 for media_name, domain in _media_domain_map.items():
                     # Word boundary check to avoid "as" matching "carreras"
-                    import re
                     if re.search(r'\b' + re.escape(media_name) + r'\b', ctx_lower):
                         _preferred_domains.add(domain)
 

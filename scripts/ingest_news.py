@@ -39,7 +39,7 @@ def _extract_json(text: str) -> dict:
     text = text.strip()
     return json.loads(text)
 
-async def _llm_call_with_retry(client, model, messages, max_retries=3):
+async def _llm_call_with_retry(client, model, messages, max_retries=3, **kwargs):
     """Wrapper for LLM calls with exponential backoff on rate-limit (429) errors."""
     delays = [10, 30, 60]  # seconds between retries (generous for Mistral free-tier)
     for attempt in range(max_retries + 1):
@@ -47,6 +47,7 @@ async def _llm_call_with_retry(client, model, messages, max_retries=3):
             response = await client.chat.completions.create(
                 model=model,
                 messages=messages,
+                **kwargs,
             )
             return response
         except Exception as e:
@@ -1079,6 +1080,7 @@ class HourlyProcessor:
             response = await _llm_call_with_retry(
                 self.client, self.model,
                 messages=[{"role": "user", "content": prompt}],
+                response_format={"type": "json_object"},
             )
             result = _extract_json(response.choices[0].message.content)
             items = result.get("articles", [])
@@ -1104,14 +1106,20 @@ class HourlyProcessor:
             return results
         except Exception as e:
             logger.error(f"Error redactando batch: {e}")
-            # Rate limit fallback
-            if "429" in str(e) or "rate_limited" in str(e).lower() or "rate limit" in str(e).lower():
+            error_str = str(e)
+            is_rate_limit = "429" in error_str or "rate_limited" in error_str.lower() or "rate limit" in error_str.lower()
+            is_json_error = isinstance(e, (json.JSONDecodeError, ValueError, KeyError))
+            fallback_client, fallback_model = LLMFactory.get_fallback_client("mistral")
+            if is_rate_limit or is_json_error:
                 try:
-                    logger.warning("🔄 Rate limit en redacción, usando fallback...")
-                    fallback_client, fallback_model = LLMFactory.get_fallback_client("mistral")
+                    if is_rate_limit:
+                        logger.warning("🔄 Rate limit en redacción, usando fallback...")
+                    else:
+                        logger.warning("🔄 JSON inválido en redacción, reintentando con fallback...")
                     response = await fallback_client.chat.completions.create(
                         model=fallback_model,
                         messages=[{"role": "user", "content": prompt}],
+                        response_format={"type": "json_object"},
                     )
                     result = _extract_json(response.choices[0].message.content)
                     items = result.get("articles", [])
