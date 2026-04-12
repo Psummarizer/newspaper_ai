@@ -10,7 +10,7 @@ from urllib.parse import urlparse
 
 from src.services.classifier_service import ClassifierService
 from src.agents.content_processor import ContentProcessorAgent
-from src.utils.html_builder import build_newsletter_html, build_front_page, build_section_html, build_mid_banner, build_market_ticker
+from src.utils.html_builder import build_newsletter_html, build_front_page, build_section_html, build_mid_banner, build_market_ticker, CATEGORY_IMAGES
 from src.services.email_service import EmailService
 from src.services.firebase_service import FirebaseService
 from src.services.gcs_service import GCSService
@@ -142,7 +142,6 @@ class Orchestrator:
 
     def _normalize_id(self, name: str) -> str:
         """Convierte nombre a ID normalizado (sin tildes para matching consistente)"""
-        import unicodedata
         # Quitar tildes
         nfkd = unicodedata.normalize('NFKD', name)
         id_str = ''.join(c for c in nfkd if not unicodedata.combining(c))
@@ -207,9 +206,11 @@ class Orchestrator:
         image_url = news_item.get("imagen_url", "")
         sources = news_item.get("fuentes", [])
 
-        # Debug: mostrar si hay imagen
-        if not image_url:
-            print(f"      [DEBUG] Noticia sin imagen: {title[:40]}...")
+        # Fallback a imagen de categoría si no hay foto real
+        if not image_url or not image_url.startswith("http"):
+            # Normalize category name to match CATEGORY_IMAGES keys (no accents)
+            cat_norm = ''.join(c for c in unicodedata.normalize('NFD', category) if unicodedata.category(c) != 'Mn')
+            image_url = CATEGORY_IMAGES.get(cat_norm, CATEGORY_IMAGES.get(category, CATEGORY_IMAGES["General"]))
 
         # Sources HTML - language-aware label
         sources_label = "Sources" if user_lang.lower() in ("en", "english") else "Fuentes"
@@ -462,7 +463,8 @@ class Orchestrator:
 
         category_map: Dict[str, Dict[str, Dict]] = {}
         user_id = user_data.get('id', user_email.split('@')[0])
-        used_titles: set = set()  # Para evitar duplicados cross-categoria
+        used_titles: set = set()  # Para evitar duplicados cross-categoria (títulos exactos)
+        used_articles: list = []  # Lista de (norm_title, resumen_lower) para dedup por resumen
         topics_news_for_podcast: Dict[str, list] = {}  # Para generar podcast
 
         # --- FASE 1: RECOLECCIÓN & SELECCIÓN (CACHE ONLY) ---
@@ -793,24 +795,32 @@ class Orchestrator:
             original_cat = cached_cats[0] if cached_cats else "General"
             
             for news in selected_news:
-                # Dedup cross-categoria: exact match OR keyword similarity ≥55%
+                # Dedup cross-categoria: exact title OR keyword similarity ≥55% on title OR ≥35% on resumen
                 title = news.get("titulo", "")
+                resumen = news.get("resumen", "")
                 norm_title = title.lower().strip()
                 title_kws = set(w for w in re.sub(r'[^\w\s]', '', norm_title).split() if len(w) > 3)
+                resumen_kws = set(w for w in re.sub(r'[^\w\s]', '', resumen.lower()).split() if len(w) > 4)
                 is_dup = norm_title in used_titles
-                if not is_dup and title_kws:
-                    for existing_title in used_titles:
-                        existing_kws = set(w for w in re.sub(r'[^\w\s]', '', existing_title).split() if len(w) > 3)
-                        if existing_kws:
-                            common = len(title_kws & existing_kws)
-                            sim = common / max(len(title_kws), len(existing_kws))
-                            if sim >= 0.55:
+                if not is_dup and (title_kws or resumen_kws):
+                    for et, er in used_articles:
+                        # Check title keyword similarity ≥55%
+                        if title_kws:
+                            et_kws = set(w for w in re.sub(r'[^\w\s]', '', et).split() if len(w) > 3)
+                            if et_kws and len(title_kws & et_kws) / max(len(title_kws), len(et_kws)) >= 0.55:
+                                is_dup = True
+                                break
+                        # Check resumen keyword similarity ≥35% (catches same-event diff-title)
+                        if not is_dup and resumen_kws and er:
+                            er_kws = set(w for w in re.sub(r'[^\w\s]', '', er).split() if len(w) > 4)
+                            if er_kws and len(resumen_kws & er_kws) / max(len(resumen_kws), len(er_kws)) >= 0.35:
                                 is_dup = True
                                 break
                 if is_dup:
                     print(f"      ⏭️ Saltando '{title[:40]}...' (ya aparece en otra categoria)")
                     continue
                 used_titles.add(norm_title)
+                used_articles.append((norm_title, resumen.lower()))
                 
                 # Filtrado de Fuentes Prohibidas — comparación EXACTA de dominio
                 sources = news.get("fuentes", [])
@@ -984,69 +994,7 @@ class Orchestrator:
             _topic_expected_cats.update({"Geopolítica", "Internacional"})
         print(f"   📋 Expected categories from topics: {_topic_expected_cats}")
 
-        for cat_idx, cat in enumerate(sorted_cats):
-            articles_dict = category_map[cat]
-            if not articles_dict: continue
-
-            # --- TOPIC-AWARE CAPPING ---
-            # Count how many user topics map to this category, to allow proportional articles
-            topics_for_cat = sum(1 for t in topics if any(
-                k in ''.join(ch for ch in unicodedata.normalize('NFD', t.lower()) if unicodedata.category(ch) != 'Mn')
-                for k, cats in _topic_cat_map.items() if cat in cats
-            ))
-            if cat in _topic_expected_cats:
-                max_per_cat = max(5, topics_for_cat * 3)  # At least 3 per topic that maps here
-            else:
-                max_per_cat = 3  # Floor: no section with fewer than 3 articles
-
-            # Group articles by source_topic within this category
-            topic_groups = {}
-            for art in articles_dict.values():
-                src_topic = art.get("source_topic", "unknown")
-                topic_groups.setdefault(src_topic, []).append(art)
-
-            # Build selection: 1 article per topic first, then fill remaining slots
-            selected_articles = []
-            topics_in_cat = list(topic_groups.keys())
-
-            # Phase 1: guarantee 1 article per topic
-            for t in topics_in_cat:
-                if topic_groups[t]:
-                    selected_articles.append(topic_groups[t][0])
-
-            # Phase 2: fill remaining slots with remaining articles (round-robin)
-            remaining_slots = max(max_per_cat, len(topics_in_cat)) - len(selected_articles)
-            if remaining_slots > 0:
-                selected_urls = {a.get("url") for a in selected_articles}
-                for t in topics_in_cat:
-                    for art in topic_groups[t][1:]:
-                        if remaining_slots <= 0:
-                            break
-                        if art.get("url") not in selected_urls:
-                            selected_articles.append(art)
-                            selected_urls.add(art.get("url"))
-                            remaining_slots -= 1
-
-            # Solo unir HTML pre-renderizado
-            items_html = []
-            for art in selected_articles:
-                if art.get("pre_rendered_html"):
-                    items_html.append(art["pre_rendered_html"])
-            
-            if items_html:
-                section_body = "\n".join(items_html)
-                display_title = CATEGORY_DISPLAY_MAP.get(cat, cat.upper())
-                section_box = build_section_html(display_title, section_body)
-                final_html_parts.append(section_box)
-                print(f"   ✅ Sección '{cat}' generada ({len(items_html)} noticias)")
-                
-                # Insertar banner promocional a mitad del contenido
-                mid_point = max(1, len(sorted_cats) // 2)
-                if cat_idx == mid_point - 1:
-                    final_html_parts.append(build_mid_banner(lang=user_lang, banner_gif_url=_banner_gif_url))
-                    print("   🌐 Banner promocional insertado")
-
-        # --- PORTADA: Generate from capped articles only (topic-aware) ---
+        # --- PORTADA: Seleccionar PRIMERO para poder excluir artículos del cuerpo ---
         capped_articles = []
         for cat in sorted_cats:
             articles_dict = category_map.get(cat, {})
@@ -1057,7 +1005,6 @@ class Orchestrator:
                 for k, cats in _topic_cat_map.items() if cat in cats
             ))
             max_per_cat = max(5, topics_for_cat_p * 3) if cat in _topic_expected_cats else 3
-            # Same topic-aware selection as above
             topic_groups_p = {}
             for art in articles_dict.values():
                 src_topic = art.get("source_topic", "unknown")
@@ -1080,13 +1027,79 @@ class Orchestrator:
             capped_articles.extend(selected_p)
 
         front_page_html = ""
+        front_page_data = []
+        portada_urls: set = set()
         if capped_articles:
             try:
                 front_page_data = await self.processor.select_front_page_stories(capped_articles, user_lang)
                 front_page_html = build_front_page(front_page_data, lang=user_lang)
+                # Collect URLs selected for portada so body sections can exclude them
+                portada_urls = {item.get("original_url") for item in front_page_data if item.get("original_url")}
                 print(f"   📰 Portada generada con {len(front_page_data)} titulares (de {len(capped_articles)} artículos)")
             except Exception as e:
                 print(f"   ⚠️ Error generando portada: {e}")
+
+        # --- SECCIONES DEL CUERPO: excluir artículos ya en portada ---
+        for cat_idx, cat in enumerate(sorted_cats):
+            articles_dict = category_map[cat]
+            if not articles_dict: continue
+
+            # --- TOPIC-AWARE CAPPING ---
+            topics_for_cat = sum(1 for t in topics if any(
+                k in ''.join(ch for ch in unicodedata.normalize('NFD', t.lower()) if unicodedata.category(ch) != 'Mn')
+                for k, cats in _topic_cat_map.items() if cat in cats
+            ))
+            if cat in _topic_expected_cats:
+                max_per_cat = max(5, topics_for_cat * 3)
+            else:
+                max_per_cat = 3
+
+            # Group articles by source_topic within this category
+            topic_groups = {}
+            for art in articles_dict.values():
+                src_topic = art.get("source_topic", "unknown")
+                topic_groups.setdefault(src_topic, []).append(art)
+
+            # Build selection: 1 article per topic first, then fill remaining slots
+            selected_articles = []
+            topics_in_cat = list(topic_groups.keys())
+
+            for t in topics_in_cat:
+                if topic_groups[t]:
+                    selected_articles.append(topic_groups[t][0])
+
+            remaining_slots = max(max_per_cat, len(topics_in_cat)) - len(selected_articles)
+            if remaining_slots > 0:
+                selected_urls = {a.get("url") for a in selected_articles}
+                for t in topics_in_cat:
+                    for art in topic_groups[t][1:]:
+                        if remaining_slots <= 0:
+                            break
+                        if art.get("url") not in selected_urls:
+                            selected_articles.append(art)
+                            selected_urls.add(art.get("url"))
+                            remaining_slots -= 1
+
+            # Render HTML — skip articles already shown in portada
+            items_html = []
+            for art in selected_articles:
+                if art.get("url") in portada_urls:
+                    print(f"      ⏭️ Omitiendo en cuerpo (ya en portada): {art.get('title', '')[:40]}")
+                    continue
+                if art.get("pre_rendered_html"):
+                    items_html.append(art["pre_rendered_html"])
+
+            if items_html:
+                section_body = "\n".join(items_html)
+                display_title = CATEGORY_DISPLAY_MAP.get(cat, cat.upper())
+                section_box = build_section_html(display_title, section_body)
+                final_html_parts.append(section_box)
+                print(f"   ✅ Sección '{cat}' generada ({len(items_html)} noticias)")
+
+                mid_point = max(1, len(sorted_cats) // 2)
+                if cat_idx == mid_point - 1:
+                    final_html_parts.append(build_mid_banner(lang=user_lang, banner_gif_url=_banner_gif_url))
+                    print("   🌐 Banner promocional insertado")
 
         # --- FASE 3: PODCAST (SI ACTIVADO) ---
         podcast_rss_link = None
