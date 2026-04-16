@@ -42,6 +42,54 @@ async def trigger_batch_run():
     await script_ingest_news()
     return {"status": "Batch completed (Ingest)"}
 
+@app.post("/send-user-test")
+async def trigger_user_test_newsletter(email: str):
+    """Envía un briefing de prueba SIN ingesta, usando los topics reales
+    de Firestore del usuario indicado. Útil para validar fixes contra
+    las preferencias reales de un usuario concreto.
+
+    Uso: POST /send-user-test?email=foo@bar.com
+    """
+    from src.services.firebase_service import FirebaseService
+    print(f"🧪 Triggering USER TEST Newsletter para {email} (sin ingesta)...")
+    fb = FirebaseService()
+    if not fb.db:
+        return {"status": "error", "message": "Firebase no disponible"}
+    doc = fb.db.collection("AINewspaper").document(email).get()
+    if not doc.exists:
+        return {"status": "error", "message": f"Usuario {email} no encontrado en AINewspaper"}
+    sub_data = doc.to_dict()
+
+    raw_topics = sub_data.get("topic") or sub_data.get("Topics") or sub_data.get("topics", [])
+    if isinstance(raw_topics, dict):
+        user_topics_list = list(raw_topics.keys())
+    elif isinstance(raw_topics, list):
+        user_topics_list = raw_topics
+    elif isinstance(raw_topics, str):
+        clean = raw_topics.replace("[", "").replace("]", "").replace("'", "").replace('"', "")
+        user_topics_list = [t.strip() for t in clean.split(',') if t.strip()]
+    else:
+        user_topics_list = []
+
+    if not user_topics_list:
+        return {"status": "error", "message": f"Usuario {email} sin topics definidos"}
+
+    raw_topic_map = sub_data.get("topic", {})
+    user_input = {
+        "email": email,
+        "Topics": user_topics_list,
+        "Language": sub_data.get("Language") or sub_data.get("language", "es"),
+        "country": sub_data.get("country") or sub_data.get("Country", ""),
+        "forbidden_sources": sub_data.get("forbidden_sources", ""),
+        "news_podcast": sub_data.get("news_podcast") or sub_data.get("NewsPodcast"),
+        "preferences": sub_data.get("preferences") or sub_data.get("Preferences", {}),
+        "topic": raw_topic_map if isinstance(raw_topic_map, dict) else {}
+    }
+    orchestrator = Orchestrator(mock_mode=False)
+    result = await orchestrator.run_for_user(user_input)
+    return {"status": "Test sent" if result else "No content generated", "email": email,
+            "topics": user_topics_list}
+
 @app.post("/send-test")
 async def trigger_test_newsletter():
     """Send a test briefing to psummarizer@gmail.com using jcgarcia2066 topics."""

@@ -252,24 +252,94 @@ class Orchestrator:
         </div>
         '''
 
+    async def _filter_by_user_rules(self, topic: str, news_list: List[Dict], user_context: str) -> List[Dict]:
+        """Filtro semántico universal: usa LLM para excluir artículos que violen
+        CUALQUIER regla del campo topic-map de Firestore del usuario.
+
+        Agnóstico al tipo de regla. Funciona con:
+          - Exclusiones: "solo masculino", "no moda", "sin lujo"
+          - Preferencias: "prefiero Carlos Sainz", "solo bodegas españolas"
+          - Geografía: "no noticias de EEUU"
+
+        Coste: 1 llamada Mistral/topic (free tier). ~500-800 tokens/call.
+        """
+        if not user_context or not news_list:
+            return news_list
+
+        articles_input = ""
+        for i, n in enumerate(news_list):
+            title = n.get("titulo", "")
+            summary = n.get("resumen", "")[:150]
+            articles_input += f"ID {i}: {title} | {summary}\n"
+
+        prompt = f"""Eres un moderador estricto. El usuario definió estas reglas para el topic "{topic}":
+
+REGLAS DEL USUARIO (Firestore): "{user_context}"
+
+Artículos candidatos:
+{articles_input}
+
+Tarea: Marca los IDs que VIOLAN las reglas del usuario (directa o implícitamente).
+- "solo masculino" → women's football (Liga F, NWSL), cantera/filial (Castilla), femenino, juveniles
+- "no moda" → artículos sobre ropa, runway, outfits
+- "prefiero X" → NO viola si el artículo NO es sobre X (solo indica preferencia, no exclusión)
+- "solo bodegas españolas" → viola si el artículo es sobre bodegas francesas/italianas/etc
+- Reglas positivas ("prefiero...") SOLO son preferencia, NUNCA exclusión.
+- Reglas negativas ("solo X", "no Y", "sin Z") SÍ son exclusión.
+
+Si ningún artículo viola las reglas, devuelve lista vacía.
+
+JSON only: {{"invalid_ids": [1, 3], "reasons": {{"1": "women's league", "3": "reserve team"}}}}
+"""
+        try:
+            response = await self.processor.client.chat.completions.create(
+                model=self.processor.model_fast,
+                messages=[{"role": "user", "content": prompt}],
+                response_format={"type": "json_object"}
+            )
+            result = json.loads(response.choices[0].message.content)
+            invalid_ids = set(result.get("invalid_ids", []) or [])
+            reasons = result.get("reasons", {}) or {}
+
+            if invalid_ids:
+                for vid in invalid_ids:
+                    reason = reasons.get(str(vid), "viola regla")
+                    try:
+                        bad_title = news_list[int(vid)].get("titulo", "")[:50]
+                        print(f"      🚫 LLM rule filter '{topic}': excluye ID {vid} ({reason}): {bad_title}...")
+                    except Exception:
+                        pass
+                filtered = [n for i, n in enumerate(news_list) if i not in invalid_ids]
+                return filtered
+            return news_list
+        except Exception as e:
+            self.logger.warning(f"LLM rule filter fallback ({topic}): {e}. Usando keyword fallback.")
+            return news_list
+
     async def _select_top_3_cached(self, topic: str, news_list: List[Dict], max_count: int = 3, user_contexts: List[str] = None) -> List[Dict]:
         """Selecciona las top N noticias más relevantes de la lista cacheada usando LLM.
         Guarantees at least 1 article from user-preferred sources if available."""
-        # --- Pre-filter by topic context exclusions (MUST run before any early return) ---
+        # --- Context aggregation ---
         contexts_joined = ""
         if user_contexts:
             contexts_joined = " ".join(str(c) for c in user_contexts if c).lower()
 
+        # --- STEP 1: Universal semantic rule filter (LLM, always runs if context exists) ---
+        # Agnóstico al tipo de regla. Corre SIEMPRE antes del early return para que topics
+        # con pocos artículos también se filtren.
+        if contexts_joined.strip():
+            original_context = " ".join(str(c) for c in (user_contexts or []) if c)
+            news_list = await self._filter_by_user_rules(topic, news_list, original_context)
+
+        # --- STEP 2: Keyword safety net (cheap, deterministic, catches common patterns) ---
         if contexts_joined:
             filtered_list = []
-            # Exclusion keywords from context
             exclude_keywords = []
             if "solo" in contexts_joined and ("masculino" in contexts_joined or "hombres" in contexts_joined):
                 exclude_keywords = ["femenino", "femenina", "femenil", "cantera", "infantil", "juvenil",
                                     "cadete", "sub-19", "sub-17", "sub-21", "sub-23",
                                     "women", "women's", "womens", "u19", "u17", "u21", "u23",
                                     "female"]
-                # If context specifically mentions football/soccer, also exclude basketball
                 if any(kw in contexts_joined for kw in ["futbol", "fútbol", "football", "soccer"]):
                     exclude_keywords += ["baloncesto", "basket", "basketball",
                                          "euroliga", "euroleague", "nba", "acb", "canasta"]
@@ -278,13 +348,11 @@ class Orchestrator:
 
             if exclude_keywords:
                 for n in news_list:
-                    title_lower = n.get("titulo", "").lower()
-                    resumen_lower = n.get("resumen", "").lower()
-                    combined = title_lower + " " + resumen_lower
+                    combined = (n.get("titulo", "") + " " + n.get("resumen", "")).lower()
                     if not any(kw in combined for kw in exclude_keywords):
                         filtered_list.append(n)
-                # Apply filter even if it drops ALL articles — user context is authoritative
-                print(f"   🔍 Pre-filtro contexto '{topic}': {len(news_list)} -> {len(filtered_list)} artículos (excluye: {exclude_keywords[:3]}...)")
+                if len(filtered_list) < len(news_list):
+                    print(f"      🔍 Keyword safety net '{topic}': {len(news_list)} -> {len(filtered_list)}")
                 news_list = filtered_list
 
         if len(news_list) <= max_count:
