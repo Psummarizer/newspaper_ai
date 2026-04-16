@@ -24,30 +24,110 @@ BORDER = "#38444D"
 
 # Imagenes de categoria (Unsplash - funciona en emails)
 CATEGORY_IMAGES = {
-    "Politica": "https://images.unsplash.com/photo-1529107386315-e1a2ed48a620?w=640&h=200&fit=crop",
-    "Geopolitica": "https://images.unsplash.com/photo-1451187580459-43490279c0fa?w=640&h=200&fit=crop",
-    "Internacional": "https://images.unsplash.com/photo-1526304640581-d334cdbbf45e?w=640&h=200&fit=crop",
-    "Economia y Finanzas": "https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?w=640&h=200&fit=crop",
-    "Negocios y Empresas": "https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?w=640&h=200&fit=crop",
-    "Justicia y Legal": "https://images.unsplash.com/photo-1589829545856-d10d557cf95f?w=640&h=200&fit=crop",
-    "Transporte y Movilidad": "https://images.unsplash.com/photo-1436491865332-7a61a109cc05?w=640&h=200&fit=crop",
-    "Industria": "https://images.unsplash.com/photo-1565793298595-6a879b1d9492?w=640&h=200&fit=crop",
-    "Energia": "https://images.unsplash.com/photo-1473341304170-971dccb5ac1e?w=640&h=200&fit=crop",
-    "Tecnologia y Digital": "https://images.unsplash.com/photo-1550751827-4bd374c3f58b?w=640&h=200&fit=crop",
-    "Ciencia e Investigacion": "https://images.unsplash.com/photo-1507413245164-6160d8298b31?w=640&h=200&fit=crop",
-    "Deporte": "https://images.unsplash.com/photo-1579952363873-27f3bade9f55?w=640&h=200&fit=crop",
-    "Salud y Bienestar": "https://images.unsplash.com/photo-1505576399279-565b52d4ac71?w=640&h=200&fit=crop",
-    "Inmobiliario y Construccion": "https://images.unsplash.com/photo-1486718448742-163732cd1544?w=640&h=200&fit=crop",
-    "Agricultura y Alimentacion": "https://images.unsplash.com/photo-1464226184884-fa280b87c399?w=640&h=200&fit=crop",
-    "Educacion y Conocimiento": "https://images.unsplash.com/photo-1481627834876-b7833e8f5570?w=640&h=200&fit=crop",
-    "Sociedad": "https://images.unsplash.com/photo-1517457373958-b7bdd4587205?w=640&h=200&fit=crop",
-    "Cultura y Entretenimiento": "https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=640&h=200&fit=crop",
-    "Consumo y Estilo de Vida": "https://images.unsplash.com/photo-1483985988355-763728e1935b?w=640&h=200&fit=crop",
-    "Medio Ambiente y Clima": "https://images.unsplash.com/photo-1441974231531-c6227db76b6e?w=640&h=200&fit=crop",
-    "Cultura Digital y Sociedad de la Informacion": "https://images.unsplash.com/photo-1519389950473-47ba0277781c?w=640&h=200&fit=crop",
-    "Filantropia e Impacto Social": "https://images.unsplash.com/photo-1469571486292-0ba58a3f068b?w=640&h=200&fit=crop",
-    "General": "https://images.unsplash.com/photo-1495020689067-958852a7765e?w=640&h=200&fit=crop"
+    "Politica": [
+        "https://images.unsplash.com/photo-1529107386315-e1a2ed48a620?w=640&h=200&fit=crop",
+        "https://images.unsplash.com/photo-1541872703-74c5e44368f1?w=640&h=200&fit=crop",
+        "https://images.unsplash.com/photo-1575320181282-9afab399332c?w=640&h=200&fit=crop",
+    ],
+    "Geopolitica": [
+        "https://images.unsplash.com/photo-1451187580459-43490279c0fa?w=640&h=200&fit=crop",
+        "https://images.unsplash.com/photo-1526778548025-fa2f459cd5c1?w=640&h=200&fit=crop",
+        "https://images.unsplash.com/photo-1519500528352-2d1460418d41?w=640&h=200&fit=crop",
+    ],
+    "Internacional": [
+        "https://images.unsplash.com/photo-1526304640581-d334cdbbf45e?w=640&h=200&fit=crop",
+        "https://images.unsplash.com/photo-1523395243481-163f8f6155ab?w=640&h=200&fit=crop",
+    ],
+    "Economia y Finanzas": [
+        "https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?w=640&h=200&fit=crop",
+        "https://images.unsplash.com/photo-1590283603385-17ffb3a7f29f?w=640&h=200&fit=crop",
+        "https://images.unsplash.com/photo-1444653614773-995cb1ef9efa?w=640&h=200&fit=crop",
+    ],
+    "Negocios y Empresas": [
+        "https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?w=640&h=200&fit=crop",
+        "https://images.unsplash.com/photo-1556761175-5973dc0f32e7?w=640&h=200&fit=crop",
+    ],
+    "Justicia y Legal": [
+        "https://images.unsplash.com/photo-1589829545856-d10d557cf95f?w=640&h=200&fit=crop",
+        "https://images.unsplash.com/photo-1505664194779-8beaceb93744?w=640&h=200&fit=crop",
+    ],
+    "Transporte y Movilidad": [
+        "https://images.unsplash.com/photo-1436491865332-7a61a109cc05?w=640&h=200&fit=crop",
+    ],
+    "Industria": [
+        "https://images.unsplash.com/photo-1565793298595-6a879b1d9492?w=640&h=200&fit=crop",
+    ],
+    "Energia": [
+        "https://images.unsplash.com/photo-1473341304170-971dccb5ac1e?w=640&h=200&fit=crop",
+    ],
+    "Tecnologia y Digital": [
+        "https://images.unsplash.com/photo-1550751827-4bd374c3f58b?w=640&h=200&fit=crop",
+        "https://images.unsplash.com/photo-1518770660439-4636190af475?w=640&h=200&fit=crop",
+        "https://images.unsplash.com/photo-1620712943543-bcc4688e7485?w=640&h=200&fit=crop",
+        "https://images.unsplash.com/photo-1531482615713-2afd69097998?w=640&h=200&fit=crop",
+    ],
+    "Ciencia e Investigacion": [
+        "https://images.unsplash.com/photo-1507413245164-6160d8298b31?w=640&h=200&fit=crop",
+        "https://images.unsplash.com/photo-1532094349884-543bc11b234d?w=640&h=200&fit=crop",
+        "https://images.unsplash.com/photo-1628595351029-c2bf17511435?w=640&h=200&fit=crop",
+    ],
+    "Deporte": [
+        "https://images.unsplash.com/photo-1579952363873-27f3bade9f55?w=640&h=200&fit=crop",
+        "https://images.unsplash.com/photo-1517649763962-0c623066013b?w=640&h=200&fit=crop",
+        "https://images.unsplash.com/photo-1541252260730-0412e8e2108e?w=640&h=200&fit=crop",
+        "https://images.unsplash.com/photo-1509023464722-18d996393ca8?w=640&h=200&fit=crop",
+    ],
+    "Salud y Bienestar": [
+        "https://images.unsplash.com/photo-1505576399279-565b52d4ac71?w=640&h=200&fit=crop",
+    ],
+    "Inmobiliario y Construccion": [
+        "https://images.unsplash.com/photo-1486718448742-163732cd1544?w=640&h=200&fit=crop",
+    ],
+    "Agricultura y Alimentacion": [
+        "https://images.unsplash.com/photo-1464226184884-fa280b87c399?w=640&h=200&fit=crop",
+    ],
+    "Educacion y Conocimiento": [
+        "https://images.unsplash.com/photo-1481627834876-b7833e8f5570?w=640&h=200&fit=crop",
+    ],
+    "Sociedad": [
+        "https://images.unsplash.com/photo-1517457373958-b7bdd4587205?w=640&h=200&fit=crop",
+    ],
+    "Cultura y Entretenimiento": [
+        "https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=640&h=200&fit=crop",
+    ],
+    "Consumo y Estilo de Vida": [
+        "https://images.unsplash.com/photo-1483985988355-763728e1935b?w=640&h=200&fit=crop",
+    ],
+    "Medio Ambiente y Clima": [
+        "https://images.unsplash.com/photo-1441974231531-c6227db76b6e?w=640&h=200&fit=crop",
+    ],
+    "Cultura Digital y Sociedad de la Informacion": [
+        "https://images.unsplash.com/photo-1519389950473-47ba0277781c?w=640&h=200&fit=crop",
+    ],
+    "Filantropia e Impacto Social": [
+        "https://images.unsplash.com/photo-1469571486292-0ba58a3f068b?w=640&h=200&fit=crop",
+    ],
+    "General": [
+        "https://images.unsplash.com/photo-1495020689067-958852a7765e?w=640&h=200&fit=crop",
+    ],
 }
+
+
+def pick_category_image(category: str, seed: str = "") -> str:
+    """Devuelve una URL de fallback determinista para `category`, variando por `seed`
+    (normalmente el título del artículo) para que artículos distintos de la misma
+    sección no muestren todos la misma imagen."""
+    imgs = CATEGORY_IMAGES.get(category) or CATEGORY_IMAGES.get("General", [])
+    if isinstance(imgs, str):
+        return imgs
+    if not imgs:
+        return ""
+    if len(imgs) == 1:
+        return imgs[0]
+    # Hash determinista sobre seed: mismo artículo -> misma imagen (idempotente).
+    import hashlib
+    h = int(hashlib.md5((seed or category).encode("utf-8")).hexdigest(), 16)
+    return imgs[h % len(imgs)]
 
 # Colores solidos para la barra de titulo (gamas azul electrico / morado oscuro)
 CATEGORY_BG_COLORS = {
@@ -227,7 +307,7 @@ def build_front_page(headlines: list, lang: str = "es") -> str:
     # Imagen de fondo (Prioridad: Imagen noticia -> Imagen categoría -> General)
     bg_image = featured.get('image_url')
     if not bg_image:
-        bg_image = CATEGORY_IMAGES.get(featured_category, CATEGORY_IMAGES["General"])
+        bg_image = pick_category_image(featured_category, seed=featured_title)
     
     # URL escapada (por si acaso tiene espacios)
     bg_image = bg_image.replace(" ", "%20")
@@ -544,18 +624,18 @@ def build_section_html(title: str, content: str) -> str:
     
     # Detectar categoria del titulo (normalizado para comparar)
     normalized_title = normalize(title.upper())
-    banner_image = CATEGORY_IMAGES.get("General")
+    banner_image = pick_category_image("General", seed=title)
     banner_color = CATEGORY_BG_COLORS.get("General", "#1a237e")
     banner_emoji = "📰"
     detected_category = "General"
-    
+
     # Ordenar por longitud (mas largo primero) para evitar matches parciales
     sorted_keys = sorted(CATEGORY_IMAGES.keys(), key=len, reverse=True)
-    
+
     for key in sorted_keys:
         normalized_key = normalize(key.upper())
         if normalized_key in normalized_title:
-            banner_image = CATEGORY_IMAGES[key]
+            banner_image = pick_category_image(key, seed=title)
             banner_color = CATEGORY_BG_COLORS.get(key, "#424242")
             banner_emoji = CATEGORY_EMOJIS.get(key, "📰")
             detected_category = key

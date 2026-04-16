@@ -10,7 +10,7 @@ from urllib.parse import urlparse
 
 from src.services.classifier_service import ClassifierService
 from src.agents.content_processor import ContentProcessorAgent
-from src.utils.html_builder import build_newsletter_html, build_front_page, build_section_html, build_mid_banner, build_market_ticker, CATEGORY_IMAGES
+from src.utils.html_builder import build_newsletter_html, build_front_page, build_section_html, build_mid_banner, build_market_ticker, pick_category_image
 from src.services.email_service import EmailService
 from src.services.firebase_service import FirebaseService
 from src.services.gcs_service import GCSService
@@ -213,7 +213,9 @@ class Orchestrator:
         if not image_url or not image_url.startswith("http"):
             # Normalize category name to match CATEGORY_IMAGES keys (no accents)
             cat_norm = ''.join(c for c in unicodedata.normalize('NFD', category) if unicodedata.category(c) != 'Mn')
-            image_url = CATEGORY_IMAGES.get(cat_norm, CATEGORY_IMAGES.get(category, CATEGORY_IMAGES["General"]))
+            # Usa el título como seed -> artículos distintos de la misma sección
+            # reciben imágenes distintas (pero idempotente por artículo).
+            image_url = pick_category_image(cat_norm, seed=title) or pick_category_image(category, seed=title)
 
         # Sources HTML - language-aware label
         sources_label = "Sources" if user_lang.lower() in ("en", "english") else "Fuentes"
@@ -251,6 +253,61 @@ class Orchestrator:
             {sources_html}
         </div>
         '''
+
+    @staticmethod
+    def _extract_event_entities(text: str) -> set:
+        """Extrae entidades propias (nombres en mayúsculas, 4+ chars) del texto.
+        Usado para dedup de mismo-evento: 2 artículos que comparten 2+ entidades
+        de este set probablemente hablan del mismo partido/noticia/persona.
+
+        Filtra stopwords capitalizadas (inicio de frase) y el topic del propio
+        usuario (e.g., 'Madrid' en topic 'Real Madrid' no es señal útil)."""
+        stopwords = {"el", "la", "los", "las", "un", "una", "uno", "este", "esta",
+                     "estos", "estas", "ese", "esa", "con", "sin", "para", "por",
+                     "según", "segun", "sobre", "tras", "desde", "hasta", "como",
+                     "mientras", "pero", "además", "ademas", "también", "tambien",
+                     "solo", "sólo", "ayer", "hoy", "mañana", "manana", "champions",
+                     "liga", "copa"}
+        tokens = re.findall(r'\b[A-ZÁÉÍÓÚÑ][a-záéíóúñ]{3,}\b', text or "")
+        return {t.lower() for t in tokens if t.lower() not in stopwords}
+
+    def _dedup_same_event(self, articles: List[Dict], topic: str = "") -> List[Dict]:
+        """Elimina artículos sobre el mismo evento (mismo partido, misma persona,
+        mismo incidente). Dos artículos que comparten 2+ entidades propias
+        (excluyendo el propio topic) = mismo evento.
+        Se queda con el más reciente por `published_at`."""
+        if len(articles) <= 1:
+            return articles
+        # Tokens del propio topic: NO cuentan como señal de mismo evento
+        topic_tokens = {t.lower() for t in re.findall(r'\b[A-ZÁÉÍÓÚÑa-záéíóúñ]{3,}\b', topic)}
+
+        # Ordenar por fecha descendente (más reciente primero) — así al dedup
+        # siempre conservamos el más reciente del grupo.
+        sorted_arts = sorted(
+            articles,
+            key=lambda a: a.get("published_at") or a.get("fecha_inventariado", ""),
+            reverse=True
+        )
+        kept = []
+        kept_entity_sets = []
+        for art in sorted_arts:
+            text = f"{art.get('titulo', '')} {art.get('resumen', '')[:300]}"
+            ents = self._extract_event_entities(text) - topic_tokens
+            if not ents:
+                kept.append(art)
+                kept_entity_sets.append(set())
+                continue
+            is_dup = False
+            for seen_ents in kept_entity_sets:
+                if seen_ents and len(ents & seen_ents) >= 2:
+                    is_dup = True
+                    break
+            if is_dup:
+                print(f"      ⏭️ Mismo evento que uno ya elegido: '{art.get('titulo', '')[:50]}' (entities={ents & seen_ents})")
+                continue
+            kept.append(art)
+            kept_entity_sets.append(ents)
+        return kept
 
     async def _filter_by_user_rules(self, topic: str, news_list: List[Dict], user_context: str) -> List[Dict]:
         """Filtro semántico universal: usa LLM para excluir artículos que violen
@@ -354,6 +411,14 @@ JSON only: {{"invalid_ids": [1, 3], "reasons": {{"1": "women's league", "3": "re
                 if len(filtered_list) < len(news_list):
                     print(f"      🔍 Keyword safety net '{topic}': {len(news_list)} -> {len(filtered_list)}")
                 news_list = filtered_list
+
+        # --- STEP 3: Same-event dedup (pre-LLM) ---
+        # Evita que 2 artículos del mismo partido/incidente lleguen al LLM.
+        # Prioriza el más reciente de cada grupo.
+        before_dedup = len(news_list)
+        news_list = self._dedup_same_event(news_list, topic)
+        if len(news_list) < before_dedup:
+            print(f"      🎯 Same-event dedup '{topic}': {before_dedup} -> {len(news_list)}")
 
         if len(news_list) <= max_count:
             return news_list
@@ -606,15 +671,17 @@ JSON only: {{"invalid_ids": [1, 3], "reasons": {{"1": "women's league", "3": "re
                     print(f"   ⚠️ Solo {len(fresh_news)} noticias en 12h. Ampliando a 24h ({len(news_24h)} encontradas)")
                     fresh_news = news_24h
 
-            # FALLBACK 2: if still too few, expand to 48h
+            # FALLBACK 2: if still too few, expand to 36h (no más: evita previews stale
+            # que se comen el slot de la crónica post-evento). Una newsletter diaria
+            # no debe llevar noticias de hace 2 días.
             if len(fresh_news) < 3:
-                news_48h = get_fresh_news(48)
-                if len(news_48h) > len(fresh_news):
-                    print(f"   ⚠️ Solo {len(fresh_news)} noticias en 24h. Ampliando a 48h ({len(news_48h)} encontradas)")
-                    fresh_news = news_48h
+                news_36h = get_fresh_news(36)
+                if len(news_36h) > len(fresh_news):
+                    print(f"   ⚠️ Solo {len(fresh_news)} noticias en 24h. Ampliando a 36h ({len(news_36h)} encontradas)")
+                    fresh_news = news_36h
 
             if not fresh_news:
-                print(f"   ❌ Sin noticias recientes (48h) para '{topic}'. Saltando.")
+                print(f"   ❌ Sin noticias recientes (36h) para '{topic}'. Saltando.")
                 continue
 
             # Sort by date: newest first (before scoring). Use published_at when available.
