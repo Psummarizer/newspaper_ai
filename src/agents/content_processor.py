@@ -19,7 +19,10 @@ class ContentProcessorAgent:
     def __init__(self, mock_mode: bool = False):
         self.logger = logging.getLogger(__name__)
         self.client, self.model_fast = LLMFactory.get_client("fast")
-        _, self.model_quality = LLMFactory.get_client("quality")
+        # Quality client puede ser de un proveedor distinto (ej: Gemini para portada).
+        # ANTES: self.client se usaba para llamadas con model_quality → 400 si modelos
+        # de proveedores diferentes (gemini-2.5-flash contra api.mistral.ai).
+        self.client_quality, self.model_quality = LLMFactory.get_client("quality")
         self.mock_mode = mock_mode
 
     async def select_front_page_stories(self, all_articles: List[Dict], language: str = "es") -> List[Dict]:
@@ -85,7 +88,7 @@ class ContentProcessorAgent:
         """
 
         try:
-            response = await self.client.chat.completions.create(
+            response = await self.client_quality.chat.completions.create(
                 model=self.model_quality,
                 messages=[
                     {"role": "user", "content": system_prompt},

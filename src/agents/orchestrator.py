@@ -16,7 +16,7 @@ from src.services.firebase_service import FirebaseService
 from src.services.gcs_service import GCSService
 from src.services.podcast_service import NewsPodcastService
 from src.utils.constants import CATEGORIES_LIST
-from src.utils.text_utils import validate_image_size
+from src.utils.text_utils import is_obvious_icon_url
 
 class Orchestrator:
     # i18n display names per language
@@ -484,7 +484,7 @@ JSON only: {{"invalid_ids": [1, 3], "reasons": {{"1": "women's league", "3": "re
         """
         
         try:
-            response = await self.processor.client.chat.completions.create(
+            response = await self.processor.client_quality.chat.completions.create(
                 model=self.processor.model_quality,
                 messages=[{"role": "user", "content": prompt}],
                 response_format={"type": "json_object"}
@@ -853,18 +853,15 @@ JSON only: {{"invalid_ids": [1, 3], "reasons": {{"1": "women's league", "3": "re
             selected_news = await self._select_top_3_cached(topic, fresh_news, max_count=max_for_topic, user_contexts=topic_user_contexts)
             print(f"   ✅ [{topic}] Seleccionadas Top {len(selected_news)} para el boletín.")
             
-            # VALIDACIÓN DE IMÁGENES — filtra iconos/logos de URLs cacheadas pre-v0.67.
-            # Paralelo vía asyncio.gather — ~100ms por imagen, negligible para ~3-5 articulos.
+            # PRE-CHECK BARATO de imágenes: solo descarta iconos OBVIOS por URL
+            # (sin red, sin Pillow). La validación robusta por dimensiones se hizo
+            # ya en ingest. Aquí es defensa contra URLs heredadas en cache pre-v0.67.
             if selected_news:
-                img_checks = await asyncio.gather(
-                    *[validate_image_size(n.get("imagen_url", "")) for n in selected_news],
-                    return_exceptions=True
-                )
-                for n, ok in zip(selected_news, img_checks):
-                    if ok is not True:  # False, exception, or None
-                        if n.get("imagen_url"):
-                            print(f"      🖼️ Imagen rechazada (icono/logo/pequeña): {n.get('imagen_url', '')[:80]}")
-                        n["imagen_url"] = ""  # dispara fallback de categoría en _format_cached_news_to_html
+                for n in selected_news:
+                    img = n.get("imagen_url", "")
+                    if img and is_obvious_icon_url(img):
+                        print(f"      🖼️ Imagen icono descartada por URL: {img[:80]}")
+                        n["imagen_url"] = ""  # dispara fallback de categoría
 
             # TRADUCCION DE LAS NOTICIAS SELECCIONADAS
             user_lang_lower = user_lang.lower()
@@ -1115,6 +1112,11 @@ JSON only: {{"invalid_ids": [1, 3], "reasons": {{"1": "women's league", "3": "re
                             selected_p.append(art)
                             sel_urls.add(art.get("url"))
                             remaining_p -= 1
+            # Cap portada candidates a la mitad de la categoría para que el cuerpo
+            # conserve artículos. Sin este cap, categorías pequeñas (1 topic, 3-4
+            # artículos) quedaban vacías en el cuerpo si la portada los tomaba todos.
+            portada_cap_for_cat = max(1, len(articles_dict) // 2)
+            selected_p = selected_p[:portada_cap_for_cat]
             capped_articles.extend(selected_p)
 
         front_page_html = ""
