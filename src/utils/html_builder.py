@@ -73,9 +73,9 @@ CATEGORY_IMAGES = {
     ],
     "Deporte": [
         "https://images.unsplash.com/photo-1579952363873-27f3bade9f55?w=640&h=200&fit=crop",
-        "https://images.unsplash.com/photo-1517649763962-0c623066013b?w=640&h=200&fit=crop",
+        "https://images.unsplash.com/photo-1459865264687-595d652de67e?w=640&h=200&fit=crop",
         "https://images.unsplash.com/photo-1541252260730-0412e8e2108e?w=640&h=200&fit=crop",
-        "https://images.unsplash.com/photo-1509023464722-18d996393ca8?w=640&h=200&fit=crop",
+        "https://images.unsplash.com/photo-1461896836934-ffe607ba8211?w=640&h=200&fit=crop",
     ],
     "Salud y Bienestar": [
         "https://images.unsplash.com/photo-1505576399279-565b52d4ac71?w=640&h=200&fit=crop",
@@ -113,19 +113,105 @@ CATEGORY_IMAGES = {
 }
 
 
-def pick_category_image(category: str, seed: str = "") -> str:
-    """Devuelve una URL de fallback determinista para `category`, variando por `seed`
-    (normalmente el título del artículo) para que artículos distintos de la misma
-    sección no muestren todos la misma imagen."""
-    imgs = CATEGORY_IMAGES.get(category) or CATEGORY_IMAGES.get("General", [])
+# Imágenes específicas por subtopic (más precisas que la categoría general).
+# Clave = keyword lowercase sin tilde; match por substring en topic/título.
+TOPIC_IMAGES = {
+    "formula 1": [
+        "https://images.unsplash.com/photo-1504707748692-419802cf939d?w=640&h=200&fit=crop",
+        "https://images.unsplash.com/photo-1541447271487-09612b3f49f7?w=640&h=200&fit=crop",
+        "https://images.unsplash.com/photo-1583912267550-d44c9b07c1f2?w=640&h=200&fit=crop",
+    ],
+    "motogp": [
+        "https://images.unsplash.com/photo-1558981806-ec527fa84c39?w=640&h=200&fit=crop",
+        "https://images.unsplash.com/photo-1568772585407-9361f9bf3a87?w=640&h=200&fit=crop",
+    ],
+    "real madrid": [
+        "https://images.unsplash.com/photo-1522778119026-d647f0596c20?w=640&h=200&fit=crop",
+        "https://images.unsplash.com/photo-1508098682722-e99c43a406b2?w=640&h=200&fit=crop",
+    ],
+    "futbol": [
+        "https://images.unsplash.com/photo-1579952363873-27f3bade9f55?w=640&h=200&fit=crop",
+        "https://images.unsplash.com/photo-1508098682722-e99c43a406b2?w=640&h=200&fit=crop",
+    ],
+    "tenis": [
+        "https://images.unsplash.com/photo-1551773118-0c7d5a1d7b2e?w=640&h=200&fit=crop",
+    ],
+    "inteligencia artificial": [
+        "https://images.unsplash.com/photo-1677442136019-21780ecad995?w=640&h=200&fit=crop",
+        "https://images.unsplash.com/photo-1620712943543-bcc4688e7485?w=640&h=200&fit=crop",
+    ],
+    "ia": [
+        "https://images.unsplash.com/photo-1677442136019-21780ecad995?w=640&h=200&fit=crop",
+        "https://images.unsplash.com/photo-1620712943543-bcc4688e7485?w=640&h=200&fit=crop",
+    ],
+    "aeronautica": [
+        "https://images.unsplash.com/photo-1436491865332-7a61a109cc05?w=640&h=200&fit=crop",
+        "https://images.unsplash.com/photo-1530521954074-e64f6810b32d?w=640&h=200&fit=crop",
+    ],
+    "astronomia": [
+        "https://images.unsplash.com/photo-1464802686167-b939a6910659?w=640&h=200&fit=crop",
+        "https://images.unsplash.com/photo-1451187580459-43490279c0fa?w=640&h=200&fit=crop",
+    ],
+    "vinos": [
+        "https://images.unsplash.com/photo-1506377247377-2a5b3b417ebb?w=640&h=200&fit=crop",
+        "https://images.unsplash.com/photo-1474722883778-792e7990302f?w=640&h=200&fit=crop",
+    ],
+    "viajes": [
+        "https://images.unsplash.com/photo-1488085061387-422e29b40080?w=640&h=200&fit=crop",
+        "https://images.unsplash.com/photo-1476514525535-07fb3b4ae5f1?w=640&h=200&fit=crop",
+    ],
+    "inmobiliario": [
+        "https://images.unsplash.com/photo-1560518883-ce09059eeffa?w=640&h=200&fit=crop",
+        "https://images.unsplash.com/photo-1486718448742-163732cd1544?w=640&h=200&fit=crop",
+    ],
+    "startup": [
+        "https://images.unsplash.com/photo-1559136555-9303baea8ebd?w=640&h=200&fit=crop",
+        "https://images.unsplash.com/photo-1522071820081-009f0129c71c?w=640&h=200&fit=crop",
+    ],
+    "geopolitica": [
+        "https://images.unsplash.com/photo-1451187580459-43490279c0fa?w=640&h=200&fit=crop",
+        "https://images.unsplash.com/photo-1526778548025-fa2f459cd5c1?w=640&h=200&fit=crop",
+    ],
+    "cuantica": [
+        "https://images.unsplash.com/photo-1635070041078-e363dbe005cb?w=640&h=200&fit=crop",
+        "https://images.unsplash.com/photo-1507413245164-6160d8298b31?w=640&h=200&fit=crop",
+    ],
+}
+
+
+def _normalize_for_match(text: str) -> str:
+    import unicodedata as _u
+    nfkd = _u.normalize('NFKD', (text or "").lower())
+    return ''.join(c for c in nfkd if not _u.combining(c))
+
+
+def pick_category_image(category: str, seed: str = "", topic: str = "") -> str:
+    """Devuelve una URL de fallback determinista.
+
+    Prioridad:
+      1. TOPIC_IMAGES: si `topic` o `seed` menciona un subtopic conocido (F1, IA,
+         Real Madrid...), usa esas imágenes. Evita que F1 muestre balón de fútbol.
+      2. CATEGORY_IMAGES[category]: genérico de la sección.
+      3. General.
+
+    `seed` (título) se usa como hash para variar entre opciones. Artículos
+    distintos de la misma sección/topic → imágenes distintas (idempotente)."""
+    import hashlib
+    probe = _normalize_for_match(f"{topic} {seed}")
+    imgs = None
+    # Buscar topic-specific primero, ordenando por longitud (más específico primero)
+    for key in sorted(TOPIC_IMAGES.keys(), key=len, reverse=True):
+        if key in probe:
+            imgs = TOPIC_IMAGES[key]
+            break
+    if imgs is None:
+        imgs = CATEGORY_IMAGES.get(category) or CATEGORY_IMAGES.get("General", [])
     if isinstance(imgs, str):
         return imgs
     if not imgs:
         return ""
     if len(imgs) == 1:
         return imgs[0]
-    # Hash determinista sobre seed: mismo artículo -> misma imagen (idempotente).
-    import hashlib
     h = int(hashlib.md5((seed or category).encode("utf-8")).hexdigest(), 16)
     return imgs[h % len(imgs)]
 
@@ -307,7 +393,7 @@ def build_front_page(headlines: list, lang: str = "es") -> str:
     # Imagen de fondo (Prioridad: Imagen noticia -> Imagen categoría -> General)
     bg_image = featured.get('image_url')
     if not bg_image:
-        bg_image = pick_category_image(featured_category, seed=featured_title)
+        bg_image = pick_category_image(featured_category, seed=featured_title, topic=featured_title)
     
     # URL escapada (por si acaso tiene espacios)
     bg_image = bg_image.replace(" ", "%20")
@@ -624,7 +710,7 @@ def build_section_html(title: str, content: str) -> str:
     
     # Detectar categoria del titulo (normalizado para comparar)
     normalized_title = normalize(title.upper())
-    banner_image = pick_category_image("General", seed=title)
+    banner_image = pick_category_image("General", seed=title, topic=title)
     banner_color = CATEGORY_BG_COLORS.get("General", "#1a237e")
     banner_emoji = "📰"
     detected_category = "General"
@@ -635,7 +721,7 @@ def build_section_html(title: str, content: str) -> str:
     for key in sorted_keys:
         normalized_key = normalize(key.upper())
         if normalized_key in normalized_title:
-            banner_image = pick_category_image(key, seed=title)
+            banner_image = pick_category_image(key, seed=title, topic=title)
             banner_color = CATEGORY_BG_COLORS.get(key, "#424242")
             banner_emoji = CATEGORY_EMOJIS.get(key, "📰")
             detected_category = key

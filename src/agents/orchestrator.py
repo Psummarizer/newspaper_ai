@@ -207,15 +207,15 @@ class Orchestrator:
         image_url = news_item.get("imagen_url", "")
         sources = news_item.get("fuentes", [])
 
-        # Fallback a imagen de categoría si imagen_url está vacío o inválido.
-        # La validación robusta (dimensiones) ya se hace en ingest (_validate_image_size);
-        # aquí solo comprobamos que sea una URL http válida.
+        # Fallback a imagen de categoría/topic si imagen_url está vacío o inválido.
         if not image_url or not image_url.startswith("http"):
-            # Normalize category name to match CATEGORY_IMAGES keys (no accents)
             cat_norm = ''.join(c for c in unicodedata.normalize('NFD', category) if unicodedata.category(c) != 'Mn')
-            # Usa el título como seed -> artículos distintos de la misma sección
-            # reciben imágenes distintas (pero idempotente por artículo).
-            image_url = pick_category_image(cat_norm, seed=title) or pick_category_image(category, seed=title)
+            # `source_topic` permite fallback topic-aware (F1 → coche, IA → chip,
+            # no balón de fútbol por defecto de "Deporte"). Seed por título garantiza
+            # variedad entre artículos de la misma sección (idempotente por artículo).
+            source_topic = news_item.get("source_topic", "") or news_item.get("topic", "")
+            image_url = pick_category_image(cat_norm, seed=title, topic=source_topic) \
+                or pick_category_image(category, seed=title, topic=source_topic)
 
         # Sources HTML - language-aware label
         sources_label = "Sources" if user_lang.lower() in ("en", "english") else "Fuentes"
@@ -272,41 +272,62 @@ class Orchestrator:
         return {t.lower() for t in tokens if t.lower() not in stopwords}
 
     def _dedup_same_event(self, articles: List[Dict], topic: str = "") -> List[Dict]:
-        """Elimina artículos sobre el mismo evento (mismo partido, misma persona,
-        mismo incidente). Dos artículos que comparten 2+ entidades propias
-        (excluyendo el propio topic) = mismo evento.
-        Se queda con el más reciente por `published_at`."""
+        """Elimina artículos sobre el mismo evento. Estrategia en 2 capas:
+
+        Capa A (misma temática, días distintos): si 2 artículos del mismo topic
+        tienen `published_at` con >18h de diferencia → son de días distintos →
+        newsletter diaria solo debe llevar el MÁS RECIENTE. Se descarta el viejo
+        aunque compartan solo 1 entidad (más laxo).
+
+        Capa B (genérica): 2 artículos que comparten ≥2 entidades propias
+        (mayúsculas 4+ chars, excluyendo tokens del topic) = mismo evento.
+
+        Siempre conserva el más reciente por `published_at`."""
         if len(articles) <= 1:
             return articles
-        # Tokens del propio topic: NO cuentan como señal de mismo evento
         topic_tokens = {t.lower() for t in re.findall(r'\b[A-ZÁÉÍÓÚÑa-záéíóúñ]{3,}\b', topic)}
 
-        # Ordenar por fecha descendente (más reciente primero) — así al dedup
-        # siempre conservamos el más reciente del grupo.
+        def _parse_date(art):
+            s = art.get("published_at") or art.get("fecha_inventariado", "")
+            if not s:
+                return None
+            try:
+                return datetime.fromisoformat(s[:19])
+            except Exception:
+                return None
+
         sorted_arts = sorted(
             articles,
             key=lambda a: a.get("published_at") or a.get("fecha_inventariado", ""),
             reverse=True
         )
         kept = []
-        kept_entity_sets = []
+        kept_data = []  # [(entities, date, title)]
         for art in sorted_arts:
             text = f"{art.get('titulo', '')} {art.get('resumen', '')[:300]}"
             ents = self._extract_event_entities(text) - topic_tokens
-            if not ents:
-                kept.append(art)
-                kept_entity_sets.append(set())
-                continue
+            art_date = _parse_date(art)
             is_dup = False
-            for seen_ents in kept_entity_sets:
-                if seen_ents and len(ents & seen_ents) >= 2:
+            matched = set()
+            for seen_ents, seen_date, seen_title in kept_data:
+                shared = ents & seen_ents
+                # Capa A: mismo topic + >18h diff → umbral ≥1 entidad compartida
+                if art_date and seen_date:
+                    diff_hours = abs((seen_date - art_date).total_seconds()) / 3600
+                    if diff_hours > 18 and len(shared) >= 1:
+                        is_dup = True
+                        matched = shared
+                        break
+                # Capa B: umbral ≥2 entidades (genérico, cualquier fecha)
+                if len(shared) >= 2:
                     is_dup = True
+                    matched = shared
                     break
             if is_dup:
-                print(f"      ⏭️ Mismo evento que uno ya elegido: '{art.get('titulo', '')[:50]}' (entities={ents & seen_ents})")
+                print(f"      ⏭️ Mismo evento: '{art.get('titulo', '')[:50]}' (shared={matched})")
                 continue
             kept.append(art)
-            kept_entity_sets.append(ents)
+            kept_data.append((ents, art_date, art.get("titulo", "")))
         return kept
 
     async def _filter_by_user_rules(self, topic: str, news_list: List[Dict], user_context: str) -> List[Dict]:
