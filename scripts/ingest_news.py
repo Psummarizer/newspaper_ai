@@ -26,6 +26,7 @@ from src.services.llm_factory import LLMFactory
 from src.services.gcs_service import GCSService
 from src.services.firebase_service import FirebaseService
 from src.utils.html_builder import CATEGORY_IMAGES
+from src.utils.text_utils import validate_image_size
 from src.services.perspective_enricher import enrich_topics_with_perspectives
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -762,11 +763,12 @@ class HourlyProcessor:
         contexts_joined = " ".join(str(c) for c in (user_contexts or []) if c).lower()
         exclude_keywords = []
         if contexts_joined:
-            if ("solo" in contexts_joined and "masculino" in contexts_joined) or \
+            if (("solo" in contexts_joined and ("masculino" in contexts_joined or "hombres" in contexts_joined))) or \
                ("no" in contexts_joined and "femenin" in contexts_joined):
-                exclude_keywords = ["femenino", "femenina", "women", "female",
+                exclude_keywords = ["femenino", "femenina", "femenil", "women", "women's", "womens", "female",
                                     "cantera", "infantil", "juvenil", "cadete",
-                                    "sub-19", "sub-17", "u19", "u17", "sub19", "sub17"]
+                                    "sub-19", "sub-17", "sub-21", "sub-23",
+                                    "u19", "u17", "u21", "u23", "sub19", "sub17"]
                 # If context specifically mentions football/soccer, also exclude basketball
                 if any(kw in contexts_joined for kw in ["futbol", "fútbol", "football", "soccer"]):
                     exclude_keywords += ["baloncesto", "basket", "basketball",
@@ -919,28 +921,8 @@ class HourlyProcessor:
         logger.info(f"✅ {topic}: {len(all_relevant)} relevantes de {len(articles)} evaluados")
         return all_relevant
     
-    def _is_valid_image_url(self, img_url: str) -> bool:
-        """Devuelve True si la URL parece una imagen de noticia real (no logo/icono/emoji)."""
-        if not img_url or not img_url.startswith("http"):
-            return False
-        skip_patterns = [
-            'logo', 'icon', 'favicon', 'avatar', 'brand',
-            'twitter.com', 'x.com', 'facebook.com', 'linkedin.com',
-            '/icons/', '/logos/', '/emoji/', '/emojis/',
-            'static.xx.', 'abs.twimg.com', 'pbs.twimg.com',
-            '.svg', '.ico', '.gif', 'sprite', 'placeholder',
-            'default-', 'og-default', 'share-image', 'social-',
-            'msn.com/static', 'slashdot.org/~',
-        ]
-        img_lower = img_url.lower()
-        if any(p in img_lower for p in skip_patterns):
-            return False
-        if 'w=64' in img_lower or 'h=64' in img_lower or 'size=small' in img_lower:
-            return False
-        return True
-
     async def _fetch_og_image(self, url: str) -> str:
-        """Extrae og:image de una URL usando Open Graph, filtrando logos/iconos"""
+        """Extrae og:image de una URL usando Open Graph y valida que sea una foto real."""
         if not url:
             return ""
         try:
@@ -955,11 +937,9 @@ class HourlyProcessor:
                         match = re.search(r'<meta[^>]*content=["\']([^"\']+)["\'][^>]*property=["\']og:image["\']', html, re.IGNORECASE)
                     if match:
                         img_url = match.group(1)
-                        
-                        if not self._is_valid_image_url(img_url):
-                            return ""
-                        return img_url
-        except Exception as e:
+                        if await validate_image_size(img_url):
+                            return img_url
+        except Exception:
             pass  # Silently fail - image is optional
         return ""
     
@@ -1031,12 +1011,15 @@ class HourlyProcessor:
         elif len(content) < MIN_CONTENT_FALLBACK:
             return None
 
-        image = article.get("image_url", article.get("urlToImage", ""))
-        # Filter out logos/icons that come directly from the RSS feed
-        if image and not self._is_valid_image_url(image):
-            image = ""
-        if not image and url:
-            image = await self._fetch_og_image(url)
+        # Image extraction — og:image FIRST (hero image curada para social), RSS como fallback
+        # og:image tiende a ser la foto real del artículo; image_url del RSS suele ser thumbnail/logo
+        image = ""
+        if url:
+            image = await self._fetch_og_image(url)  # ya valida tamaño
+        if not image:
+            rss_img = article.get("image_url", article.get("urlToImage", ""))
+            if rss_img and await validate_image_size(rss_img):
+                image = rss_img
 
         all_sources = [url] if url else []
         if article.get("extra_urls"):

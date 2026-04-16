@@ -16,6 +16,7 @@ from src.services.firebase_service import FirebaseService
 from src.services.gcs_service import GCSService
 from src.services.podcast_service import NewsPodcastService
 from src.utils.constants import CATEGORIES_LIST
+from src.utils.text_utils import validate_image_size
 
 class Orchestrator:
     # i18n display names per language
@@ -206,7 +207,9 @@ class Orchestrator:
         image_url = news_item.get("imagen_url", "")
         sources = news_item.get("fuentes", [])
 
-        # Fallback a imagen de categoría si no hay foto real
+        # Fallback a imagen de categoría si imagen_url está vacío o inválido.
+        # La validación robusta (dimensiones) ya se hace en ingest (_validate_image_size);
+        # aquí solo comprobamos que sea una URL http válida.
         if not image_url or not image_url.startswith("http"):
             # Normalize category name to match CATEGORY_IMAGES keys (no accents)
             cat_norm = ''.join(c for c in unicodedata.normalize('NFD', category) if unicodedata.category(c) != 'Mn')
@@ -252,10 +255,7 @@ class Orchestrator:
     async def _select_top_3_cached(self, topic: str, news_list: List[Dict], max_count: int = 3, user_contexts: List[str] = None) -> List[Dict]:
         """Selecciona las top N noticias más relevantes de la lista cacheada usando LLM.
         Guarantees at least 1 article from user-preferred sources if available."""
-        if len(news_list) <= max_count:
-            return news_list
-
-        # --- Pre-filter by topic context exclusions ---
+        # --- Pre-filter by topic context exclusions (MUST run before any early return) ---
         contexts_joined = ""
         if user_contexts:
             contexts_joined = " ".join(str(c) for c in user_contexts if c).lower()
@@ -264,9 +264,11 @@ class Orchestrator:
             filtered_list = []
             # Exclusion keywords from context
             exclude_keywords = []
-            if "solo" in contexts_joined and "masculino" in contexts_joined:
-                exclude_keywords = ["femenino", "femenina", "cantera", "infantil", "juvenil",
-                                    "cadete", "sub-19", "sub-17", "women", "u19", "u17"]
+            if "solo" in contexts_joined and ("masculino" in contexts_joined or "hombres" in contexts_joined):
+                exclude_keywords = ["femenino", "femenina", "femenil", "cantera", "infantil", "juvenil",
+                                    "cadete", "sub-19", "sub-17", "sub-21", "sub-23",
+                                    "women", "women's", "womens", "u19", "u17", "u21", "u23",
+                                    "female"]
                 # If context specifically mentions football/soccer, also exclude basketball
                 if any(kw in contexts_joined for kw in ["futbol", "fútbol", "football", "soccer"]):
                     exclude_keywords += ["baloncesto", "basket", "basketball",
@@ -281,9 +283,9 @@ class Orchestrator:
                     combined = title_lower + " " + resumen_lower
                     if not any(kw in combined for kw in exclude_keywords):
                         filtered_list.append(n)
-                if filtered_list:
-                    print(f"   🔍 Pre-filtro contexto: {len(news_list)} -> {len(filtered_list)} artículos")
-                    news_list = filtered_list
+                # Apply filter even if it drops ALL articles — user context is authoritative
+                print(f"   🔍 Pre-filtro contexto '{topic}': {len(news_list)} -> {len(filtered_list)} artículos (excluye: {exclude_keywords[:3]}...)")
+                news_list = filtered_list
 
         if len(news_list) <= max_count:
             return news_list
@@ -336,9 +338,17 @@ class Orchestrator:
         source_pref_str = ""
         if contexts_joined.strip():
             source_pref_str = (
-                f"\n🔴 USER PREFERENCES: {contexts_joined}\n"
-                f"- ONLY select articles matching these preferences.\n"
-                f"- If specific media are mentioned, prefer their articles.\n"
+                f"\n🚫 HARD USER RULES (Firestore topic context) — NON-NEGOTIABLE:\n"
+                f'   "{contexts_joined}"\n'
+                f"   - If an article violates these rules EVEN IMPLICITLY, DO NOT select it.\n"
+                f'   - Example: rule "solo masculino" → EXCLUDE women\'s leagues (Liga F, NWSL,\n'
+                f"     WSL, Champions femenina), youth/reserve teams (cantera, Castilla), and\n"
+                f"     any article whose subject is female athletes, even if the word \"femenino\"\n"
+                f'     is not in the title.\n'
+                f'   - Example: rule "no moda" → EXCLUDE fashion/runway/outfit articles.\n'
+                f"   - Example: preferred media named → PREFER those sources.\n"
+                f"   - If fewer than {llm_count} articles pass the rules, return FEWER — do not\n"
+                f"     relax the rules to fill slots.\n"
             )
 
         prompt = f"""
@@ -351,7 +361,7 @@ class Orchestrator:
         4. NO DUPLICATES: If two articles cover the same event, pick only the best one.
         5. TODAY'S NEWS FIRST. Post-event results over previews.
 
-        DISCARD: tangential articles, promotional content, previews if results exist, minor local news.
+        DISCARD: tangential articles, promotional content, previews if results exist, minor local news, and anything violating the HARD USER RULES above.
         If fewer than {llm_count} articles are truly relevant, return fewer.
 
         {prompt_text}
@@ -775,6 +785,19 @@ class Orchestrator:
             selected_news = await self._select_top_3_cached(topic, fresh_news, max_count=max_for_topic, user_contexts=topic_user_contexts)
             print(f"   ✅ [{topic}] Seleccionadas Top {len(selected_news)} para el boletín.")
             
+            # VALIDACIÓN DE IMÁGENES — filtra iconos/logos de URLs cacheadas pre-v0.67.
+            # Paralelo vía asyncio.gather — ~100ms por imagen, negligible para ~3-5 articulos.
+            if selected_news:
+                img_checks = await asyncio.gather(
+                    *[validate_image_size(n.get("imagen_url", "")) for n in selected_news],
+                    return_exceptions=True
+                )
+                for n, ok in zip(selected_news, img_checks):
+                    if ok is not True:  # False, exception, or None
+                        if n.get("imagen_url"):
+                            print(f"      🖼️ Imagen rechazada (icono/logo/pequeña): {n.get('imagen_url', '')[:80]}")
+                        n["imagen_url"] = ""  # dispara fallback de categoría en _format_cached_news_to_html
+
             # TRADUCCION DE LAS NOTICIAS SELECCIONADAS
             user_lang_lower = user_lang.lower()
             if user_lang_lower not in ['es', 'spanish', 'español', 'es-es'] and selected_news:
