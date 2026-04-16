@@ -71,17 +71,29 @@ async def validate_image_size(img_url: str) -> bool:
         import aiohttp
         from PIL import Image
         from io import BytesIO
+        # User-Agent realista: algunos CDN bloquean "Mozilla/5.0" genérico.
+        # Referer vacío: así validamos como lo verá el cliente de email (Gmail
+        # no envía referer al descargar imágenes desde un correo).
+        headers = {
+            "Range": "bytes=0-32767",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                          "(KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+            "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
+        }
         async with aiohttp.ClientSession() as session:
-            headers = {"Range": "bytes=0-32767", "User-Agent": "Mozilla/5.0"}
             async with session.get(img_url, headers=headers,
                                    timeout=aiohttp.ClientTimeout(total=4)) as resp:
+                # 4xx/5xx = RECHAZO duro (Gmail tampoco podrá descargarla).
+                # Antes: fail-OPEN -> guardábamos URLs 400 Bad Request (hotlink
+                # protection), el cliente de email las mostraba rotas.
+                if 400 <= resp.status < 600:
+                    return False
                 if resp.status not in (200, 206):
-                    return True  # CDN raro → fail-OPEN
+                    return True  # 1xx/3xx raro → fail-OPEN
                 data = await resp.content.read(32768)
         try:
             img = Image.open(BytesIO(data))
             w, h = img.size
-            # Solo rechazo categórico si dims confirmadas < 200x150
             if w < 200 or h < 150:
                 return False
             return True

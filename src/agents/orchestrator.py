@@ -228,14 +228,24 @@ class Orchestrator:
             sources_line = " | ".join(links)
             sources_html = f'<p style="font-size: 12px; color: #8899A6; margin-top: 10px; border-top: 1px dashed #38444D; padding-top: 8px;">{sources_label}: {sources_line}</p>'
             
-        # Image HTML - Solo mostrar si hay URL valida
+        # Image HTML - Solo mostrar si hay URL valida.
+        # `onerror` swap a fallback de categoría/topic: cubre casos donde la URL
+        # era válida en ingest pero falla al renderizar (hotlink protection,
+        # referrer checks). Gmail respeta `onerror` en <img>.
         img_html = ""
         if image_url and image_url.startswith("http"):
+            cat_norm_i = ''.join(c for c in unicodedata.normalize('NFD', category) if unicodedata.category(c) != 'Mn')
+            source_topic_i = news_item.get("source_topic", "") or news_item.get("topic", "")
+            fallback_img = pick_category_image(cat_norm_i, seed=title, topic=source_topic_i) \
+                or pick_category_image(category, seed=title, topic=source_topic_i)
+            # Evita loop si el fallback es la misma URL
+            onerror = f"this.onerror=null;this.src='{fallback_img}';" if fallback_img and fallback_img != image_url else ""
+            onerror_attr = f' onerror="{onerror}"' if onerror else ""
             img_html = f'''
             <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom: 12px;">
                 <tr>
                     <td align="center">
-                        <img src="{image_url}" alt="Imagen de noticia" style="max-width: 540px; max-height: 420px; width: 100%; height: auto; border-radius: 8px; display: block;">
+                        <img src="{image_url}" alt="" style="max-width: 540px; max-height: 420px; width: 100%; height: auto; border-radius: 8px; display: block;"{onerror_attr}>
                     </td>
                 </tr>
             </table>

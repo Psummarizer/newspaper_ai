@@ -1050,7 +1050,24 @@ class HourlyProcessor:
            - TÍTULO: Descriptivo y claro (sujeto + acción). Emoji al principio.
            - RESUMEN: 10-25 palabras.
            - NOTICIA: 150-250 palabras con etiquetas <p>. Usa <b>negrita</b> para 3 frases clave.
-        4. 🛡️ FILTRO — DESCARTAR (responder null) si la noticia es:
+        4. 🚫 FIDELIDAD AL ORIGINAL (CRÍTICO — rol de redactor, NO de editorialista):
+           - NO inventes citas textuales. Si usas comillas «...» o "..." deben ser
+             PALABRAS EXACTAS del contenido original. Si no hay cita textual, NO
+             pongas comillas — reformula sin comillas.
+           - NO añadas datos (fechas, cifras, nombres, declaraciones) que no estén
+             en el contenido original.
+           - MISMO ÁNGULO Y TONO: Si el original es mesurado, tu redacción es
+             mesurada. Si es especulativo, presenta como especulación. Si es
+             neutro, queda neutro. NO conviertas declaraciones matizadas en
+             contundentes. NO enfrentes a dos actores si el original no los
+             enfrenta. NO añadas dramatismo que no esté.
+           - Ejemplo: si el original dice «Alonso agradece el trabajo del equipo
+             pero reconoce que sin competitividad no hay satisfacción», NO redactes
+             «Alonso, contundente, reprocha a Honda que vendieran como éxito
+             acabar la carrera» — eso cambia el ángulo de reconocimiento a reproche.
+           - Tu trabajo es REESCRIBIR con otras palabras (evitar copia textual),
+             NO reinterpretar ni editorializar.
+        5. 🛡️ FILTRO — DESCARTAR (responder null) si la noticia es:
            - Ambigua (no nombra sujetos concretos) o depende de contexto externo
            - Contenido promocional, publirreportaje o patrocinado
            - Gossip de famosos/celebridades sin relevancia informativa
