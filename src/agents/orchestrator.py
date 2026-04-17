@@ -199,8 +199,13 @@ class Orchestrator:
         self.logger.warning(f"No topic match for '{user_alias}' (norm: '{normalized_alias}'). Cache keys: {list(topics_cache.keys())[:15]}")
         return (None, None)
         
-    def _format_cached_news_to_html(self, news_item: Dict, category: str, user_lang: str = "es") -> str:
-        """Convierte noticia cacheada (JSON) a HTML final"""
+    def _format_cached_news_to_html(self, news_item: Dict, category: str, user_lang: str = "es",
+                                    used_images: set = None) -> str:
+        """Convierte noticia cacheada (JSON) a HTML final.
+
+        `used_images`: set compartido por todo el briefing para evitar que dos
+        artículos (o un artículo y el banner de sección) muestren la misma imagen
+        de fallback. Se muta in-place al asignar un fallback."""
         title = news_item.get("titulo", "")
         body = news_item.get("noticia", "")
 
@@ -210,12 +215,14 @@ class Orchestrator:
         # Fallback a imagen de categoría/topic si imagen_url está vacío o inválido.
         if not image_url or not image_url.startswith("http"):
             cat_norm = ''.join(c for c in unicodedata.normalize('NFD', category) if unicodedata.category(c) != 'Mn')
-            # `source_topic` permite fallback topic-aware (F1 → coche, IA → chip,
-            # no balón de fútbol por defecto de "Deporte"). Seed por título garantiza
-            # variedad entre artículos de la misma sección (idempotente por artículo).
             source_topic = news_item.get("source_topic", "") or news_item.get("topic", "")
-            image_url = pick_category_image(cat_norm, seed=title, topic=source_topic) \
-                or pick_category_image(category, seed=title, topic=source_topic)
+            image_url = pick_category_image(cat_norm, seed=title, topic=source_topic,
+                                            used_images=used_images) \
+                or pick_category_image(category, seed=title, topic=source_topic,
+                                       used_images=used_images)
+            # Registrar para que los siguientes artículos no repitan esta imagen
+            if used_images is not None and image_url:
+                used_images.add(image_url)
 
         # Sources HTML - language-aware label
         sources_label = "Sources" if user_lang.lower() in ("en", "english") else "Fuentes"
@@ -640,6 +647,9 @@ JSON only: {{"invalid_ids": [1, 3], "reasons": {{"1": "women's league", "3": "re
         used_titles: set = set()  # Para evitar duplicados cross-categoria (títulos exactos)
         used_articles: list = []  # Lista de (norm_title, resumen_lower) para dedup por resumen
         topics_news_for_podcast: Dict[str, list] = {}  # Para generar podcast
+        # Set compartido por todo el briefing para evitar repetir imágenes de fallback.
+        # Se muta in-place en _format_cached_news_to_html y build_section_html.
+        briefing_used_images: set = set()
 
         # --- FASE 1: RECOLECCIÓN & SELECCIÓN (CACHE ONLY) ---
         # Two-pass: first collect available news counts, then allocate proportionally
@@ -1085,7 +1095,8 @@ JSON only: {{"invalid_ids": [1, 3], "reasons": {{"1": "women's league", "3": "re
                 
                 # Generar HTML pre-renderizado (Ya viene redactado, solo envolver)
                 # OJO: Pasamos 'final_cat' para que el HTML (colores etc) si dependiera de ello, salga bien.
-                pre_html = self._format_cached_news_to_html(news, final_cat, user_lang=user_lang)
+                pre_html = self._format_cached_news_to_html(news, final_cat, user_lang=user_lang,
+                                                             used_images=briefing_used_images)
                 
                 category_map[final_cat][art_url] = {
                     "title": title,
@@ -1283,7 +1294,8 @@ JSON only: {{"invalid_ids": [1, 3], "reasons": {{"1": "women's league", "3": "re
             if items_html:
                 section_body = "\n".join(items_html)
                 display_title = CATEGORY_DISPLAY_MAP.get(cat, cat.upper())
-                section_box = build_section_html(display_title, section_body)
+                section_box = build_section_html(display_title, section_body,
+                                                 used_images=briefing_used_images)
                 final_html_parts.append(section_box)
                 print(f"   ✅ Sección '{cat}' generada ({len(items_html)} noticias)")
 

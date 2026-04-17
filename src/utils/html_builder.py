@@ -179,29 +179,47 @@ TOPIC_IMAGES = {
 }
 
 
+import re as _re
+import hashlib as _hashlib
+import unicodedata as _unicodedata
+
 def _normalize_for_match(text: str) -> str:
-    import unicodedata as _u
-    nfkd = _u.normalize('NFKD', (text or "").lower())
-    return ''.join(c for c in nfkd if not _u.combining(c))
+    nfkd = _unicodedata.normalize('NFKD', (text or "").lower())
+    return ''.join(c for c in nfkd if not _unicodedata.combining(c))
 
 
-def pick_category_image(category: str, seed: str = "", topic: str = "") -> str:
+# Keys de TOPIC_IMAGES que son muy cortas o substrings comunes → requieren
+# word-boundary para no matchear dentro de otras palabras.
+# "ia" matchea en "inteligencia", "seria", "hacia" etc. sin boundary.
+_TOPIC_WORD_BOUNDARY_KEYS = {"ia", "f1"}
+
+
+def _topic_key_matches(key: str, probe: str) -> bool:
+    """True si `key` aparece en `probe` con semántica correcta.
+    Keys cortas usan word-boundary; el resto usan substring."""
+    if key in _TOPIC_WORD_BOUNDARY_KEYS:
+        return bool(_re.search(r'\b' + _re.escape(key) + r'\b', probe))
+    return key in probe
+
+
+def pick_category_image(category: str, seed: str = "", topic: str = "",
+                        used_images: set = None) -> str:
     """Devuelve una URL de fallback determinista.
 
     Prioridad:
-      1. TOPIC_IMAGES: si `topic` o `seed` menciona un subtopic conocido (F1, IA,
-         Real Madrid...), usa esas imágenes. Evita que F1 muestre balón de fútbol.
-      2. CATEGORY_IMAGES[category]: genérico de la sección.
+      1. TOPIC_IMAGES: si `topic` o `seed` menciona un subtopic conocido
+         (F1, IA, Real Madrid…). Keys cortas usan word-boundary para evitar
+         que "ia" matchee dentro de "inteligencia".
+      2. CATEGORY_IMAGES[category].
       3. General.
 
-    `seed` (título) se usa como hash para variar entre opciones. Artículos
-    distintos de la misma sección/topic → imágenes distintas (idempotente)."""
-    import hashlib
+    `used_images` (set mutable, compartido por briefing): si se pasa, se
+    excluyen imágenes ya utilizadas en este briefing para evitar repetición.
+    Si todas están usadas, se rota desde el principio (mejor que vacío)."""
     probe = _normalize_for_match(f"{topic} {seed}")
     imgs = None
-    # Buscar topic-specific primero, ordenando por longitud (más específico primero)
     for key in sorted(TOPIC_IMAGES.keys(), key=len, reverse=True):
-        if key in probe:
+        if _topic_key_matches(key, probe):
             imgs = TOPIC_IMAGES[key]
             break
     if imgs is None:
@@ -210,10 +228,19 @@ def pick_category_image(category: str, seed: str = "", topic: str = "") -> str:
         return imgs
     if not imgs:
         return ""
-    if len(imgs) == 1:
-        return imgs[0]
-    h = int(hashlib.md5((seed or category).encode("utf-8")).hexdigest(), 16)
-    return imgs[h % len(imgs)]
+
+    # Excluir imágenes ya usadas en este briefing
+    available = imgs
+    if used_images:
+        fresh = [img for img in imgs if img not in used_images]
+        if fresh:
+            available = fresh
+        # Si todas usadas → reutilizar todas (mejor que vacío)
+
+    if len(available) == 1:
+        return available[0]
+    h = int(_hashlib.md5((seed or category).encode("utf-8")).hexdigest(), 16)
+    return available[h % len(available)]
 
 # Colores solidos para la barra de titulo (gamas azul electrico / morado oscuro)
 CATEGORY_BG_COLORS = {
@@ -696,7 +723,7 @@ def build_newsletter_html(content_body: str, front_page_html: str = "", lang: st
     return html
 
 
-def build_section_html(title: str, content: str) -> str:
+def build_section_html(title: str, content: str, used_images: set = None) -> str:
     """
     Genera una seccion con banner de imagen y contenido.
     Email Compatible: usa <img> en vez de background-image.
@@ -710,7 +737,7 @@ def build_section_html(title: str, content: str) -> str:
     
     # Detectar categoria del titulo (normalizado para comparar)
     normalized_title = normalize(title.upper())
-    banner_image = pick_category_image("General", seed=title, topic=title)
+    banner_image = pick_category_image("General", seed=title, topic=title, used_images=used_images)
     banner_color = CATEGORY_BG_COLORS.get("General", "#1a237e")
     banner_emoji = "📰"
     detected_category = "General"
@@ -721,11 +748,15 @@ def build_section_html(title: str, content: str) -> str:
     for key in sorted_keys:
         normalized_key = normalize(key.upper())
         if normalized_key in normalized_title:
-            banner_image = pick_category_image(key, seed=title, topic=title)
+            banner_image = pick_category_image(key, seed=title, topic=title, used_images=used_images)
             banner_color = CATEGORY_BG_COLORS.get(key, "#424242")
             banner_emoji = CATEGORY_EMOJIS.get(key, "📰")
             detected_category = key
             break
+
+    # Registrar imagen del banner para no repetirla en artículos de la sección
+    if used_images is not None and banner_image:
+        used_images.add(banner_image)
     
     # Inyección de estilos inline al contenido
     # TÍTULOS en azul eléctrico (ACCENT)
