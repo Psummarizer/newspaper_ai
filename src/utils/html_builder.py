@@ -23,98 +23,95 @@ TEXT_SECONDARY = "#8899A6"
 BORDER = "#38444D"
 
 # Imagenes de categoria (Unsplash - funciona en emails)
-# Formato Unsplash correcto para clientes de email: auto=format&fit=crop&w=&h=
-# Los parámetros ?w=&h= solos (sin auto=format) generan 400 en algunos clientes.
-_U = "https://images.unsplash.com/photo-"
-_Q = "?auto=format&fit=crop&w=640&h=200&q=80"
+# Imágenes alojadas en GCS (newsletter-ai-data/category-images/).
+# URLs permanentes, sin hotlink protection, sin 400.
+_GCS = "https://storage.googleapis.com/newsletter-ai-data/category-images/"
 
 CATEGORY_IMAGES = {
     "Politica": [
-        f"{_U}1529107386315-e1a2ed48a620{_Q}",   # parlamento/hemiciclo
-        f"{_U}1541872703-74c5e44368f1{_Q}",       # reunión/mesa política
-        f"{_U}1575320181282-9afab399332c{_Q}",    # congreso/asamblea
+        f"{_GCS}politica_1.jpg",
+        f"{_GCS}politica_2.jpg",
     ],
     "Geopolitica": [
-        f"{_U}1451187580459-43490279c0fa{_Q}",    # globo/tierra vista satélite
-        f"{_U}1526778548025-fa2f459cd5c1{_Q}",    # mapa mundo
-        f"{_U}1519500528352-2d1460418d41{_Q}",    # bandera ONU
+        f"{_GCS}geopolitica_1.jpg",
+        f"{_GCS}geopolitica_2.jpg",
+        f"{_GCS}geopolitica_3.jpg",
     ],
     "Internacional": [
-        f"{_U}1526304640581-d334cdbbf45e{_Q}",    # banderas
-        f"{_U}1523395243481-163f8f6155ab{_Q}",    # skyline ciudad
+        f"{_GCS}internacional_1.jpg",
+        f"{_GCS}internacional_2.jpg",
     ],
     "Economia y Finanzas": [
-        f"{_U}1611974789855-9c2a0a7236a3{_Q}",    # gráfica bolsa
-        f"{_U}1590283603385-17ffb3a7f29f{_Q}",    # trading pantallas
-        f"{_U}1444653614773-995cb1ef9efa{_Q}",    # monedas/billetes
+        f"{_GCS}economia_1.jpg",
+        f"{_GCS}economia_2.jpg",
+        f"{_GCS}economia_3.jpg",
     ],
     "Negocios y Empresas": [
-        f"{_U}1486406146926-c627a92ad1ab{_Q}",    # rascacielos oficinas
-        f"{_U}1556761175-5973dc0f32e7{_Q}",       # reunión ejecutivos
+        f"{_GCS}negocios_1.jpg",
+        f"{_GCS}negocios_2.jpg",
     ],
     "Justicia y Legal": [
-        f"{_U}1589829545856-d10d557cf95f{_Q}",    # mazo justicia
-        f"{_U}1505664194779-8beaceb93744{_Q}",    # balanza/tribunal
+        f"{_GCS}justicia_1.jpg",
+        f"{_GCS}justicia_2.jpg",
     ],
     "Transporte y Movilidad": [
-        f"{_U}1436491865332-7a61a109cc05{_Q}",    # avión
+        f"{_GCS}transporte_1.jpg",
     ],
     "Industria": [
-        f"{_U}1565793298595-6a879b1d9492{_Q}",    # fábrica
+        f"{_GCS}industria_1.jpg",
     ],
     "Energia": [
-        f"{_U}1473341304170-971dccb5ac1e{_Q}",    # aerogeneradores
+        f"{_GCS}energia_1.jpg",
     ],
     "Tecnologia y Digital": [
-        f"{_U}1550751827-4bd374c3f58b{_Q}",       # chip/circuito
-        f"{_U}1518770660439-4636190af475{_Q}",    # microchip macro
-        f"{_U}1620712943543-bcc4688e7485{_Q}",    # IA/robot
-        f"{_U}1531482615713-2afd69097998{_Q}",    # código pantalla
+        f"{_GCS}tecnologia_1.jpg",
+        f"{_GCS}tecnologia_2.jpg",
+        f"{_GCS}tecnologia_3.jpg",
+        f"{_GCS}tecnologia_4.jpg",
     ],
     "Ciencia e Investigacion": [
-        f"{_U}1507413245164-6160d8298b31{_Q}",    # laboratorio
-        f"{_U}1532094349884-543bc11b234d{_Q}",    # microscopio
-        f"{_U}1628595351029-c2bf17511435{_Q}",    # ADN
+        f"{_GCS}ciencia_1.jpg",
+        f"{_GCS}ciencia_2.jpg",
+        f"{_GCS}ciencia_3.jpg",
     ],
     "Deporte": [
-        f"{_U}1459865264687-595d652de67e?auto=format&fit=crop&w=640&h=200&q=80",  # estadio
-        f"{_U}1541252260730-0412e8e2108e{_Q}",    # atletismo
-        f"{_U}1461896836934-ffe607ba8211{_Q}",    # deporte genérico
-        f"{_U}1579952363873-27f3bade9f55{_Q}",    # arena deportiva
+        f"{_GCS}deporte_1.jpg",
+        f"{_GCS}deporte_3.jpg",
+        f"{_GCS}deporte_4.jpg",
     ],
     "Salud y Bienestar": [
-        f"{_U}1505576399279-565b52d4ac71{_Q}",
+        f"{_GCS}salud_1.jpg",
     ],
     "Inmobiliario y Construccion": [
-        f"{_U}1560518883-ce09059eeffa{_Q}",
-        f"{_U}1486718448742-163732cd1544{_Q}",
+        f"{_GCS}inmobiliario_1.jpg",
+        f"{_GCS}inmobiliario_2.jpg",
     ],
     "Agricultura y Alimentacion": [
-        f"{_U}1464226184884-fa280b87c399{_Q}",
+        f"{_GCS}agricultura_1.jpg",
     ],
     "Educacion y Conocimiento": [
-        f"{_U}1481627834876-b7833e8f5570{_Q}",
+        f"{_GCS}educacion_1.jpg",
     ],
     "Sociedad": [
-        f"{_U}1517457373958-b7bdd4587205{_Q}",
+        f"{_GCS}sociedad_1.jpg",
     ],
     "Cultura y Entretenimiento": [
-        f"{_U}1514525253161-7a46d19cd819{_Q}",
+        f"{_GCS}cultura_1.jpg",
     ],
     "Consumo y Estilo de Vida": [
-        f"{_U}1483985988355-763728e1935b{_Q}",
+        f"{_GCS}consumo_1.jpg",
     ],
     "Medio Ambiente y Clima": [
-        f"{_U}1441974231531-c6227db76b6e{_Q}",
+        f"{_GCS}medioambiente_1.jpg",
     ],
     "Cultura Digital y Sociedad de la Informacion": [
-        f"{_U}1519389950473-47ba0277781c{_Q}",
+        f"{_GCS}culturadigital_1.jpg",
     ],
     "Filantropia e Impacto Social": [
-        f"{_U}1469571486292-0ba58a3f068b{_Q}",
+        f"{_GCS}filantropia_1.jpg",
     ],
     "General": [
-        f"{_U}1495020689067-958852a7765e{_Q}",
+        f"{_GCS}general_1.jpg",
     ],
 }
 
@@ -123,64 +120,61 @@ CATEGORY_IMAGES = {
 # Clave = keyword lowercase sin tilde; match por substring en topic/título.
 TOPIC_IMAGES = {
     "formula 1": [
-        f"{_U}1504707748692-419802cf939d{_Q}",
-        f"{_U}1541447271487-09612b3f49f7{_Q}",
-        f"{_U}1583912267550-d44c9b07c1f2{_Q}",
+        f"{_GCS}f1_1.jpg",
     ],
     "motogp": [
-        f"{_U}1558981806-ec527fa84c39{_Q}",
-        f"{_U}1568772585407-9361f9bf3a87{_Q}",
+        f"{_GCS}motogp_1.jpg",
+        f"{_GCS}motogp_2.jpg",
     ],
     "real madrid": [
-        f"{_U}1522778119026-d647f0596c20{_Q}",
-        f"{_U}1508098682722-e99c43a406b2{_Q}",
+        f"{_GCS}deporte_1.jpg",   # estadio
+        f"{_GCS}deporte_3.jpg",
     ],
     "futbol": [
-        f"{_U}1579952363873-27f3bade9f55{_Q}",
-        f"{_U}1508098682722-e99c43a406b2{_Q}",
+        f"{_GCS}deporte_4.jpg",
+        f"{_GCS}deporte_1.jpg",
     ],
     "tenis": [
-        f"{_U}1551773118-0c7d5a1d7b2e{_Q}",
+        f"{_GCS}deporte_3.jpg",
     ],
     "inteligencia artificial": [
-        f"{_U}1677442136019-21780ecad995{_Q}",
-        f"{_U}1620712943543-bcc4688e7485{_Q}",
+        f"{_GCS}ia_1.jpg",
+        f"{_GCS}ia_2.jpg",
     ],
     "ia": [
-        f"{_U}1677442136019-21780ecad995{_Q}",
-        f"{_U}1620712943543-bcc4688e7485{_Q}",
+        f"{_GCS}ia_1.jpg",
+        f"{_GCS}ia_2.jpg",
     ],
     "aeronautica": [
-        f"{_U}1436491865332-7a61a109cc05{_Q}",
-        f"{_U}1530521954074-e64f6810b32d{_Q}",
+        f"{_GCS}aeronautica_1.jpg",
+        f"{_GCS}transporte_1.jpg",
     ],
     "astronomia": [
-        f"{_U}1464802686167-b939a6910659{_Q}",
-        f"{_U}1451187580459-43490279c0fa{_Q}",
+        f"{_GCS}astronomia_1.jpg",
     ],
     "vinos": [
-        f"{_U}1506377247377-2a5b3b417ebb{_Q}",
-        f"{_U}1474722883778-792e7990302f{_Q}",
+        f"{_GCS}vinos_1.jpg",
+        f"{_GCS}vinos_2.jpg",
     ],
     "viajes": [
-        f"{_U}1488085061387-422e29b40080{_Q}",
-        f"{_U}1476514525535-07fb3b4ae5f1{_Q}",
+        f"{_GCS}viajes_1.jpg",
+        f"{_GCS}viajes_2.jpg",
     ],
     "inmobiliario": [
-        f"{_U}1560518883-ce09059eeffa{_Q}",
-        f"{_U}1486718448742-163732cd1544{_Q}",
+        f"{_GCS}inmobiliario_1.jpg",
+        f"{_GCS}inmobiliario_2.jpg",
     ],
     "startup": [
-        f"{_U}1559136555-9303baea8ebd{_Q}",
-        f"{_U}1522071820081-009f0129c71c{_Q}",
+        f"{_GCS}startup_1.jpg",
+        f"{_GCS}startup_2.jpg",
     ],
     "geopolitica": [
-        f"{_U}1451187580459-43490279c0fa{_Q}",
-        f"{_U}1526778548025-fa2f459cd5c1{_Q}",
+        f"{_GCS}geopolitica_1.jpg",
+        f"{_GCS}geopolitica_2.jpg",
     ],
     "cuantica": [
-        f"{_U}1635070041078-e363dbe005cb{_Q}",
-        f"{_U}1507413245164-6160d8298b31{_Q}",
+        f"{_GCS}cuantica_1.jpg",
+        f"{_GCS}ciencia_1.jpg",
     ],
 }
 
