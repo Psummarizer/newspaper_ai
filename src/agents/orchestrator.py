@@ -367,24 +367,35 @@ class Orchestrator:
             summary = n.get("resumen", "")[:150]
             articles_input += f"ID {i}: {title} | {summary}\n"
 
-        prompt = f"""Eres un moderador estricto. El usuario definió estas reglas para el topic "{topic}":
+        prompt = f"""Eres un moderador estricto de noticias. El usuario definió estas reglas para el topic "{topic}":
 
-REGLAS DEL USUARIO (Firestore): "{user_context}"
+REGLAS DEL USUARIO: "{user_context}"
 
 Artículos candidatos:
 {articles_input}
 
-Tarea: Marca los IDs que VIOLAN las reglas del usuario (directa o implícitamente).
-- "solo masculino" → women's football (Liga F, NWSL), cantera/filial (Castilla), femenino, juveniles
-- "no moda" → artículos sobre ropa, runway, outfits
-- "prefiero X" → NO viola si el artículo NO es sobre X (solo indica preferencia, no exclusión)
-- "solo bodegas españolas" → viola si el artículo es sobre bodegas francesas/italianas/etc
-- Reglas positivas ("prefiero...") SOLO son preferencia, NUNCA exclusión.
-- Reglas negativas ("solo X", "no Y", "sin Z") SÍ son exclusión.
+LÓGICA DE MODERACIÓN:
 
-Si ningún artículo viola las reglas, devuelve lista vacía.
+1. REGLAS "solo X" → WHITELIST: el artículo DEBE tratar sobre X. Todo lo que no sea X viola la regla.
+   - "solo fútbol masculino" → viola: baloncesto, tenis, atletismo, hockey, fútbol femenino, eSports,
+     cantera, filial, rugby, natación, ciclismo — cualquier deporte que no sea fútbol masculino adulto.
+   - "solo bodegas españolas" → viola: bodegas francesas, italianas, argentinas, etc.
+   - "solo noticias de España" → viola: noticias de otros países.
 
-JSON only: {{"invalid_ids": [1, 3], "reasons": {{"1": "women's league", "3": "reserve team"}}}}
+2. REGLAS "no Y" / "sin Y" → BLACKLIST: excluir artículos sobre Y.
+   - "no moda" → viola: ropa, runway, fashion week, outfits, looks.
+   - "sin política" → viola: artículos sobre gobierno, partidos, elecciones.
+
+3. REGLAS "prefiero Z" → NO son exclusión. No marcar ningún artículo por esto.
+
+4. CASOS IMPLÍCITOS (aplicar siempre):
+   - "solo fútbol masculino" sobre el topic "Real Madrid" → el Real Madrid tiene equipo de
+     baloncesto (Euroleague), hockey, eSports. Artículos sobre esos equipos VIOLAN la regla.
+   - "solo masculino" → también viola: sub-23, sub-21, femenino, juvenil, infantil, cantera.
+
+Marca los IDs que violan las reglas. Si ninguno viola, devuelve lista vacía.
+
+JSON only: {{"invalid_ids": [1, 3], "reasons": {{"1": "basketball, not football", "3": "women's team"}}}}
 """
         try:
             response = await self.processor.client.chat.completions.create(
