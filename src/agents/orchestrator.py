@@ -674,6 +674,38 @@ JSON only: {{"invalid_ids": [1, 3], "reasons": {{"1": "basketball, not football"
         topic_fresh_news: Dict[str, tuple] = {}  # topic -> (fresh_news_list, cached_data)
         total_budget = len(topics) * 4  # Total news slots across all topics
 
+        # Frescura diferenciada por tipo de topic:
+        #   URGENTE  → política/deportes/geopolítica: máx 24h, sin fallback a 36h
+        #   EVERGREEN → nutrición/ciencia/cultura: empieza en 24h, llega a 48h
+        #   NORMAL   → resto: comportamiento actual 12h → 24h → 36h
+        _URGENTE_KEYWORDS = {
+            "politic", "politica", "partido", "gobierno", "congreso", "senado",
+            "futbol", "fútbol", "baloncesto", "tenis", "formula 1", "f1", "motogp",
+            "real madrid", "atletico", "atletico", "barça", "barca", "barcelona fc",
+            "deporte", "sport", "liga", "champions", "copa",
+            "geopolit", "internacional", "guerra", "conflicto", "iran", "trump",
+            "justicia", "tribunal", "juicio", "fiscal",
+        }
+        _EVERGREEN_KEYWORDS = {
+            "nutri", "salud", "dieta", "alimenta", "receta", "vino", "gastronomia",
+            "ciencia", "investiga", "astro", "fisica", "biolog", "quimic",
+            "cultura", "arte", "musica", "libro", "cine", "teatro",
+            "viaje", "turismo", "naturaleza", "medioambiente",
+            "agricultura", "palm oil", "soy", "biodiesel", "biofuel",
+        }
+
+        def _get_topic_freshness_tier(topic_alias: str) -> str:
+            """Devuelve 'urgente', 'evergreen' o 'normal' según el alias del topic."""
+            t = ''.join(ch for ch in unicodedata.normalize('NFD', topic_alias.lower())
+                        if unicodedata.category(ch) != 'Mn')
+            for kw in _URGENTE_KEYWORDS:
+                if kw in t:
+                    return "urgente"
+            for kw in _EVERGREEN_KEYWORDS:
+                if kw in t:
+                    return "evergreen"
+            return "normal"
+
         # User country and time - shared across all topics
         user_country = user_data.get('country', '')
         current_time = datetime.now()
@@ -713,35 +745,65 @@ JSON only: {{"invalid_ids": [1, 3], "reasons": {{"1": "basketball, not football"
                         try:
                             fecha = datetime.fromisoformat(fecha_str[:19])
                             age_hours = (current_time - fecha).total_seconds() / 3600
-                            if age_hours <= hours_limit:
+                            # age_hours negativa = fecha futura (RSS malformado) → descartar
+                            if 0 <= age_hours <= hours_limit:
                                 filtered.append(n)
                         except:
-                            pass # Skip invalid dates
+                            pass  # Skip invalid dates
                     # Sin fecha -> no incluir (probablemente stale)
                 return filtered
 
-            # Intentar ventana de 12h primero (noticias de hoy)
-            fresh_news = get_fresh_news(12)
+            # Frescura diferenciada: deportes/política = urgente (max 24h),
+            # nutrición/ciencia = evergreen (hasta 48h), resto = normal (hasta 36h)
+            _tier = _get_topic_freshness_tier(topic)
+            print(f"   🕐 Tier frescura: {_tier}")
 
-            # FALLBACK 1: if too few articles (<3), expand to 24h
-            if len(fresh_news) < 3:
-                news_24h = get_fresh_news(24)
-                if len(news_24h) > len(fresh_news):
-                    print(f"   ⚠️ Solo {len(fresh_news)} noticias en 12h. Ampliando a 24h ({len(news_24h)} encontradas)")
-                    fresh_news = news_24h
+            if _tier == "urgente":
+                # Noticias de hoy obligatorio. Fallback máximo: 24h. Sin excepciones.
+                fresh_news = get_fresh_news(12)
+                if len(fresh_news) < 3:
+                    news_20h = get_fresh_news(20)
+                    if len(news_20h) > len(fresh_news):
+                        print(f"   ⚠️ Solo {len(fresh_news)} noticias en 12h → ampliando a 20h ({len(news_20h)})")
+                        fresh_news = news_20h
+                if len(fresh_news) < 3:
+                    news_24h = get_fresh_news(24)
+                    if len(news_24h) > len(fresh_news):
+                        print(f"   ⚠️ Solo {len(fresh_news)} noticias en 20h → ampliando a 24h ({len(news_24h)})")
+                        fresh_news = news_24h
+                # NO fallback a 36h: mejor sección corta que noticias de anteayer
+                if not fresh_news:
+                    print(f"   ❌ Sin noticias de hoy (24h) para '{topic}' [urgente]. Saltando.")
+                    continue
 
-            # FALLBACK 2: if still too few, expand to 36h (no más: evita previews stale
-            # que se comen el slot de la crónica post-evento). Una newsletter diaria
-            # no debe llevar noticias de hace 2 días.
-            if len(fresh_news) < 3:
-                news_36h = get_fresh_news(36)
-                if len(news_36h) > len(fresh_news):
-                    print(f"   ⚠️ Solo {len(fresh_news)} noticias en 24h. Ampliando a 36h ({len(news_36h)} encontradas)")
-                    fresh_news = news_36h
+            elif _tier == "evergreen":
+                # Contenido menos perecedero: empezamos directamente en 24h
+                fresh_news = get_fresh_news(24)
+                if len(fresh_news) < 3:
+                    news_48h = get_fresh_news(48)
+                    if len(news_48h) > len(fresh_news):
+                        print(f"   ⚠️ Solo {len(fresh_news)} noticias en 24h → ampliando a 48h ({len(news_48h)})")
+                        fresh_news = news_48h
+                if not fresh_news:
+                    print(f"   ❌ Sin noticias recientes (48h) para '{topic}' [evergreen]. Saltando.")
+                    continue
 
-            if not fresh_news:
-                print(f"   ❌ Sin noticias recientes (36h) para '{topic}'. Saltando.")
-                continue
+            else:  # normal
+                # Comportamiento estándar: 12h → 24h → 36h
+                fresh_news = get_fresh_news(12)
+                if len(fresh_news) < 3:
+                    news_24h = get_fresh_news(24)
+                    if len(news_24h) > len(fresh_news):
+                        print(f"   ⚠️ Solo {len(fresh_news)} noticias en 12h → ampliando a 24h ({len(news_24h)})")
+                        fresh_news = news_24h
+                if len(fresh_news) < 3:
+                    news_36h = get_fresh_news(36)
+                    if len(news_36h) > len(fresh_news):
+                        print(f"   ⚠️ Solo {len(fresh_news)} noticias en 24h → ampliando a 36h ({len(news_36h)})")
+                        fresh_news = news_36h
+                if not fresh_news:
+                    print(f"   ❌ Sin noticias recientes (36h) para '{topic}'. Saltando.")
+                    continue
 
             # Sort by date: newest first (before scoring). Use published_at when available.
             fresh_news.sort(key=lambda n: n.get("published_at") or n.get("fecha_inventariado", ""), reverse=True)
@@ -763,8 +825,11 @@ JSON only: {{"invalid_ids": [1, 3], "reasons": {{"1": "basketball, not football"
                     try:
                         fecha = datetime.fromisoformat(fecha_str[:19])
                         age = (current_time - fecha).total_seconds() / 3600
+                        # age negativa = fecha futura (RSS typo) → penalizar igual que muy antigua
+                        if age < 0:
+                            recency = -2.0  # Fecha futura: máxima penalización
                         # Aggressive recency: today's news (< 12h) gets massive boost
-                        if age <= 6:
+                        elif age <= 6:
                             recency = 3.0   # Last 6 hours: maximum priority
                         elif age <= 12:
                             recency = 2.0   # Same day: very high priority
