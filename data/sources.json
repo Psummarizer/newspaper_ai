@@ -6140,5 +6140,122 @@
     "base_url": "https://www.lonelyplanet.es",
     "language": "es",
     "country": "ES"
+  },
+  {
+    "category": "Deporte",
+    "name": "Real Madrid Web",
+    "domain": "realmadridweb.com",
+    "rss_url": "https://www.realmadridweb.com/feed/",
+    "base_url": "https://www.realmadridweb.com",
+    "language": "es",
+    "country": "ES"
+  },
+  {
+    "category": "Deporte",
+    "name": "MadridXtra",
+    "domain": "madridxtra.com",
+    "rss_url": "https://madridxtra.com/feed/",
+    "base_url": "https://madridxtra.com",
+    "language": "es",
+    "country": "ES"
+  },
+  {
+    "category": "Deporte",
+    "name": "Soy Fútbol",
+    "domain": "soyfutbol.com",
+    "rss_url": "https://www.soyfutbol.com/feed/",
+    "base_url": "https://www.soyfutbol.com",
+    "language": "es",
+    "country": "ES"
+  },
+  {
+    "category": "Deporte",
+    "name": "Google News LaLiga ES",
+    "domain": "news.google.com",
+    "rss_url": "https://news.google.com/rss/search?q=LaLiga+futbol+espana&hl=es&gl=ES&ceid=ES:es",
+    "base_url": "https://news.google.com",
+    "language": "es",
+    "country": "ES"
+  },
+  {
+    "category": "Deporte",
+    "name": "Google News Real Madrid ES",
+    "domain": "news.google.com",
+    "rss_url": "https://news.google.com/rss/search?q=Real+Madrid+futbol&hl=es&gl=ES&ceid=ES:es",
+    "base_url": "https://news.google.com",
+    "language": "es",
+    "country": "ES"
+  },
+  {
+    "category": "Deporte",
+    "name": "FIFA News",
+    "domain": "fifa.com",
+    "rss_url": "https://www.fifa.com/rss/news",
+    "base_url": "https://www.fifa.com",
+    "language": "es",
+    "country": ""
+  },
+  {
+    "category": "Deporte",
+    "name": "Motorsport.com F1 ES",
+    "domain": "motorsport.com",
+    "rss_url": "https://es.motorsport.com/rss/f1/news/",
+    "base_url": "https://es.motorsport.com",
+    "language": "es",
+    "country": "ES"
+  },
+  {
+    "category": "Deporte",
+    "name": "Crash.net F1",
+    "domain": "crash.net",
+    "rss_url": "https://www.crash.net/rss/f1",
+    "base_url": "https://www.crash.net",
+    "language": "en",
+    "country": ""
+  },
+  {
+    "category": "Deporte",
+    "name": "F1 Technical",
+    "domain": "f1technical.net",
+    "rss_url": "https://www.f1technical.net/rss/news.xml",
+    "base_url": "https://www.f1technical.net",
+    "language": "en",
+    "country": ""
+  },
+  {
+    "category": "Deporte",
+    "name": "Google News F1 ES",
+    "domain": "news.google.com",
+    "rss_url": "https://news.google.com/rss/search?q=Formula+1+F1&hl=es&gl=ES&ceid=ES:es",
+    "base_url": "https://news.google.com",
+    "language": "es",
+    "country": "ES"
+  },
+  {
+    "category": "Deporte",
+    "name": "Crash.net MotoGP",
+    "domain": "crash.net",
+    "rss_url": "https://www.crash.net/rss/motogp",
+    "base_url": "https://www.crash.net",
+    "language": "en",
+    "country": ""
+  },
+  {
+    "category": "Deporte",
+    "name": "Motorsport.com MotoGP IT",
+    "domain": "motorsport.com",
+    "rss_url": "https://it.motorsport.com/rss/motogp/news/",
+    "base_url": "https://it.motorsport.com",
+    "language": "it",
+    "country": ""
+  },
+  {
+    "category": "Deporte",
+    "name": "Google News MotoGP ES",
+    "domain": "news.google.com",
+    "rss_url": "https://news.google.com/rss/search?q=MotoGP+2026&hl=es&gl=ES&ceid=ES:es",
+    "base_url": "https://news.google.com",
+    "language": "es",
+    "country": "ES"
   }
 ]
