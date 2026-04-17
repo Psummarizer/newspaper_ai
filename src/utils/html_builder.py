@@ -61,7 +61,8 @@ CATEGORY_IMAGES = {
         f"{_GCS}industria_1.jpg",
     ],
     "Energia": [
-        f"{_GCS}energia_1.jpg",
+        f"{_GCS}energia_1.jpg",   # aerogeneradores
+        f"{_GCS}energia_2.jpg",   # panel solar
     ],
     "Tecnologia y Digital": [
         f"{_GCS}tecnologia_1.jpg",
@@ -121,6 +122,7 @@ CATEGORY_IMAGES = {
 TOPIC_IMAGES = {
     "formula 1": [
         f"{_GCS}f1_1.jpg",
+        f"{_GCS}f1_3.jpg",
     ],
     "motogp": [
         f"{_GCS}motogp_1.jpg",
@@ -728,16 +730,16 @@ def build_section_html(title: str, content: str, used_images: set = None) -> str
     Genera una seccion con banner de imagen y contenido.
     Email Compatible: usa <img> en vez de background-image.
     """
-    
+
     # Funcion para normalizar texto (quitar tildes)
     def normalize(text):
         import unicodedata
         nfkd = unicodedata.normalize('NFKD', text)
         return ''.join(c for c in nfkd if not unicodedata.combining(c))
-    
-    # Detectar categoria del titulo (normalizado para comparar)
+
+    # Detectar categoría por matching contra las claves de CATEGORY_IMAGES
     normalized_title = normalize(title.upper())
-    banner_image = pick_category_image("General", seed=title, topic=title, used_images=used_images)
+    banner_image = None
     banner_color = CATEGORY_BG_COLORS.get("General", "#1a237e")
     banner_emoji = "📰"
     detected_category = "General"
@@ -748,11 +750,18 @@ def build_section_html(title: str, content: str, used_images: set = None) -> str
     for key in sorted_keys:
         normalized_key = normalize(key.upper())
         if normalized_key in normalized_title:
-            banner_image = pick_category_image(key, seed=title, topic=title, used_images=used_images)
+            # Usar la CLAVE de categoría como topic (sin emojis ni texto de display).
+            # Si usáramos el display title ("⚡ ENERGÍA") como topic, "ia" matchearía
+            # al final de "energia" como word boundary → robot en sección Energía.
+            banner_image = pick_category_image(key, seed=key, topic=key, used_images=used_images)
             banner_color = CATEGORY_BG_COLORS.get(key, "#424242")
             banner_emoji = CATEGORY_EMOJIS.get(key, "📰")
             detected_category = key
             break
+
+    if not banner_image:
+        banner_image = pick_category_image("General", seed="General", topic="General",
+                                           used_images=used_images)
 
     # Registrar imagen del banner para no repetirla en artículos de la sección
     if used_images is not None and banner_image:
