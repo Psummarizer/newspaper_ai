@@ -1237,7 +1237,11 @@ class HourlyProcessor:
 
                     published_struct = entry.get('published_parsed')
                     if published_struct:
-                        published_at = datetime(*published_struct[:6]).isoformat()
+                        pub_dt = datetime(*published_struct[:6])
+                        _now = datetime.now()
+                        if pub_dt > _now:
+                            pub_dt = _now  # Fecha futura (RSS malformado, ej: año 2926) → usar ahora
+                        published_at = pub_dt.isoformat()
                     else:
                         published_at = datetime.now().isoformat()
 
