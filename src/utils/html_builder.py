@@ -23,92 +23,98 @@ TEXT_SECONDARY = "#8899A6"
 BORDER = "#38444D"
 
 # Imagenes de categoria (Unsplash - funciona en emails)
+# Formato Unsplash correcto para clientes de email: auto=format&fit=crop&w=&h=
+# Los parámetros ?w=&h= solos (sin auto=format) generan 400 en algunos clientes.
+_U = "https://images.unsplash.com/photo-"
+_Q = "?auto=format&fit=crop&w=640&h=200&q=80"
+
 CATEGORY_IMAGES = {
     "Politica": [
-        "https://images.unsplash.com/photo-1529107386315-e1a2ed48a620?w=640&h=200&fit=crop",
-        "https://images.unsplash.com/photo-1541872703-74c5e44368f1?w=640&h=200&fit=crop",
-        "https://images.unsplash.com/photo-1575320181282-9afab399332c?w=640&h=200&fit=crop",
+        f"{_U}1529107386315-e1a2ed48a620{_Q}",   # parlamento/hemiciclo
+        f"{_U}1541872703-74c5e44368f1{_Q}",       # reunión/mesa política
+        f"{_U}1575320181282-9afab399332c{_Q}",    # congreso/asamblea
     ],
     "Geopolitica": [
-        "https://images.unsplash.com/photo-1451187580459-43490279c0fa?w=640&h=200&fit=crop",
-        "https://images.unsplash.com/photo-1526778548025-fa2f459cd5c1?w=640&h=200&fit=crop",
-        "https://images.unsplash.com/photo-1519500528352-2d1460418d41?w=640&h=200&fit=crop",
+        f"{_U}1451187580459-43490279c0fa{_Q}",    # globo/tierra vista satélite
+        f"{_U}1526778548025-fa2f459cd5c1{_Q}",    # mapa mundo
+        f"{_U}1519500528352-2d1460418d41{_Q}",    # bandera ONU
     ],
     "Internacional": [
-        "https://images.unsplash.com/photo-1526304640581-d334cdbbf45e?w=640&h=200&fit=crop",
-        "https://images.unsplash.com/photo-1523395243481-163f8f6155ab?w=640&h=200&fit=crop",
+        f"{_U}1526304640581-d334cdbbf45e{_Q}",    # banderas
+        f"{_U}1523395243481-163f8f6155ab{_Q}",    # skyline ciudad
     ],
     "Economia y Finanzas": [
-        "https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?w=640&h=200&fit=crop",
-        "https://images.unsplash.com/photo-1590283603385-17ffb3a7f29f?w=640&h=200&fit=crop",
-        "https://images.unsplash.com/photo-1444653614773-995cb1ef9efa?w=640&h=200&fit=crop",
+        f"{_U}1611974789855-9c2a0a7236a3{_Q}",    # gráfica bolsa
+        f"{_U}1590283603385-17ffb3a7f29f{_Q}",    # trading pantallas
+        f"{_U}1444653614773-995cb1ef9efa{_Q}",    # monedas/billetes
     ],
     "Negocios y Empresas": [
-        "https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?w=640&h=200&fit=crop",
-        "https://images.unsplash.com/photo-1556761175-5973dc0f32e7?w=640&h=200&fit=crop",
+        f"{_U}1486406146926-c627a92ad1ab{_Q}",    # rascacielos oficinas
+        f"{_U}1556761175-5973dc0f32e7{_Q}",       # reunión ejecutivos
     ],
     "Justicia y Legal": [
-        "https://images.unsplash.com/photo-1589829545856-d10d557cf95f?w=640&h=200&fit=crop",
-        "https://images.unsplash.com/photo-1505664194779-8beaceb93744?w=640&h=200&fit=crop",
+        f"{_U}1589829545856-d10d557cf95f{_Q}",    # mazo justicia
+        f"{_U}1505664194779-8beaceb93744{_Q}",    # balanza/tribunal
     ],
     "Transporte y Movilidad": [
-        "https://images.unsplash.com/photo-1436491865332-7a61a109cc05?w=640&h=200&fit=crop",
+        f"{_U}1436491865332-7a61a109cc05{_Q}",    # avión
     ],
     "Industria": [
-        "https://images.unsplash.com/photo-1565793298595-6a879b1d9492?w=640&h=200&fit=crop",
+        f"{_U}1565793298595-6a879b1d9492{_Q}",    # fábrica
     ],
     "Energia": [
-        "https://images.unsplash.com/photo-1473341304170-971dccb5ac1e?w=640&h=200&fit=crop",
+        f"{_U}1473341304170-971dccb5ac1e{_Q}",    # aerogeneradores
     ],
     "Tecnologia y Digital": [
-        "https://images.unsplash.com/photo-1550751827-4bd374c3f58b?w=640&h=200&fit=crop",
-        "https://images.unsplash.com/photo-1518770660439-4636190af475?w=640&h=200&fit=crop",
-        "https://images.unsplash.com/photo-1620712943543-bcc4688e7485?w=640&h=200&fit=crop",
-        "https://images.unsplash.com/photo-1531482615713-2afd69097998?w=640&h=200&fit=crop",
+        f"{_U}1550751827-4bd374c3f58b{_Q}",       # chip/circuito
+        f"{_U}1518770660439-4636190af475{_Q}",    # microchip macro
+        f"{_U}1620712943543-bcc4688e7485{_Q}",    # IA/robot
+        f"{_U}1531482615713-2afd69097998{_Q}",    # código pantalla
     ],
     "Ciencia e Investigacion": [
-        "https://images.unsplash.com/photo-1507413245164-6160d8298b31?w=640&h=200&fit=crop",
-        "https://images.unsplash.com/photo-1532094349884-543bc11b234d?w=640&h=200&fit=crop",
-        "https://images.unsplash.com/photo-1628595351029-c2bf17511435?w=640&h=200&fit=crop",
+        f"{_U}1507413245164-6160d8298b31{_Q}",    # laboratorio
+        f"{_U}1532094349884-543bc11b234d{_Q}",    # microscopio
+        f"{_U}1628595351029-c2bf17511435{_Q}",    # ADN
     ],
     "Deporte": [
-        "https://images.unsplash.com/photo-1579952363873-27f3bade9f55?w=640&h=200&fit=crop",
-        "https://images.unsplash.com/photo-1459865264687-595d652de67e?w=640&h=200&fit=crop",
-        "https://images.unsplash.com/photo-1541252260730-0412e8e2108e?w=640&h=200&fit=crop",
-        "https://images.unsplash.com/photo-1461896836934-ffe607ba8211?w=640&h=200&fit=crop",
+        f"{_U}1459865264687-595d652de67e?auto=format&fit=crop&w=640&h=200&q=80",  # estadio
+        f"{_U}1541252260730-0412e8e2108e{_Q}",    # atletismo
+        f"{_U}1461896836934-ffe607ba8211{_Q}",    # deporte genérico
+        f"{_U}1579952363873-27f3bade9f55{_Q}",    # arena deportiva
     ],
     "Salud y Bienestar": [
-        "https://images.unsplash.com/photo-1505576399279-565b52d4ac71?w=640&h=200&fit=crop",
+        f"{_U}1505576399279-565b52d4ac71{_Q}",
     ],
     "Inmobiliario y Construccion": [
-        "https://images.unsplash.com/photo-1486718448742-163732cd1544?w=640&h=200&fit=crop",
+        f"{_U}1560518883-ce09059eeffa{_Q}",
+        f"{_U}1486718448742-163732cd1544{_Q}",
     ],
     "Agricultura y Alimentacion": [
-        "https://images.unsplash.com/photo-1464226184884-fa280b87c399?w=640&h=200&fit=crop",
+        f"{_U}1464226184884-fa280b87c399{_Q}",
     ],
     "Educacion y Conocimiento": [
-        "https://images.unsplash.com/photo-1481627834876-b7833e8f5570?w=640&h=200&fit=crop",
+        f"{_U}1481627834876-b7833e8f5570{_Q}",
     ],
     "Sociedad": [
-        "https://images.unsplash.com/photo-1517457373958-b7bdd4587205?w=640&h=200&fit=crop",
+        f"{_U}1517457373958-b7bdd4587205{_Q}",
     ],
     "Cultura y Entretenimiento": [
-        "https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=640&h=200&fit=crop",
+        f"{_U}1514525253161-7a46d19cd819{_Q}",
     ],
     "Consumo y Estilo de Vida": [
-        "https://images.unsplash.com/photo-1483985988355-763728e1935b?w=640&h=200&fit=crop",
+        f"{_U}1483985988355-763728e1935b{_Q}",
     ],
     "Medio Ambiente y Clima": [
-        "https://images.unsplash.com/photo-1441974231531-c6227db76b6e?w=640&h=200&fit=crop",
+        f"{_U}1441974231531-c6227db76b6e{_Q}",
     ],
     "Cultura Digital y Sociedad de la Informacion": [
-        "https://images.unsplash.com/photo-1519389950473-47ba0277781c?w=640&h=200&fit=crop",
+        f"{_U}1519389950473-47ba0277781c{_Q}",
     ],
     "Filantropia e Impacto Social": [
-        "https://images.unsplash.com/photo-1469571486292-0ba58a3f068b?w=640&h=200&fit=crop",
+        f"{_U}1469571486292-0ba58a3f068b{_Q}",
     ],
     "General": [
-        "https://images.unsplash.com/photo-1495020689067-958852a7765e?w=640&h=200&fit=crop",
+        f"{_U}1495020689067-958852a7765e{_Q}",
     ],
 }
 
@@ -117,64 +123,64 @@ CATEGORY_IMAGES = {
 # Clave = keyword lowercase sin tilde; match por substring en topic/título.
 TOPIC_IMAGES = {
     "formula 1": [
-        "https://images.unsplash.com/photo-1504707748692-419802cf939d?w=640&h=200&fit=crop",
-        "https://images.unsplash.com/photo-1541447271487-09612b3f49f7?w=640&h=200&fit=crop",
-        "https://images.unsplash.com/photo-1583912267550-d44c9b07c1f2?w=640&h=200&fit=crop",
+        f"{_U}1504707748692-419802cf939d{_Q}",
+        f"{_U}1541447271487-09612b3f49f7{_Q}",
+        f"{_U}1583912267550-d44c9b07c1f2{_Q}",
     ],
     "motogp": [
-        "https://images.unsplash.com/photo-1558981806-ec527fa84c39?w=640&h=200&fit=crop",
-        "https://images.unsplash.com/photo-1568772585407-9361f9bf3a87?w=640&h=200&fit=crop",
+        f"{_U}1558981806-ec527fa84c39{_Q}",
+        f"{_U}1568772585407-9361f9bf3a87{_Q}",
     ],
     "real madrid": [
-        "https://images.unsplash.com/photo-1522778119026-d647f0596c20?w=640&h=200&fit=crop",
-        "https://images.unsplash.com/photo-1508098682722-e99c43a406b2?w=640&h=200&fit=crop",
+        f"{_U}1522778119026-d647f0596c20{_Q}",
+        f"{_U}1508098682722-e99c43a406b2{_Q}",
     ],
     "futbol": [
-        "https://images.unsplash.com/photo-1579952363873-27f3bade9f55?w=640&h=200&fit=crop",
-        "https://images.unsplash.com/photo-1508098682722-e99c43a406b2?w=640&h=200&fit=crop",
+        f"{_U}1579952363873-27f3bade9f55{_Q}",
+        f"{_U}1508098682722-e99c43a406b2{_Q}",
     ],
     "tenis": [
-        "https://images.unsplash.com/photo-1551773118-0c7d5a1d7b2e?w=640&h=200&fit=crop",
+        f"{_U}1551773118-0c7d5a1d7b2e{_Q}",
     ],
     "inteligencia artificial": [
-        "https://images.unsplash.com/photo-1677442136019-21780ecad995?w=640&h=200&fit=crop",
-        "https://images.unsplash.com/photo-1620712943543-bcc4688e7485?w=640&h=200&fit=crop",
+        f"{_U}1677442136019-21780ecad995{_Q}",
+        f"{_U}1620712943543-bcc4688e7485{_Q}",
     ],
     "ia": [
-        "https://images.unsplash.com/photo-1677442136019-21780ecad995?w=640&h=200&fit=crop",
-        "https://images.unsplash.com/photo-1620712943543-bcc4688e7485?w=640&h=200&fit=crop",
+        f"{_U}1677442136019-21780ecad995{_Q}",
+        f"{_U}1620712943543-bcc4688e7485{_Q}",
     ],
     "aeronautica": [
-        "https://images.unsplash.com/photo-1436491865332-7a61a109cc05?w=640&h=200&fit=crop",
-        "https://images.unsplash.com/photo-1530521954074-e64f6810b32d?w=640&h=200&fit=crop",
+        f"{_U}1436491865332-7a61a109cc05{_Q}",
+        f"{_U}1530521954074-e64f6810b32d{_Q}",
     ],
     "astronomia": [
-        "https://images.unsplash.com/photo-1464802686167-b939a6910659?w=640&h=200&fit=crop",
-        "https://images.unsplash.com/photo-1451187580459-43490279c0fa?w=640&h=200&fit=crop",
+        f"{_U}1464802686167-b939a6910659{_Q}",
+        f"{_U}1451187580459-43490279c0fa{_Q}",
     ],
     "vinos": [
-        "https://images.unsplash.com/photo-1506377247377-2a5b3b417ebb?w=640&h=200&fit=crop",
-        "https://images.unsplash.com/photo-1474722883778-792e7990302f?w=640&h=200&fit=crop",
+        f"{_U}1506377247377-2a5b3b417ebb{_Q}",
+        f"{_U}1474722883778-792e7990302f{_Q}",
     ],
     "viajes": [
-        "https://images.unsplash.com/photo-1488085061387-422e29b40080?w=640&h=200&fit=crop",
-        "https://images.unsplash.com/photo-1476514525535-07fb3b4ae5f1?w=640&h=200&fit=crop",
+        f"{_U}1488085061387-422e29b40080{_Q}",
+        f"{_U}1476514525535-07fb3b4ae5f1{_Q}",
     ],
     "inmobiliario": [
-        "https://images.unsplash.com/photo-1560518883-ce09059eeffa?w=640&h=200&fit=crop",
-        "https://images.unsplash.com/photo-1486718448742-163732cd1544?w=640&h=200&fit=crop",
+        f"{_U}1560518883-ce09059eeffa{_Q}",
+        f"{_U}1486718448742-163732cd1544{_Q}",
     ],
     "startup": [
-        "https://images.unsplash.com/photo-1559136555-9303baea8ebd?w=640&h=200&fit=crop",
-        "https://images.unsplash.com/photo-1522071820081-009f0129c71c?w=640&h=200&fit=crop",
+        f"{_U}1559136555-9303baea8ebd{_Q}",
+        f"{_U}1522071820081-009f0129c71c{_Q}",
     ],
     "geopolitica": [
-        "https://images.unsplash.com/photo-1451187580459-43490279c0fa?w=640&h=200&fit=crop",
-        "https://images.unsplash.com/photo-1526778548025-fa2f459cd5c1?w=640&h=200&fit=crop",
+        f"{_U}1451187580459-43490279c0fa{_Q}",
+        f"{_U}1526778548025-fa2f459cd5c1{_Q}",
     ],
     "cuantica": [
-        "https://images.unsplash.com/photo-1635070041078-e363dbe005cb?w=640&h=200&fit=crop",
-        "https://images.unsplash.com/photo-1507413245164-6160d8298b31?w=640&h=200&fit=crop",
+        f"{_U}1635070041078-e363dbe005cb{_Q}",
+        f"{_U}1507413245164-6160d8298b31{_Q}",
     ],
 }
 
@@ -747,8 +753,10 @@ def build_section_html(title: str, content: str) -> str:
         <!-- BANNER CON IMAGEN REAL -->
         <tr>
             <td style="padding: 0; position: relative;">
-                <!-- Imagen de fondo como img real -->
-                <img src="{banner_image}" alt="" width="600" height="100" style="width: 100%; height: 100px; object-fit: cover; object-position: {bg_position}; display: block; border-radius: 8px 8px 0 0;">
+                <!-- Imagen de fondo como img real. onerror oculta si CDN falla -->
+                <img src="{banner_image}" alt="" width="600" height="100"
+                     onerror="this.style.display='none'"
+                     style="width: 100%; height: 100px; object-fit: cover; object-position: {bg_position}; display: block; border-radius: 8px 8px 0 0;">
             </td>
         </tr>
         <!-- TÍTULO DE CATEGORÍA -->
