@@ -376,22 +376,29 @@ Artículos candidatos:
 
 LÓGICA DE MODERACIÓN:
 
-1. REGLAS "solo X" → WHITELIST: el artículo DEBE tratar sobre X. Todo lo que no sea X viola la regla.
-   - "solo fútbol masculino" → viola: baloncesto, tenis, atletismo, hockey, fútbol femenino, eSports,
-     cantera, filial, rugby, natación, ciclismo — cualquier deporte que no sea fútbol masculino adulto.
-   - "solo bodegas españolas" → viola: bodegas francesas, italianas, argentinas, etc.
-   - "solo noticias de España" → viola: noticias de otros países.
+1. DESCRIPCIÓN DEL TOPIC (sin "prefiero") → WHITELIST implícita:
+   Si el contexto describe QUÉ es el topic (ej: "balonmano Barça masculino",
+   "fútbol masculino", "vinos españoles tintos"), el artículo DEBE tratar
+   exactamente eso. Todo lo demás viola la regla.
+   - "balonmano Barça masculino" → viola: fútbol del Barça, baloncesto del Barça,
+     balonmano femenino, balonmano de otro club.
+   - "fútbol masculino" → viola: baloncesto, tenis, fútbol femenino, eSports, cantera.
+   - "vinos españoles tintos" → viola: vinos franceses, vinos blancos, cervezas.
 
-2. REGLAS "no Y" / "sin Y" → BLACKLIST: excluir artículos sobre Y.
-   - "no moda" → viola: ropa, runway, fashion week, outfits, looks.
-   - "sin política" → viola: artículos sobre gobierno, partidos, elecciones.
+2. REGLAS "solo X" → WHITELIST explícita: igual que el punto 1.
+   - "solo fútbol masculino" → viola todo lo que no sea fútbol masculino adulto.
+   - "solo bodegas españolas" → viola: bodegas de otros países.
 
-3. REGLAS "prefiero Z" → NO son exclusión. No marcar ningún artículo por esto.
+3. REGLAS "no Y" / "sin Y" → BLACKLIST: excluir artículos sobre Y.
+   - "no moda" → viola: ropa, runway, fashion week, outfits.
+   - "sin política" → viola: gobierno, partidos, elecciones.
 
-4. CASOS IMPLÍCITOS (aplicar siempre):
-   - "solo fútbol masculino" sobre el topic "Real Madrid" → el Real Madrid tiene equipo de
-     baloncesto (Euroleague), hockey, eSports. Artículos sobre esos equipos VIOLAN la regla.
-   - "solo masculino" → también viola: sub-23, sub-21, femenino, juvenil, infantil, cantera.
+4. REGLAS "prefiero Z" → NO son exclusión. No marcar ningún artículo por esto.
+
+5. CASOS IMPLÍCITOS (aplicar siempre):
+   - Clubs grandes (Real Madrid, Barça, etc.) tienen múltiples deportes. Si el
+     topic especifica un deporte concreto, los otros deportes del club VIOLAN la regla.
+   - "masculino" → también viola: sub-23, sub-21, femenino, juvenil, infantil, cantera.
 
 Marca los IDs que violan las reglas. Si ninguno viola, devuelve lista vacía.
 
