@@ -113,10 +113,10 @@ class HourlyProcessor:
         topics_data = self._load_topics_json()
         logger.info(f"📦 Topics existentes: {len(topics_data)}")
         
-        # 2.1 Limpiar noticias antiguas de topics (>7 días)
-        removed_news = self.gcs.cleanup_old_topic_news(topics_data, days=7)
+        # 2.1 Limpiar noticias antiguas de topics (>48h) para mantener cache fresco
+        removed_news = self.gcs.cleanup_old_topic_news(topics_data, days=2)
         if removed_news > 0:
-            logger.info(f"🧹 Eliminadas {removed_news} noticias antiguas (>7 días) de topics")
+            logger.info(f"🧹 Eliminadas {removed_news} noticias >48h de topics")
         
         # 3. Sincronizar aliases con topics (LLM matching semántico)
         topics_data = await self._sync_aliases_with_topics(all_aliases_tuples, topics_data)

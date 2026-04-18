@@ -298,33 +298,41 @@ class GCSService:
         
         return removed
 
-    def cleanup_old_topic_news(self, topics_data: dict, days: int = 7) -> int:
+    def cleanup_old_topic_news(self, topics_data: dict, days: int = 2) -> int:
         """
         Elimina noticias más antiguas que X días de topics.json.
+        Usa published_at como fecha primaria (fecha real RSS); cae a fecha_inventariado
+        si no existe. También descarta artículos con fecha futura (RSS typos, ej: año 2926).
         Retorna el número total de noticias eliminadas.
         """
         if not topics_data:
             return 0
-        
+
         from datetime import timedelta
-        cutoff = datetime.now() - timedelta(days=days)
+        now = datetime.now()
+        cutoff = now - timedelta(days=days)
         total_removed = 0
-        
+
         for topic_id, topic_info in topics_data.items():
             if not isinstance(topic_info, dict):
                 continue
-            
+
             noticias = topic_info.get("noticias", [])
             if not noticias:
                 continue
-            
+
             kept_news = []
             for news in noticias:
-                fecha = news.get("fecha_inventariado")
-                if isinstance(fecha, str):
+                # Usar published_at como fecha primaria; fallback a fecha_inventariado
+                fecha_str = news.get("published_at") or news.get("fecha_inventariado")
+                if isinstance(fecha_str, str):
                     try:
-                        fecha_dt = datetime.fromisoformat(fecha)
-                        if fecha_dt.replace(tzinfo=None) >= cutoff:
+                        fecha_dt = datetime.fromisoformat(fecha_str[:19])
+                        # Descartar fechas futuras (RSS typo, ej: año 2926)
+                        if fecha_dt > now:
+                            total_removed += 1
+                            continue
+                        if fecha_dt >= cutoff:
                             kept_news.append(news)
                         else:
                             total_removed += 1
@@ -332,10 +340,10 @@ class GCSService:
                         kept_news.append(news)  # Si no puede parsear, mantener
                 else:
                     kept_news.append(news)
-            
+
             topic_info["noticias"] = kept_news
-        
+
         if total_removed > 0:
-            self.logger.info(f"🧹 Limpieza: {total_removed} noticias antiguas eliminadas de topics.json")
-        
+            self.logger.info(f"🧹 Limpieza: {total_removed} noticias >48h o fecha futura eliminadas de topics.json")
+
         return total_removed

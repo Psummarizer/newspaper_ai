@@ -225,7 +225,14 @@ def pick_category_image(category: str, seed: str = "", topic: str = "",
             imgs = TOPIC_IMAGES[key]
             break
     if imgs is None:
-        imgs = CATEGORY_IMAGES.get(category) or CATEGORY_IMAGES.get("General", [])
+        # Normalizar category antes del lookup: "Política" → "Politica", "Geopolítica" → "Geopolitica"
+        _cat_normalized = ''.join(
+            c for c in _unicodedata.normalize('NFKD', category or "")
+            if not _unicodedata.combining(c)
+        )
+        imgs = (CATEGORY_IMAGES.get(category)
+                or CATEGORY_IMAGES.get(_cat_normalized)
+                or CATEGORY_IMAGES.get("General", []))
     if isinstance(imgs, str):
         return imgs
     if not imgs:
