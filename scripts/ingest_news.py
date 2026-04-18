@@ -351,9 +351,6 @@ class HourlyProcessor:
                             if cat not in self.category_news_cache:
                                 self.category_news_cache[cat] = []
                             self.category_news_cache[cat].append(result)
-                        self.existing_news[self._normalize_title(result["titulo"])] = {
-                            "news": result, "topic_id": topic_id, "index": -1
-                        }
                         logger.info(f"✍️ {topic_name}: {result['titulo'][:40]}...")
                     else:
                         self.redacted_cache[url] = None

@@ -106,7 +106,8 @@
     "rss_url": "https://www.larazon.es/rss/politica.xml",
     "base_url": "https://www.larazon.es",
     "language": "es",
-    "country": "ES"
+    "country": "ES",
+    "is_active": false
   },
   {
     "category": "Política",
@@ -160,7 +161,8 @@
     "rss_url": "https://www.farodevigo.es/rss/section/1227371",
     "base_url": "https://www.farodevigo.es",
     "language": "es",
-    "country": "ES"
+    "country": "ES",
+    "is_active": false
   },
   {
     "category": "Política",
@@ -169,7 +171,8 @@
     "rss_url": "https://www.lne.es/rss/section/3120",
     "base_url": "https://www.lne.es",
     "language": "es",
-    "country": "ES"
+    "country": "ES",
+    "is_active": false
   },
   {
     "category": "Política",
@@ -196,7 +199,8 @@
     "rss_url": "https://www.elpuntavui.cat/feed/politica.xml",
     "base_url": "https://www.elpuntavui.cat",
     "language": "ca",
-    "country": "ES"
+    "country": "ES",
+    "is_active": false
   },
   {
     "category": "Geopolítica",
@@ -304,7 +308,8 @@
     "rss_url": "https://apnews.com/index.rss",
     "base_url": "https://apnews.com/world-news",
     "language": "en",
-    "country": "US"
+    "country": "US",
+    "is_active": false
   },
   {
     "category": "Geopolítica",
@@ -313,7 +318,8 @@
     "rss_url": "http://rss.cnn.com/rss/edition_world.rss",
     "base_url": "https://www.cnn.com/world",
     "language": "en",
-    "country": "US"
+    "country": "US",
+    "is_active": false
   },
   {
     "category": "Geopolítica",
@@ -412,7 +418,8 @@
     "rss_url": "https://www.france24.com/en/rss",
     "base_url": "https://www.france24.com/en/",
     "language": "en",
-    "country": "FR"
+    "country": "FR",
+    "is_active": false
   },
   {
     "category": "Geopolítica",
@@ -448,7 +455,8 @@
     "rss_url": "https://www.eleconomista.es/rss/rss-seleccion-ee.php",
     "base_url": "https://www.eleconomista.es",
     "language": "es",
-    "country": "ES"
+    "country": "ES",
+    "is_active": false
   },
   {
     "category": "Economía y Finanzas",
@@ -520,7 +528,8 @@
     "rss_url": "https://feeds.a.dj.com/rss/RSSMarketsMain.xml",
     "base_url": "https://www.wsj.com",
     "language": "en",
-    "country": "US"
+    "country": "US",
+    "is_active": false
   },
   {
     "category": "Economía y Finanzas",
@@ -565,7 +574,8 @@
     "rss_url": "https://services.lesechos.fr/rss/les-echos-economie.xml?_gl=1*1j125ad*_gcl_au*Nzc1MDU2ODU3LjE3NjQwNzQ5NDE.",
     "base_url": "https://www.lesechos.fr",
     "language": "fr",
-    "country": "FR"
+    "country": "FR",
+    "is_active": false
   },
   {
     "category": "Economía y Finanzas",
@@ -667,7 +677,8 @@
     "rss_url": "https://feeds.a.dj.com/rss/WSJcomUSBusiness.xml",
     "base_url": "https://www.wsj.com/news/business",
     "language": "en",
-    "country": "US"
+    "country": "US",
+    "is_active": false
   },
   {
     "category": "Negocios y Empresas",
@@ -676,7 +687,8 @@
     "rss_url": "https://services.lesechos.fr/rss/les-echos-entreprises.xml?_gl=1*1ssjmqb*_gcl_au*Nzc1MDU2ODU3LjE3NjQwNzQ5NDE.",
     "base_url": "https://www.lesechos.fr/industrie-services",
     "language": "fr",
-    "country": "FR"
+    "country": "FR",
+    "is_active": false
   },
   {
     "category": "Tecnología y Digital",
@@ -690,7 +702,8 @@
     "name": "Genbeta",
     "domain": "genbeta.com",
     "rss_url": "https://www.genbeta.com/feedburner.xml",
-    "base_url": "https://www.genbeta.com"
+    "base_url": "https://www.genbeta.com",
+    "is_active": false
   },
   {
     "category": "Tecnología y Digital",
@@ -857,7 +870,8 @@
     "rss_url": "http://rss.sciam.com/basic-science",
     "base_url": "https://www.scientificamerican.com",
     "language": "en",
-    "country": "US"
+    "country": "US",
+    "is_active": false
   },
   {
     "category": "Ciencia e Investigación",
@@ -875,7 +889,8 @@
     "rss_url": "https://www.agenciasinc.es/es/rss/feed/Noticias",
     "base_url": "https://www.agenciasinc.es",
     "language": "es",
-    "country": "ES"
+    "country": "ES",
+    "is_active": false
   },
   {
     "category": "Ciencia e Investigación",
@@ -911,7 +926,8 @@
     "rss_url": "https://journals.plos.org/plosone/article/feed",
     "base_url": "https://journals.plos.org/plosone",
     "language": "en",
-    "country": "US"
+    "country": "US",
+    "is_active": false
   },
   {
     "category": "Ciencia e Investigación",
@@ -947,7 +963,8 @@
     "rss_url": "https://www.muyinteresante.es/rss/universo",
     "base_url": "https://www.muyinteresante.es",
     "language": "es",
-    "country": "ES"
+    "country": "ES",
+    "is_active": false
   },
   {
     "category": "Ciencia e Investigación",
@@ -956,7 +973,8 @@
     "rss_url": "https://www.muyinteresante.es/rss/biologia",
     "base_url": "https://www.muyinteresante.es",
     "language": "es",
-    "country": "ES"
+    "country": "ES",
+    "is_active": false
   },
   {
     "category": "Ciencia e Investigación",
@@ -965,7 +983,8 @@
     "rss_url": "https://www.muyinteresante.es/rss/tecnologia",
     "base_url": "https://www.muyinteresante.es",
     "language": "es",
-    "country": "ES"
+    "country": "ES",
+    "is_active": false
   },
   {
     "category": "Ciencia e Investigación",
@@ -1046,7 +1065,8 @@
     "rss_url": "https://www.sciencemag.org/rss/news/environment.xml",
     "base_url": "https://www.sciencemag.org",
     "language": "en",
-    "country": "US"
+    "country": "US",
+    "is_active": false
   },
   {
     "category": "Ciencia e Investigación",
@@ -1118,7 +1138,8 @@
     "rss_url": "https://www.frontiersin.org/journals/analytical-science/rss",
     "base_url": "https://www.frontiersin.org/journals/analytical-science",
     "language": "en",
-    "country": "INT"
+    "country": "INT",
+    "is_active": false
   },
   {
     "category": "Ciencia e Investigación",
@@ -1190,7 +1211,8 @@
     "rss_url": "https://www.frontiersin.org/journals/biomaterials-science/rss",
     "base_url": "https://www.frontiersin.org/journals/biomaterials-science",
     "language": "en",
-    "country": "INT"
+    "country": "INT",
+    "is_active": false
   },
   {
     "category": "Ciencia e Investigación",
@@ -1307,7 +1329,8 @@
     "rss_url": "https://www.frontiersin.org/journals/control-engineering/rss",
     "base_url": "https://www.frontiersin.org/journals/control-engineering",
     "language": "en",
-    "country": "INT"
+    "country": "INT",
+    "is_active": false
   },
   {
     "category": "Ciencia e Investigación",
@@ -1613,7 +1636,8 @@
     "rss_url": "https://www.frontiersin.org/journals/manufacturing-technology/rss",
     "base_url": "https://www.frontiersin.org/journals/manufacturing-technology",
     "language": "en",
-    "country": "INT"
+    "country": "INT",
+    "is_active": false
   },
   {
     "category": "Ciencia e Investigación",
@@ -2288,7 +2312,8 @@
     "rss_url": "https://e00-marca.uecdn.es/rss/futbol.xml",
     "base_url": "https://www.marca.com",
     "language": "es",
-    "country": "ES"
+    "country": "ES",
+    "is_active": false
   },
   {
     "category": "Deporte",
@@ -2604,7 +2629,8 @@
     "rss_url": "https://ciudadaniaactiva.org/feed/",
     "base_url": "https://ciudadaniaactiva.org",
     "language": "es",
-    "country": "ES"
+    "country": "ES",
+    "is_active": false
   },
   {
     "category": "Medio Ambiente y Clima",
@@ -2640,7 +2666,8 @@
     "rss_url": "https://quercus.es/feed/",
     "base_url": "https://quercus.es",
     "language": "es",
-    "country": "ES"
+    "country": "ES",
+    "is_active": false
   },
   {
     "category": "Medio Ambiente y Clima",
@@ -2685,7 +2712,8 @@
     "rss_url": "https://www.vitonica.com/feedburner.xml",
     "base_url": "https://www.vitonica.com",
     "language": "es",
-    "country": "ES"
+    "country": "ES",
+    "is_active": false
   },
   {
     "category": "Salud y Bienestar",
@@ -2694,7 +2722,8 @@
     "rss_url": "https://www.medicalnewstoday.com/rss",
     "base_url": "https://www.medicalnewstoday.com",
     "language": "en",
-    "country": "INT"
+    "country": "INT",
+    "is_active": false
   },
   {
     "category": "Salud y Bienestar",
@@ -2820,7 +2849,8 @@
     "rss_url": "https://www.forocoches.com/foro/rss.php",
     "base_url": "https://www.forocoches.com",
     "language": "es",
-    "country": "ES"
+    "country": "ES",
+    "is_active": false
   },
   {
     "category": "Transporte y Movilidad",
@@ -2883,7 +2913,8 @@
     "rss_url": "https://www.energias-renovables.com/rss/rss.php",
     "base_url": "https://www.energias-renovables.com",
     "language": "es",
-    "country": "ES"
+    "country": "ES",
+    "is_active": false
   },
   {
     "category": "Energía",
@@ -2901,7 +2932,8 @@
     "rss_url": "https://www.windpowermonthly.com/rss",
     "base_url": "https://www.windpowermonthly.com",
     "language": "en",
-    "country": "UK"
+    "country": "UK",
+    "is_active": false
   },
   {
     "category": "Energía",
@@ -2910,7 +2942,8 @@
     "rss_url": "https://www.energiaestrategica.com/feed/",
     "base_url": "https://www.energiaestrategica.com",
     "language": "es",
-    "country": "ES"
+    "country": "ES",
+    "is_active": false
   },
   {
     "category": "Inmobiliario y Construcción",
@@ -3045,7 +3078,8 @@
     "rss_url": "https://feeds.elpais.com/mrss-s/pages/ep/site/elpais.com/section/estilo/portada",
     "base_url": "https://elpais.com",
     "language": "es",
-    "country": "ES"
+    "country": "ES",
+    "is_active": false
   },
   {
     "category": "Consumo y Estilo de Vida",
@@ -3180,7 +3214,8 @@
     "rss_url": "https://openai.com/blog/rss/",
     "base_url": "https://openai.com/blog",
     "language": "en",
-    "country": "US"
+    "country": "US",
+    "is_active": false
   },
   {
     "category": "Tecnología y Digital",
@@ -3216,7 +3251,8 @@
     "rss_url": "https://www.artificialintelligence-news.com/feed/",
     "base_url": "https://www.artificialintelligence-news.com",
     "language": "en",
-    "country": "UK"
+    "country": "UK",
+    "is_active": false
   },
   {
     "category": "Tecnología y Digital",
@@ -3396,7 +3432,8 @@
     "rss_url": "https://www.spacex.com/news.xml",
     "base_url": "https://www.spacex.com",
     "language": "en",
-    "country": "US"
+    "country": "US",
+    "is_active": false
   },
   {
     "category": "Ciencia e Investigación",
@@ -3531,7 +3568,8 @@
     "rss_url": "https://www.medscape.com/cx/rssfeeds/2211.xml",
     "base_url": "https://www.medscape.com",
     "language": "en",
-    "country": "US"
+    "country": "US",
+    "is_active": false
   },
   {
     "category": "Salud y Bienestar",
@@ -3630,7 +3668,8 @@
     "rss_url": "https://www.cfr.org/rss.xml",
     "base_url": "https://www.cfr.org",
     "language": "en",
-    "country": "US"
+    "country": "US",
+    "is_active": false
   },
   {
     "category": "Geopolítica",
@@ -3639,7 +3678,8 @@
     "rss_url": "https://www.csis.org/rss.xml",
     "base_url": "https://www.csis.org",
     "language": "en",
-    "country": "US"
+    "country": "US",
+    "is_active": false
   },
   {
     "category": "Geopolítica",
@@ -3657,7 +3697,8 @@
     "rss_url": "https://www.chathamhouse.org/feed",
     "base_url": "https://www.chathamhouse.org",
     "language": "en",
-    "country": "UK"
+    "country": "UK",
+    "is_active": false
   },
   {
     "category": "Geopolítica",
@@ -3684,7 +3725,8 @@
     "rss_url": "https://www.vozdeamerica.com/api/z_pp$rpoq_qy",
     "base_url": "https://www.vozdeamerica.com",
     "language": "es",
-    "country": "US"
+    "country": "US",
+    "is_active": false
   },
   {
     "category": "Geopolítica",
@@ -3720,7 +3762,8 @@
     "rss_url": "https://www.france24.com/es/rss",
     "base_url": "https://www.france24.com/es/",
     "language": "es",
-    "country": "FR"
+    "country": "FR",
+    "is_active": false
   },
   {
     "category": "Geopolítica",
@@ -3783,7 +3826,8 @@
     "rss_url": "https://www.libertaddigital.com/rss/sociedad.xml",
     "base_url": "https://www.libertaddigital.com",
     "language": "es",
-    "country": "ES"
+    "country": "ES",
+    "is_active": false
   },
   {
     "category": "Política",
@@ -3864,7 +3908,8 @@
     "rss_url": "https://www.elplural.com/rss/",
     "base_url": "https://www.elplural.com",
     "language": "es",
-    "country": "ES"
+    "country": "ES",
+    "is_active": false
   },
   {
     "category": "Sociedad",
@@ -3900,7 +3945,8 @@
     "rss_url": "https://www.fotogramas.es/rss/",
     "base_url": "https://www.fotogramas.es",
     "language": "es",
-    "country": "ES"
+    "country": "ES",
+    "is_active": false
   },
   {
     "category": "Cultura y Entretenimiento",
@@ -3918,7 +3964,8 @@
     "rss_url": "https://www.relevo.com/rss/",
     "base_url": "https://www.relevo.com",
     "language": "es",
-    "country": "ES"
+    "country": "ES",
+    "is_active": false
   },
   {
     "category": "Deporte",
@@ -3927,7 +3974,8 @@
     "rss_url": "https://www.estadiodeportivo.com/rss/",
     "base_url": "https://www.estadiodeportivo.com",
     "language": "es",
-    "country": "ES"
+    "country": "ES",
+    "is_active": false
   },
   {
     "category": "Deporte",
@@ -4278,7 +4326,8 @@
     "bias": "centro-derecha",
     "bias_tag": "derecha",
     "region": "Europa",
-    "reliability": "medium"
+    "reliability": "medium",
+    "is_active": false
   },
   {
     "category": "Deporte",
@@ -4491,7 +4540,8 @@
     "bias": "centro-derecha",
     "bias_tag": "derecha",
     "region": "Oriente Medio",
-    "reliability": "medium"
+    "reliability": "medium",
+    "is_active": false
   },
   {
     "category": "Geopolítica",
@@ -4533,7 +4583,8 @@
     "bias": "centro-derecha",
     "bias_tag": "derecha",
     "region": "Europa",
-    "reliability": "high"
+    "reliability": "high",
+    "is_active": false
   },
   {
     "category": "Política",
@@ -4751,7 +4802,8 @@
     "bias": "centro",
     "bias_tag": "centro",
     "region": "Norteamérica",
-    "reliability": "medium"
+    "reliability": "medium",
+    "is_active": false
   },
   {
     "category": "Economía y Finanzas",
@@ -6148,7 +6200,8 @@
     "rss_url": "https://www.realmadridweb.com/feed/",
     "base_url": "https://www.realmadridweb.com",
     "language": "es",
-    "country": "ES"
+    "country": "ES",
+    "is_active": false
   },
   {
     "category": "Deporte",
