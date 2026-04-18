@@ -1,3 +1,26 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# FRESHNESS CONSTANTS — única fuente de verdad para ventanas temporales.
+# Cambia aquí, se propaga a ingest, cleanup y orchestrator.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# articles.json (cache raw de RSS)
+ARTICLES_RETENTION_HOURS = 72       # cleanup_old_articles: cuánto tiempo guardamos artículos crudos
+ARTICLES_INGEST_WINDOW_HOURS = 14   # ventana dinámica máx para get_articles_by_category (sobre fecha_ingesta)
+
+# topics.json (artículos procesados + redactados)
+TOPICS_RETENTION_DAYS = 2           # cleanup_old_topic_news: 48h de artículos procesados
+
+# Orchestrator: ventana para cubrir las 2 últimas ingestas (5:30am y 20:30pm Madrid)
+# Gap máximo entre runs = 15h (5:30→20:30). 20h cubre holgadamente current + previous.
+INGESTA_COVERAGE_HOURS = 20
+
+# Freshness tiers para el orchestrator (aplicados sobre fecha_inventariado)
+FRESHNESS_URGENTE_STEPS  = [12, 20, 24]   # Política, Deporte, Geopolítica, Justicia
+FRESHNESS_NORMAL_STEPS   = [12, 24, 36]   # Economía, Tecnología, Negocios, Energía
+FRESHNESS_EVERGREEN_STEPS = [24, 48]      # Nutrición, Ciencia, Cultura, Viajes
+
+# ─────────────────────────────────────────────────────────────────────────────
+
 CATEGORIES_LIST = [
     "Política",
     "Geopolítica",

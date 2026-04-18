@@ -100,9 +100,10 @@ class HourlyProcessor:
         await self._ingest_all_rss()
         
         # 0.1 LIMPIEZA DE DATOS ANTIGUOS
-        removed_articles = self.gcs.cleanup_old_articles(hours=168)  # 7 días
+        from src.utils.constants import ARTICLES_RETENTION_HOURS
+        removed_articles = self.gcs.cleanup_old_articles(hours=ARTICLES_RETENTION_HOURS)
         if removed_articles > 0:
-            logger.info(f"🧹 Eliminados {removed_articles} artículos antiguos (>7 días)")
+            logger.info(f"🧹 Eliminados {removed_articles} artículos de articles.json (>{ARTICLES_RETENTION_HOURS}h)")
         
         # 1. Obtener todos los aliases únicos de Firebase
         all_aliases_tuples = self._get_all_topics_from_firebase()
@@ -113,10 +114,11 @@ class HourlyProcessor:
         topics_data = self._load_topics_json()
         logger.info(f"📦 Topics existentes: {len(topics_data)}")
         
-        # 2.1 Limpiar noticias antiguas de topics (>48h) para mantener cache fresco
-        removed_news = self.gcs.cleanup_old_topic_news(topics_data, days=2)
+        # 2.1 Limpiar noticias antiguas de topics
+        from src.utils.constants import TOPICS_RETENTION_DAYS
+        removed_news = self.gcs.cleanup_old_topic_news(topics_data, days=TOPICS_RETENTION_DAYS)
         if removed_news > 0:
-            logger.info(f"🧹 Eliminadas {removed_news} noticias >48h de topics")
+            logger.info(f"🧹 Eliminadas {removed_news} noticias >{TOPICS_RETENTION_DAYS*24}h de topics")
         
         # 3. Sincronizar aliases con topics (LLM matching semántico)
         topics_data = await self._sync_aliases_with_topics(all_aliases_tuples, topics_data)
@@ -728,15 +730,15 @@ class HourlyProcessor:
     def _get_articles_for_categories(self, categories: list) -> list:
         """Busca artículos en GCS dinámicamente según la última ejecución"""
         
-        # Calcular ventana dinámica
-        hours_limit = 24.0 # Default si no hay estado previo
+        # Calcular ventana dinámica sobre fecha_ingesta (cuándo capturamos los artículos)
+        from src.utils.constants import ARTICLES_INGEST_WINDOW_HOURS
+        hours_limit = ARTICLES_INGEST_WINDOW_HOURS  # Default = 14h si no hay estado previo
         if hasattr(self, 'last_run_time') and self.last_run_time:
             delta = datetime.now() - self.last_run_time
             hours_limit = delta.total_seconds() / 3600
-            hours_limit += 0.5 # Buffer de 30 mins
-            
-            # Cap limits
-            hours_limit = max(0.1, min(hours_limit, 48.0)) # Min 6 min, Max 48h
+            hours_limit += 0.5  # buffer de 30 min
+            # Cap: mínimo 6 min, máximo ARTICLES_INGEST_WINDOW_HOURS (14h)
+            hours_limit = max(0.1, min(hours_limit, ARTICLES_INGEST_WINDOW_HOURS))
             
         logger.info(f"📡 Buscando artículos (Ventana dinámica: {hours_limit:.2f}h)...")
 
@@ -788,31 +790,12 @@ class HourlyProcessor:
         if not articles:
             return []
 
-        # Filtrar artículos muy antiguos (más de 24h)
-        from datetime import datetime, timedelta
-        cutoff = datetime.now() - timedelta(hours=24)
-        fresh_articles = []
-        for a in articles:
-            pub_date = a.get("published_at")
-            if isinstance(pub_date, str):
-                try:
-                    pub_date = datetime.fromisoformat(pub_date.replace("Z", "+00:00"))
-                    if pub_date.replace(tzinfo=None) >= cutoff:
-                        fresh_articles.append(a)
-                except:
-                    fresh_articles.append(a)  # Si no puede parsear, incluir
-            else:
-                fresh_articles.append(a)
-        
-        if not fresh_articles:
-            logger.info(f"⏰ {topic}: 0 artículos frescos (todos > 48h)")
-            return []
-
         # Process up to 150 candidates in batches of 50
+        # No pre-filter by published_at: get_articles_by_category ya filtró por fecha_ingesta
         max_candidates = 150
         batch_size = 50
-        articles = fresh_articles[:max_candidates]
-        logger.info(f"🔍 {topic}: {len(fresh_articles)} frescos, evaluando {len(articles)} candidatos en lotes de {batch_size}")
+        articles = articles[:max_candidates]
+        logger.info(f"🔍 {topic}: {len(articles)} candidatos en lotes de {batch_size}")
 
         # Build User Context String for Optimized Filtering
         context_str = ""
@@ -1296,7 +1279,7 @@ class HourlyProcessor:
         if all_new_articles:
             added = self.gcs.merge_new_articles(all_new_articles)
             logger.info(f"✅ Nuevos en GCS: {added}")
-            self.gcs.cleanup_old_articles(hours=72)
+            # cleanup se llama desde run() con ARTICLES_RETENTION_HOURS, no aquí
         else:
             logger.info("📭 Sin nuevos artículos en RSS.")
 

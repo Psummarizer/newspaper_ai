@@ -218,81 +218,99 @@ class GCSService:
             return False
     
     def get_articles_by_category(self, category: str, hours_limit: int = 24) -> list:
-        """Filtra artículos por categoría y ventana temporal."""
+        """
+        Filtra artículos por categoría y ventana temporal.
+        Usa fecha_ingesta (cuándo los capturamos) si existe; fallback a published_at.
+        Artículos legacy sin fecha_ingesta pero con published_at válido son incluidos.
+        """
         articles = self.get_articles()
         if not articles:
             return []
-        
+
         from datetime import timedelta
-        cutoff = datetime.now() - timedelta(hours=hours_limit)
-        
+        now = datetime.now()
+        cutoff = now - timedelta(hours=hours_limit)
+
         filtered = []
         normalized_category = _normalize_category(category)
         for art in articles:
-            art_category = _normalize_category(art.get("category", ""))
-            if art_category != normalized_category:
+            if _normalize_category(art.get("category", "")) != normalized_category:
                 continue
-            
-            # Parsear fecha
-            pub_date = art.get("published_at")
-            if isinstance(pub_date, str):
-                try:
-                    pub_date = datetime.fromisoformat(pub_date.replace("Z", "+00:00"))
-                except:
-                    pub_date = datetime.now()
-            
-            if pub_date and pub_date.replace(tzinfo=None) >= cutoff:
-                filtered.append(art)
-        
+
+            fecha_str = art.get("fecha_ingesta") or art.get("published_at")
+            if not fecha_str:
+                continue
+            try:
+                fecha_dt = datetime.fromisoformat(str(fecha_str)[:19].replace("Z", ""))
+                if fecha_dt > now:
+                    continue  # fecha futura → ignorar
+                if fecha_dt >= cutoff:
+                    filtered.append(art)
+            except:
+                filtered.append(art)  # no parseable → incluir por precaución
+
         return filtered
     
     def merge_new_articles(self, new_articles: list) -> int:
         """
         Añade artículos nuevos sin duplicados.
-        Usa la URL como identificador único.
+        Marca cada artículo con fecha_ingesta (cuándo lo capturamos) para que
+        get_articles_by_category y cleanup puedan operar sobre nuestra fecha,
+        no sobre la fecha RSS que puede ser errónea o futura.
         """
         if not new_articles:
             return 0
-        
+
+        now_str = datetime.now().isoformat()
         existing = self.get_articles()
         existing_urls = {art.get("url") for art in existing}
-        
+
         added = 0
         for art in new_articles:
             if art.get("url") not in existing_urls:
+                art["fecha_ingesta"] = now_str  # cuándo lo capturamos nosotros
                 existing.append(art)
                 existing_urls.add(art.get("url"))
                 added += 1
-        
+
         if added > 0:
             self.save_articles(existing)
-        
+
         return added
-    
-    def cleanup_old_articles(self, hours: int = 168):
-        """Elimina artículos más antiguos que X horas (defecto 7 días)."""
+
+    def cleanup_old_articles(self, hours: int = 72):
+        """
+        Elimina artículos más antiguos que X horas.
+        Prioriza fecha_ingesta (cuándo los capturamos) sobre published_at.
+        Descarta también artículos con fecha futura (RSS typos).
+        """
+        from src.utils.constants import ARTICLES_RETENTION_HOURS
         articles = self.get_articles()
         if not articles:
             return 0
-        
+
         from datetime import timedelta
-        cutoff = datetime.now() - timedelta(hours=hours)
-        
+        now = datetime.now()
+        cutoff = now - timedelta(hours=hours)
+
         kept = []
         removed = 0
         for art in articles:
-            pub_date = art.get("published_at")
-            if isinstance(pub_date, str):
-                try:
-                    pub_date = datetime.fromisoformat(pub_date.replace("Z", "+00:00"))
-                except:
-                    pub_date = datetime.now()
-            
-            if pub_date and pub_date.replace(tzinfo=None) >= cutoff:
-                kept.append(art)
-            else:
-                removed += 1
-        
+            fecha_str = art.get("fecha_ingesta") or art.get("published_at")
+            if not fecha_str:
+                removed += 1  # sin fecha → descartar
+                continue
+            try:
+                fecha_dt = datetime.fromisoformat(str(fecha_str)[:19].replace("Z", ""))
+                if fecha_dt > now:
+                    removed += 1  # fecha futura (RSS typo) → descartar
+                elif fecha_dt >= cutoff:
+                    kept.append(art)
+                else:
+                    removed += 1
+            except:
+                kept.append(art)  # no parseable → mantener
+
         if removed > 0:
             self.save_articles(kept)
         
@@ -301,8 +319,8 @@ class GCSService:
     def cleanup_old_topic_news(self, topics_data: dict, days: int = 2) -> int:
         """
         Elimina noticias más antiguas que X días de topics.json.
-        Usa published_at como fecha primaria (fecha real RSS); cae a fecha_inventariado
-        si no existe. También descarta artículos con fecha futura (RSS typos, ej: año 2926).
+        Usa fecha_inventariado (cuándo las procesamos) como primaria; fallback a published_at.
+        Descarta también fechas futuras (RSS typos, ej: año 2926).
         Retorna el número total de noticias eliminadas.
         """
         if not topics_data:
@@ -323,21 +341,20 @@ class GCSService:
 
             kept_news = []
             for news in noticias:
-                # Usar published_at como fecha primaria; fallback a fecha_inventariado
-                fecha_str = news.get("published_at") or news.get("fecha_inventariado")
+                # fecha_inventariado primero (fiable, la ponemos nosotros); fallback a published_at
+                fecha_str = news.get("fecha_inventariado") or news.get("published_at")
                 if isinstance(fecha_str, str):
                     try:
                         fecha_dt = datetime.fromisoformat(fecha_str[:19])
-                        # Descartar fechas futuras (RSS typo, ej: año 2926)
                         if fecha_dt > now:
-                            total_removed += 1
+                            total_removed += 1  # fecha futura → descartar
                             continue
                         if fecha_dt >= cutoff:
                             kept_news.append(news)
                         else:
                             total_removed += 1
                     except:
-                        kept_news.append(news)  # Si no puede parsear, mantener
+                        kept_news.append(news)  # no parseable → mantener
                 else:
                     kept_news.append(news)
 
