@@ -131,11 +131,12 @@ Estas garantías deben respetarse en todo desarrollo nuevo. Si un cambio las rom
 - `forbidden_sources` excluye dominios enteros (comparación exacta de dominio).
 
 **Comportamiento de "Fuentes preferidas: X, Y, Z" en el contexto:**
-- Se detectan por nombre en `_media_domain_map` (orchestrator.py) y se mapean a dominios.
-- Si hay suficientes artículos de esas fuentes para cubrir todos los slots → se usan SOLO esas fuentes, sin medios externos.
-- Si no hay suficientes → el LLM completa los slots restantes con los mejores artículos disponibles.
-- Esta es la semántica correcta de "preferidas": prioridad total cuando hay cobertura, fallback a otros cuando no la hay.
-- Añadir nuevos medios al `_media_domain_map` si se necesitan más variantes de nombre.
+- Se resuelven via `_resolve_preferred_domains()` (módulo orchestrator.py):
+  1. Busca cada nombre en `MEDIA_DOMAIN_MAP` (>100 medios ES+INT hardcodeados).
+  2. Si detecta "fuentes preferidas: X, Y" en el texto, parsea la lista e infiere dominios para medios no reconocidos.
+- Si hay suficientes artículos de esas fuentes → se usan SOLO esas fuentes (sin mezcla de medios externos).
+- Si no hay suficientes → el LLM completa con los mejores disponibles.
+- Añadir nuevos medios a `MEDIA_DOMAIN_MAP` (nivel de módulo, antes de la clase `Orchestrator`) si un usuario menciona un medio no reconocido.
 
 **Comportamiento de categoría para topics de viajes:**
 - "viajes" mapea SOLO a `Consumo y Estilo de Vida`. No incluye `Transporte y Movilidad` porque las averías de trenes/aviones no son noticias de ocio. Si se añade cualquier keyword de viajes al `_topic_cat_map`, no incluir Transporte.

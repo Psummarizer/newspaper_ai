@@ -18,6 +18,165 @@ from src.services.podcast_service import NewsPodcastService
 from src.utils.constants import CATEGORIES_LIST, CATEGORY_KEYWORDS, FRESHNESS_URGENTE_STEPS, FRESHNESS_NORMAL_STEPS, FRESHNESS_EVERGREEN_STEPS
 from src.utils.text_utils import is_obvious_icon_url
 
+# ---------------------------------------------------------------------------
+# MEDIA DOMAIN MAP — fuente única para reconocimiento de fuentes preferidas.
+# Cubre medios españoles e internacionales. Añadir aquí cuando un usuario
+# mencione un medio no reconocido en su contexto de Firestore.
+# ---------------------------------------------------------------------------
+MEDIA_DOMAIN_MAP: Dict[str, str] = {
+    # España — generalistas
+    "el país": "elpais.com", "elpais": "elpais.com",
+    "el mundo": "elmundo.es", "elmundo": "elmundo.es",
+    "el debate": "eldebate.com", "eldebate": "eldebate.com",
+    "el confidencial": "elconfidencial.com", "elconfidencial": "elconfidencial.com",
+    "libertad digital": "libertaddigital.com", "libertaddigital": "libertaddigital.com",
+    "the objective": "theobjective.com", "theobjective": "theobjective.com",
+    "voz pópuli": "vozpopuli.com", "voz populi": "vozpopuli.com", "vozpopuli": "vozpopuli.com",
+    "okdiario": "okdiario.com",
+    "el español": "elespanol.com", "elespanol": "elespanol.com",
+    "eldiario": "eldiario.es", "eldiario.es": "eldiario.es",
+    "abc": "abc.es",
+    "la razón": "larazon.es", "la razon": "larazon.es",
+    "público": "publico.es", "publico": "publico.es",
+    "infolibre": "infolibre.es",
+    "la vanguardia": "lavanguardia.com", "lavanguardia": "lavanguardia.com",
+    "el periódico": "elperiodico.com", "el periodico": "elperiodico.com",
+    "20 minutos": "20minutos.es", "20minutos": "20minutos.es",
+    "huffpost españa": "huffingtonpost.es", "huffpost": "huffingtonpost.es",
+    "esdiario": "esdiario.com",
+    "el heraldo": "heraldo.es", "heraldo de aragón": "heraldo.es",
+    "la voz de galicia": "lavozdegalicia.es",
+    "el correo": "elcorreo.com",
+    "sur": "diariosur.es",
+    "ideal": "ideal.es",
+    "europa press": "europapress.es",
+    # España — economía
+    "expansión": "expansion.com", "expansion": "expansion.com",
+    "cinco días": "cincodias.elpais.com", "cinco dias": "cincodias.elpais.com",
+    "el economista": "eleconomista.es",
+    "bolsamanía": "bolsamania.com", "bolsamania": "bolsamania.com",
+    "cotizalia": "cotizalia.com",
+    # España — deportes
+    "as": "as.com", "diario as": "as.com",
+    "marca": "marca.com",
+    "sport": "sport.es",
+    "mundo deportivo": "mundodeportivo.com", "mundodeportivo": "mundodeportivo.com",
+    "relevo": "relevo.com",
+    "estadio deportivo": "estadiodeportivo.com",
+    "superdeporte": "superdeporte.es",
+    "jornada deportiva": "jornadadeportiva.com",
+    # España — motor
+    "motorsport": "es.motorsport.com", "motorsport.com": "es.motorsport.com",
+    "motor.es": "motor.es",
+    "motorpasión": "motorpasion.com", "motorpasion": "motorpasion.com",
+    "autobild españa": "autobild.es", "autobild": "autobild.es",
+    # España — tecnología
+    "xataka": "xataka.com",
+    "genbeta": "genbeta.com",
+    "hipertextual": "hipertextual.com",
+    "muycomputer": "muycomputer.com",
+    "computerhoy": "computerhoy.com",
+    # España — radio/tv
+    "cope": "cope.es",
+    "cadena ser": "cadenaser.com", "ser": "cadenaser.com",
+    "onda cero": "ondacero.es",
+    "rtve": "rtve.es",
+    "la sexta": "lasexta.com",
+    "antena 3": "antena3.com",
+    # Internacional — generalistas
+    "reuters": "reuters.com",
+    "ap": "apnews.com", "associated press": "apnews.com", "ap news": "apnews.com",
+    "afp": "afp.com",
+    "bbc": "bbc.com", "bbc news": "bbc.com",
+    "cnn": "cnn.com",
+    "the guardian": "theguardian.com", "guardian": "theguardian.com",
+    "new york times": "nytimes.com", "nyt": "nytimes.com",
+    "washington post": "washingtonpost.com",
+    "the economist": "economist.com",
+    "financial times": "ft.com",
+    "le monde": "lemonde.fr",
+    "der spiegel": "spiegel.de",
+    "al jazeera": "aljazeera.com",
+    "dw": "dw.com", "deutsche welle": "dw.com",
+    # Internacional — economía/finanzas
+    "bloomberg": "bloomberg.com",
+    "wall street journal": "wsj.com", "wsj": "wsj.com",
+    "forbes": "forbes.com",
+    "fortune": "fortune.com",
+    "business insider": "businessinsider.com",
+    # Internacional — deportes
+    "espn": "espn.com",
+    "sky sports": "skysports.com",
+    "bbc sport": "bbc.co.uk",
+    "marca internacional": "marca.com",
+    "formula 1 oficial": "formula1.com", "f1.com": "formula1.com",
+    "motorsport network": "motorsport.com",
+    "autosport": "autosport.com",
+    # Internacional — tecnología
+    "wired": "wired.com",
+    "techcrunch": "techcrunch.com",
+    "the verge": "theverge.com",
+    "ars technica": "arstechnica.com",
+    "mit technology review": "technologyreview.com",
+}
+
+# Categorías que requieren frescura urgente (deportes en vivo, política, etc.)
+_URGENTE_CATS = {
+    "Política", "Deporte", "Geopolítica", "Internacional",
+    "Justicia y Legal", "Economía y Finanzas",
+}
+# Categorías evergreen (ciencia, cultura, estilo de vida, etc.)
+_EVERGREEN_CATS = {
+    "Ciencia e Investigación", "Cultura y Entretenimiento",
+    "Consumo y Estilo de Vida", "Agricultura y Alimentación",
+    "Salud y Bienestar", "Educación y Conocimiento",
+    "Filantropía e Impacto Social", "Medio Ambiente y Clima",
+}
+
+
+def _resolve_preferred_domains(context: str) -> set:
+    """Extrae dominios preferidos del contexto de Firestore del usuario.
+
+    Estrategia:
+    1. Buscar cada clave de MEDIA_DOMAIN_MAP en el contexto (word-boundary).
+    2. Si el contexto contiene 'fuentes preferidas:' o 'preferred sources:',
+       parsear la lista y para items no reconocidos intentar inferir el dominio
+       (ej: 'Relevo' → 'relevo.com').
+    """
+    if not context:
+        return set()
+    ctx_lower = context.lower()
+    domains = set()
+
+    # Paso 1: match contra mapa conocido
+    for name, domain in MEDIA_DOMAIN_MAP.items():
+        if re.search(r'\b' + re.escape(name) + r'\b', ctx_lower):
+            domains.add(domain)
+
+    # Paso 2: parseo de "fuentes preferidas: X, Y, Z"
+    patterns = [r'fuentes preferidas[:\s]+([^\.]+)', r'preferred sources[:\s]+([^\.]+)',
+                r'prefiero[:\s]+([^\.]+)']
+    for pattern in patterns:
+        m = re.search(pattern, ctx_lower)
+        if m:
+            raw_names = re.split(r'[,;]', m.group(1))
+            for raw in raw_names:
+                name = raw.strip().rstrip('.')
+                if not name or len(name) < 2:
+                    continue
+                # Si ya fue reconocido en el paso 1, skip
+                already = any(re.search(r'\b' + re.escape(name) + r'\b', ctx_lower)
+                              and MEDIA_DOMAIN_MAP.get(name) for n, _ in MEDIA_DOMAIN_MAP.items())
+                if already:
+                    continue
+                # Inferencia simple: "El Debate" → eldebate.com, "BBC News" → bbcnews.com
+                inferred = re.sub(r'\bel\b|\bla\b|\blos\b|\bthe\b|\ble\b|\bde\b', '', name)
+                inferred = re.sub(r'\s+', '', inferred).lower()
+                if inferred:
+                    domains.add(inferred + '.com')
+    return domains
+
+
 class Orchestrator:
     # i18n display names per language
     CATEGORY_DISPLAY_I18N = {
@@ -480,17 +639,7 @@ JSON only: {{"invalid_ids": [1, 3], "reasons": {{"1": "basketball, not football"
             return news_list
 
         # --- Extract preferred source domains from context ---
-        _pref_domains = set()
-        _media_map = {
-            "el debate": "eldebate.com", "eldebate": "eldebate.com",
-            "el confidencial": "elconfidencial.com", "elconfidencial": "elconfidencial.com",
-            "libertad digital": "libertaddigital.com", "libertaddigital": "libertaddigital.com",
-            "the objective": "theobjective.com", "theobjective": "theobjective.com",
-            "vozpopuli": "vozpopuli.com", "voz populi": "vozpopuli.com", "voz pópuli": "vozpopuli.com",
-        }
-        for media_name, domain in _media_map.items():
-            if media_name in contexts_joined:
-                _pref_domains.add(domain)
+        _pref_domains = _resolve_preferred_domains(contexts_joined)
 
         # --- Force preferred-source articles ---
         # Collects ALL available articles from preferred sources (up to max_count).
@@ -701,8 +850,28 @@ JSON only: {{"invalid_ids": [1, 3], "reasons": {{"1": "basketball, not football"
             "agricultura", "palm oil", "soy", "biodiesel", "biofuel",
         }
 
-        def _get_topic_freshness_tier(topic_alias: str) -> str:
-            """Devuelve 'urgente', 'evergreen' o 'normal' según el alias del topic."""
+        def _norm_cat_str(c: str) -> str:
+            return ''.join(ch for ch in unicodedata.normalize('NFD', c)
+                           if unicodedata.category(ch) != 'Mn').lower().strip()
+
+        _urgente_norm = {_norm_cat_str(c) for c in _URGENTE_CATS}
+        _evergreen_norm = {_norm_cat_str(c) for c in _EVERGREEN_CATS}
+
+        def _get_topic_freshness_tier(topic_alias: str, categories: list = None) -> str:
+            """Devuelve 'urgente', 'evergreen' o 'normal'.
+
+            Prioridad 1: categorías LLM-asignadas al topic (cubre cualquier topic nuevo).
+            Prioridad 2: keyword fallback sobre el alias (retrocompatibilidad).
+            """
+            if categories:
+                for cat in categories:
+                    if _norm_cat_str(cat) in _urgente_norm:
+                        return "urgente"
+                for cat in categories:
+                    if _norm_cat_str(cat) in _evergreen_norm:
+                        return "evergreen"
+                return "normal"
+            # Keyword fallback (topic sin categorías asignadas aún)
             t = ''.join(ch for ch in unicodedata.normalize('NFD', topic_alias.lower())
                         if unicodedata.category(ch) != 'Mn')
             for kw in _URGENTE_KEYWORDS:
@@ -760,7 +929,7 @@ JSON only: {{"invalid_ids": [1, 3], "reasons": {{"1": "basketball, not football"
                             pass
                 return filtered
 
-            _tier = _get_topic_freshness_tier(topic)
+            _tier = _get_topic_freshness_tier(topic, cached_data.get("categories", []))
             tier_steps = {
                 "urgente":  FRESHNESS_URGENTE_STEPS,
                 "normal":   FRESHNESS_NORMAL_STEPS,
@@ -886,30 +1055,8 @@ JSON only: {{"invalid_ids": [1, 3], "reasons": {{"1": "basketball, not football"
 
             # Extract preferred source domains from THIS USER's topic context ONLY
             # (not from cached shared contexts which mix all users)
-            _preferred_domains = set()
             _user_ctx_for_topic = _user_topic_map.get(topic, "")
-            _media_domain_map = {
-                "el debate": "eldebate.com", "eldebate": "eldebate.com",
-                "el confidencial": "elconfidencial.com", "elconfidencial": "elconfidencial.com",
-                "libertad digital": "libertaddigital.com", "libertaddigital": "libertaddigital.com",
-                "the objective": "theobjective.com", "theobjective": "theobjective.com",
-                "vozpopuli": "vozpopuli.com", "voz populi": "vozpopuli.com", "voz pópuli": "vozpopuli.com",
-                "el mundo": "elmundo.es", "elmundo": "elmundo.es",
-                "el país": "elpais.com", "elpais": "elpais.com",
-                "la razón": "larazon.es", "la razon": "larazon.es",
-                "okdiario": "okdiario.com", "esdiario": "esdiario.com",
-                "diario as": "as.com",
-                "marca": "marca.com",
-                "motorsport": "es.motorsport.com", "motorsport.com": "es.motorsport.com",
-                "la vanguardia": "lavanguardia.com", "lavanguardia": "lavanguardia.com",
-                "20 minutos": "20minutos.es", "20minutos": "20minutos.es",
-            }
-            if _user_ctx_for_topic:
-                ctx_lower = str(_user_ctx_for_topic).lower()
-                for media_name, domain in _media_domain_map.items():
-                    # Word boundary check to avoid "as" matching "carreras"
-                    if re.search(r'\b' + re.escape(media_name) + r'\b', ctx_lower):
-                        _preferred_domains.add(domain)
+            _preferred_domains = _resolve_preferred_domains(_user_ctx_for_topic)
 
             # Re-sort with preferred source boost if any
             if _preferred_domains:
@@ -1120,11 +1267,15 @@ JSON only: {{"invalid_ids": [1, 3], "reasons": {{"1": "basketball, not football"
                 if new_cat:
                     # Don't reclassify away from the topic's expected category
                     # e.g. a MotoGP article should stay in "Deporte" even if LLM says "Tecnología"
+                    # Priority 1: hardcoded map for known topics (stability)
                     topic_expected = set()
                     t_norm = ''.join(ch for ch in unicodedata.normalize('NFD', topic.lower()) if unicodedata.category(ch) != 'Mn')
                     for key, cats in _topic_cat_map.items():
                         if key in t_norm:
                             topic_expected.update(cats)
+                    # Priority 2: LLM-assigned categories (covers all new topics not in map)
+                    if not topic_expected:
+                        topic_expected = set(cached_data.get("categories", []))
 
                     # Normalize for accent-insensitive comparison
                     def _norm_cat(c):
@@ -1231,7 +1382,10 @@ JSON only: {{"invalid_ids": [1, 3], "reasons": {{"1": "basketball, not football"
         # Build a set of "expected" categories from user topics for relevance filtering
         _topic_expected_cats = set()
         for t in topics:
-            # Normalize accents for matching (e.g. "Política" -> "politica")
+            # Priority 1: LLM-assigned categories from topics.json (covers all new topics)
+            if t in topic_fresh_news:
+                _topic_expected_cats.update(topic_fresh_news[t][1].get("categories", []))
+            # Priority 2: hardcoded map (supplements for well-known multi-category topics)
             t_norm = ''.join(ch for ch in unicodedata.normalize('NFD', t.lower()) if unicodedata.category(ch) != 'Mn')
             for key, cats in _topic_cat_map.items():
                 if key in t_norm:
