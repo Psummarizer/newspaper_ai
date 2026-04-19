@@ -177,6 +177,53 @@ def _resolve_preferred_domains(context: str) -> set:
     return domains
 
 
+def _parse_subtopics(context: str) -> list:
+    """Detecta si el contexto de Firestore es una lista de subtemas y los extrae.
+
+    Retorna una lista con los subtemas si el contexto parece una enumeración
+    (ej: "Real Madrid, tenis, padel, F1 y NBA") y lista vacía si es una
+    instrucción (ej: "Solo quiero noticias de fútbol masculino").
+
+    Reglas de detección:
+    - Dividir por comas y " y "/" and "/" e "
+    - Si hay ≥2 partes, cada una ≤4 palabras, y ninguna empieza con
+      palabras de instrucción → es una lista de subtemas.
+    """
+    if not context or not context.strip():
+        return []
+    ctx = context.strip()
+
+    _INSTRUCTION_STARTS = {
+        "solo", "quiero", "prefiero", "noticias", "sin", "no ",
+        "únicamente", "unicamente", "sobre", "acerca", "quiero ver",
+        "principalmente", "también", "tambien", "especialmente",
+        "fuentes", "prefiero ver",
+    }
+
+    # Instrucción si empieza con un verbo o "solo" típico de una frase
+    ctx_lower = ctx.lower()
+    for iw in _INSTRUCTION_STARTS:
+        if ctx_lower.startswith(iw):
+            return []
+
+    # Dividir por separadores de lista
+    parts = re.split(r',\s*|\s+y\s+|\s+and\s+|\s+e\s+', ctx)
+    parts = [p.strip().strip('.').strip() for p in parts if p.strip()]
+
+    # Descartar si pocas partes o alguna parte es demasiado larga (frase, no tema)
+    if len(parts) < 2:
+        return []
+    if any(len(p.split()) > 4 for p in parts):
+        return []
+    # Descartar si alguna parte es claramente instructiva
+    for p in parts:
+        p_low = p.lower()
+        if any(p_low.startswith(iw.rstrip()) for iw in _INSTRUCTION_STARTS):
+            return []
+
+    return parts
+
+
 class Orchestrator:
     # i18n display names per language
     CATEGORY_DISPLAY_I18N = {
@@ -588,9 +635,11 @@ JSON only: {{"invalid_ids": [1, 3], "reasons": {{"1": "basketball, not football"
             self.logger.warning(f"LLM rule filter fallback ({topic}): {e}. Usando keyword fallback.")
             return news_list
 
-    async def _select_top_3_cached(self, topic: str, news_list: List[Dict], max_count: int = 3, user_contexts: List[str] = None) -> List[Dict]:
+    async def _select_top_3_cached(self, topic: str, news_list: List[Dict], max_count: int = 3,
+                                    user_contexts: List[str] = None, subtopics: list = None) -> List[Dict]:
         """Selecciona las top N noticias más relevantes de la lista cacheada usando LLM.
-        Guarantees at least 1 article from user-preferred sources if available."""
+        Guarantees at least 1 article from user-preferred sources if available.
+        When subtopics are provided, guarantees ≥1 article per subtopic (up to max_count cap)."""
         # --- Context aggregation ---
         contexts_joined = ""
         if user_contexts:
@@ -696,9 +745,21 @@ JSON only: {{"invalid_ids": [1, 3], "reasons": {{"1": "basketball, not football"
                 f"     relax the rules to fill slots.\n"
             )
 
+        subtopics_str = ""
+        if subtopics:
+            subs_list = ", ".join(subtopics)
+            subtopics_str = (
+                f"\n📌 SUBTOPIC COVERAGE (mandatory):\n"
+                f"   This topic has these subtopics: {subs_list}\n"
+                f"   - Select AT LEAST 1 article per subtopic when available.\n"
+                f"   - Total cap: {llm_count} articles maximum.\n"
+                f"   - If >5 subtopics, prioritize the most TRENDING ones with breaking news today.\n"
+                f"   - A subtopic with NO available articles may be skipped.\n"
+            )
+
         prompt = f"""
         Select the {llm_count} most relevant news for topic "{topic}".
-        {source_pref_str}
+        {source_pref_str}{subtopics_str}
         SELECTION CRITERIA (in priority order):
         1. HIGH IMPACT & TRENDING: Choose news that are generating the most debate, that are breaking news, that affect many people, or that represent major developments. Avoid minor/local news when bigger stories exist.
         2. DIRECTLY about "{topic}" - not tangential.
@@ -1075,14 +1136,26 @@ JSON only: {{"invalid_ids": [1, 3], "reasons": {{"1": "basketball, not football"
             topic_fresh_news[topic] = (fresh_news, cached_data)
 
         # --- FASE 1b: BALANCEO DE SECCIONES ---
-        # Base slots per topic: 4 for broad topics, 2 for niche
+        # Pre-compute subtopics per topic (e.g. "Deportes": "tenis, futbol, F1 y NBA")
+        topic_subtopics: dict = {}
+        for t in topics:
+            ctx = _user_topic_map.get(t, "")
+            subs = _parse_subtopics(ctx)
+            if subs:
+                topic_subtopics[t] = subs
+                print(f"   🔀 Subtopics detectados para '{t}': {subs}")
+
+        # Base slots per topic: 5 max (user cap), scaled by subtopic count when detected
         _niche_keywords = {"vino", "viaje", "nutrici", "estilo", "ocio", "familia",
                            "experiencia", "moment", "freight", "gold", "silver"}
         def _base_slots(topic_name: str) -> int:
+            subs = topic_subtopics.get(topic_name, [])
+            if subs:
+                return min(5, len(subs))  # 1 slot per subtopic, hard cap 5
             t_lower = topic_name.lower()
             for kw in _niche_keywords:
                 if kw in t_lower:
-                    return 3  # Minimum 3 even for niche topics
+                    return 3
             return 4
 
         topic_slots = {}
@@ -1102,8 +1175,8 @@ JSON only: {{"invalid_ids": [1, 3], "reasons": {{"1": "basketball, not football"
                     topic_slots[t] = base
                     topics_with_surplus_capacity.append(t)
 
-        # Distribute surplus evenly among topics that have extra news (max 4 slots per topic)
-        MAX_SLOTS_PER_TOPIC = 4
+        # Distribute surplus evenly among topics that have extra news (hard cap: 5 per topic)
+        MAX_SLOTS_PER_TOPIC = 5
         if surplus > 0 and topics_with_surplus_capacity:
             extra_per_topic = max(1, surplus // len(topics_with_surplus_capacity))
             for t in topics_with_surplus_capacity:
@@ -1146,8 +1219,9 @@ JSON only: {{"invalid_ids": [1, 3], "reasons": {{"1": "basketball, not football"
             "empresa": {"Negocios y Empresas", "Economía y Finanzas"},
             "startup": {"Negocios y Empresas", "Tecnología y Digital"},
             "arabia": {"Geopolítica", "Internacional"},
-            "inteligencia": {"Geopolítica", "Internacional"},  # Inteligencia y Contrainteligencia
             "inteligencia empresarial": {"Negocios y Empresas", "Economía y Finanzas"},
+            # "inteligencia" eliminado: era ambiguo con "inteligencia empresarial".
+            # Topics de "Inteligencia y Contrainteligencia" → LLM asigna Geopolítica directamente.
             "negocios": {"Negocios y Empresas"},
         }
 
@@ -1162,7 +1236,11 @@ JSON only: {{"invalid_ids": [1, 3], "reasons": {{"1": "basketball, not football"
             # SELECCION TOP N (balanced) - pass ONLY this user's context for the topic
             _this_user_ctx = _user_topic_map.get(topic, "")
             topic_user_contexts = [_this_user_ctx] if _this_user_ctx else []
-            selected_news = await self._select_top_3_cached(topic, fresh_news, max_count=max_for_topic, user_contexts=topic_user_contexts)
+            _topic_subs = topic_subtopics.get(topic, [])
+            selected_news = await self._select_top_3_cached(
+                topic, fresh_news, max_count=max_for_topic,
+                user_contexts=topic_user_contexts, subtopics=_topic_subs,
+            )
             print(f"   ✅ [{topic}] Seleccionadas Top {len(selected_news)} para el boletín.")
             
             # PRE-CHECK BARATO de imágenes: solo descarta iconos OBVIOS por URL
@@ -1402,16 +1480,29 @@ JSON only: {{"invalid_ids": [1, 3], "reasons": {{"1": "basketball, not football"
             _topic_expected_cats.update({"Geopolítica", "Internacional"})
         print(f"   📋 Expected categories from topics: {_topic_expected_cats}")
 
+        def _topics_for_cat(cat: str) -> int:
+            """Count user topics mapping to this category (hardcoded map OR LLM-assigned categories)."""
+            _cn = lambda s: ''.join(ch for ch in unicodedata.normalize('NFD', s) if unicodedata.category(ch) != 'Mn').lower()
+            cat_n = _cn(cat)
+            count = 0
+            for t in topics:
+                t_norm = _cn(t)
+                if any(k in t_norm for k, cats in _topic_cat_map.items() if cat in cats):
+                    count += 1
+                    continue
+                if t in topic_fresh_news:
+                    llm_cats = topic_fresh_news[t][1].get("categories", [])
+                    if any(_cn(c) == cat_n for c in llm_cats):
+                        count += 1
+            return count
+
         # --- PORTADA: Seleccionar PRIMERO para poder excluir artículos del cuerpo ---
         capped_articles = []
         for cat in sorted_cats:
             articles_dict = category_map.get(cat, {})
             if not articles_dict:
                 continue
-            topics_for_cat_p = sum(1 for t in topics if any(
-                k in ''.join(ch for ch in unicodedata.normalize('NFD', t.lower()) if unicodedata.category(ch) != 'Mn')
-                for k, cats in _topic_cat_map.items() if cat in cats
-            ))
+            topics_for_cat_p = _topics_for_cat(cat)
             max_per_cat = max(5, topics_for_cat_p * 3) if cat in _topic_expected_cats else 3
             topic_groups_p = {}
             for art in articles_dict.values():
@@ -1458,10 +1549,7 @@ JSON only: {{"invalid_ids": [1, 3], "reasons": {{"1": "basketball, not football"
             if not articles_dict: continue
 
             # --- TOPIC-AWARE CAPPING ---
-            topics_for_cat = sum(1 for t in topics if any(
-                k in ''.join(ch for ch in unicodedata.normalize('NFD', t.lower()) if unicodedata.category(ch) != 'Mn')
-                for k, cats in _topic_cat_map.items() if cat in cats
-            ))
+            topics_for_cat = _topics_for_cat(cat)
             if cat in _topic_expected_cats:
                 max_per_cat = max(5, topics_for_cat * 3)
             else:
