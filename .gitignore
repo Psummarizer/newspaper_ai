@@ -140,3 +140,4 @@ delivery_logs/
 
 # Claude local settings (not shared)
 .claude/settings.local.json
+.claude/scheduled_tasks.lock
