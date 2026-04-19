@@ -15,7 +15,7 @@ from src.services.email_service import EmailService
 from src.services.firebase_service import FirebaseService
 from src.services.gcs_service import GCSService
 from src.services.podcast_service import NewsPodcastService
-from src.utils.constants import CATEGORIES_LIST
+from src.utils.constants import CATEGORIES_LIST, CATEGORY_KEYWORDS, FRESHNESS_URGENTE_STEPS, FRESHNESS_NORMAL_STEPS, FRESHNESS_EVERGREEN_STEPS
 from src.utils.text_utils import is_obvious_icon_url
 
 class Orchestrator:
@@ -229,7 +229,7 @@ class Orchestrator:
         sources_html = ""
         if sources:
             links = []
-            for i, src in enumerate(sources):
+            for src in sources:
                  domain = urlparse(src).netloc.replace("www.", "")
                  links.append(f'<a href="{src}" target="_blank" style="color: #1DA1F2;">{domain}</a>')
             sources_line = " | ".join(links)
@@ -674,10 +674,6 @@ JSON only: {{"invalid_ids": [1, 3], "reasons": {{"1": "basketball, not football"
         topic_fresh_news: Dict[str, tuple] = {}  # topic -> (fresh_news_list, cached_data)
         total_budget = len(topics) * 4  # Total news slots across all topics
 
-        from src.utils.constants import (
-            FRESHNESS_URGENTE_STEPS, FRESHNESS_NORMAL_STEPS, FRESHNESS_EVERGREEN_STEPS,
-        )
-
         # Frescura diferenciada por tipo de topic.
         # FILTRO PRIMARIO: fecha_inventariado (cuándo lo procesamos nosotros).
         # Esto garantiza que solo se usan artículos capturados en la ingesta actual
@@ -782,9 +778,6 @@ JSON only: {{"invalid_ids": [1, 3], "reasons": {{"1": "basketball, not football"
             # Ordenar: más reciente primero. fecha_inventariado como primario.
             fresh_news.sort(key=lambda n: n.get("fecha_inventariado") or n.get("published_at", ""), reverse=True)
                 
-            # Category‑specific keyword lists (simple heuristic)
-            from src.utils.constants import CATEGORY_KEYWORDS
-
             def _compute_article_score(article: dict, current_time: datetime, user_country: str) -> float:
                 """Compute a relevance score for *article*.
 

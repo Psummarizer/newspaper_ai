@@ -79,6 +79,78 @@ Verificar periódicamente que estas fuentes dan artículos:
 
 ---
 
+## Garantías de Calidad del Briefing
+
+Estas garantías deben respetarse en todo desarrollo nuevo. Si un cambio las rompe, es un bug crítico.
+
+### G1 — Cobertura RSS: decenas de fuentes por categoría
+- `data/sources.json` contiene ≥650 fuentes activas (`is_active: true`).
+- Múltiples fuentes por categoría y por país (España amplia, US/UK bien cubiertos, China/Rusia via feeds internacionales en inglés).
+- **Al añadir feeds**: usar el campo `rss_url` (NO `url`). Comprobar que la categoría del feed coincide exactamente con `CATEGORIES_LIST` de `src/utils/constants.py`.
+- **Si una categoría queda sin noticias**: revisar que los feeds de esa categoría están activos y respondiendo.
+
+### G2 — Solo noticias de las 2 últimas ingestas
+- El filtro primario es `fecha_inventariado` (timestamp que pone nuestro sistema al procesar), **no** `published_at` (fecha RSS, puede ser incorrecta).
+- Freshness tiers por tipo de topic (definidos en `src/utils/constants.py`):
+  - **URGENTE** (política, deporte, geopolítica): ventana 12h → 20h → 24h
+  - **NORMAL** (economía, tecnología, negocios): ventana 12h → 24h → 36h
+  - **EVERGREEN** (nutrición, ciencia, cultura, viajes): ventana 24h → 48h
+- Con 2 ingestas diarias (5:30am y 20:30pm Madrid), URGENTE captura exactamente las 2 últimas. NORMAL/EVERGREEN pueden incluir ingestas anteriores cuando hay escasez.
+- `TOPICS_RETENTION_DAYS=2` limpia topics.json a 48h de tope absoluto.
+- **No cambiar** los steps de freshness sin medir impacto: ventanas más amplias = artículos más viejos en el briefing.
+
+### G3 — Sin duplicados: mismo hecho
+- **Capa 1 (ingesta)**: dedup por URL exacta + título normalizado exacto + keyword similarity >50% en `_check_duplicate_or_update`.
+- **Capa 2 (within-session)**: nuevos artículos redactados se registran en `self.existing_news` inmediatamente → la siguiente iteración ya los ve.
+- **Capa 3 (orquestador, cross-categoría)**: título keywords ≥55% OR resumen keywords ≥35% en `used_titles`/`used_articles`.
+- Si se elimina cualquiera de estas capas, aparecerán noticias duplicadas en el briefing.
+
+### G4 — Sin duplicados: mismo tema en momentos distintos (ej: "jugará" vs "ganó")
+- `_dedup_same_event` en `orchestrator.py` tiene 2 capas:
+  - **Capa A** (temporal): si 2 artículos tienen >18h de diferencia y comparten ≥1 entidad propia → descarta el más viejo.
+  - **Capa B** (genérica): ≥2 entidades propias compartidas → mismo evento, descarta el más viejo.
+- Siempre conserva el artículo más reciente por `published_at`.
+- Se aplica en `_select_top_3_cached` antes del LLM de selección.
+
+### G5 — Mínimo 3 noticias por topic del usuario
+- `_base_slots` garantiza mínimo 3 slots por topic (incluso para topics nicho).
+- Si la ingesta fue pobre, los tiers amplían la ventana temporal para encontrar ≥3 artículos.
+- Si tras la máxima ventana no hay ≥3, el topic se omite del briefing (no se rellena con noticias no relacionadas).
+- `max_per_cat` escala con el número de topics que mapean a esa categoría (3 artículos mínimo por topic).
+
+### G6 — Contexto Firestore del usuario siempre aplicado
+- El campo `topic` (map) de Firestore es **la fuente de verdad** de los intereses del usuario.
+- El valor de cada clave es el **contexto/instrucciones**: se usa en 3 lugares:
+  1. **Pre-filtro en ingesta** (`_filter_relevant`): keywords como "masculino/femenino" excluyen artículos durante la ingesta.
+  2. **Scoring** en orchestrator: fuentes preferidas reciben +5.0 en el score.
+  3. **LLM de selección** (`_select_top_3_cached`): el contexto se pasa como instrucción al LLM.
+- Los campos `Topics`/`topics` son legacy y NO se usan. Solo el campo `topic` (map).
+- `forbidden_sources` excluye dominios enteros (comparación exacta de dominio).
+
+### G7 — Imágenes: reales primero, fallback genérico con sentido, sin repetición
+- **Pipeline de imagen en ingesta** (`_prepare_article_for_redaction`):
+  1. Scraping og:image de la URL del artículo.
+  2. Si falla: imagen del campo RSS (`image_url`), validada con `_is_valid_image_url` (descarta iconos/logos por URL).
+  3. Validación de dimensiones: descarta imágenes <100px.
+- **En orchestrator** (`_format_cached_news_to_html`):
+  - Si `imagen_url` está vacío o no es http: llama a `pick_category_image(category, seed=titulo, topic=source_topic, used_images=briefing_used_images)`.
+  - `pick_category_image` prioriza `TOPIC_IMAGES` (F1, IA, Real Madrid, etc.) sobre `CATEGORY_IMAGES`.
+  - `used_images` (set compartido por todo el briefing) evita que 2 artículos usen la misma imagen de fallback.
+  - `seed=titulo` usa hash MD5 → imagen determinista para la misma noticia entre renders.
+  - `onerror` en el `<img>` HTML swapea a fallback de categoría si la URL falla en el cliente de email.
+- **Limitación conocida**: categorías con solo 1 imagen de fallback (`Salud`, `Transporte`, `Agricultura`, etc.) repetirán si hay 3+ noticias sin foto propia. Añadir más imágenes a `CATEGORY_IMAGES` en `src/utils/html_builder.py` si se detecta repetición.
+
+### G8 — Portada no duplica el cuerpo
+- Los artículos seleccionados para la portada se recogen en `portada_urls`.
+- Al renderizar las secciones del cuerpo, los artículos cuya URL esté en `portada_urls` se saltan explícitamente.
+- Este orden es crítico: la portada se selecciona **ANTES** del bucle de secciones en `run_for_user`.
+
+### G9 — Idioma y país
+- Si `Language ≠ es` en Firestore, las noticias seleccionadas se traducen automáticamente antes de renderizar.
+- El `country` del usuario aplica un scoring de penalización (-5.0) para noticias domésticas de países extranjeros (ej: usuario holandés no recibe noticias internas de España).
+
+---
+
 ## Bugs Conocidos y Fixes Aplicados
 
 ### v0.63 (2026-04-02)

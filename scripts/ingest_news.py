@@ -13,6 +13,7 @@ import os
 import logging
 import json
 import re
+import unicodedata
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
 
@@ -28,6 +29,7 @@ from src.services.firebase_service import FirebaseService
 from src.utils.html_builder import CATEGORY_IMAGES
 from src.utils.text_utils import validate_image_size
 from src.services.perspective_enricher import enrich_topics_with_perspectives
+from src.utils.constants import ARTICLES_RETENTION_HOURS, ARTICLES_INGEST_WINDOW_HOURS, TOPICS_RETENTION_DAYS, CATEGORIES_LIST
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -61,8 +63,8 @@ async def _llm_call_with_retry(client, model, messages, max_retries=3, **kwargs)
             else:
                 raise
 
-# Lista oficial de categorías
-VALID_CATEGORIES = list(CATEGORY_IMAGES.keys())
+# Lista oficial de categorías (fuente de verdad: constants.py)
+VALID_CATEGORIES = CATEGORIES_LIST
 
 # Configuración de paralelismo
 MAX_CONCURRENT_TOPICS = 2  # Reduced from 5 to avoid Mistral rate limits
@@ -100,7 +102,6 @@ class HourlyProcessor:
         await self._ingest_all_rss()
         
         # 0.1 LIMPIEZA DE DATOS ANTIGUOS
-        from src.utils.constants import ARTICLES_RETENTION_HOURS
         removed_articles = self.gcs.cleanup_old_articles(hours=ARTICLES_RETENTION_HOURS)
         if removed_articles > 0:
             logger.info(f"🧹 Eliminados {removed_articles} artículos de articles.json (>{ARTICLES_RETENTION_HOURS}h)")
@@ -115,7 +116,6 @@ class HourlyProcessor:
         logger.info(f"📦 Topics existentes: {len(topics_data)}")
         
         # 2.1 Limpiar noticias antiguas de topics
-        from src.utils.constants import TOPICS_RETENTION_DAYS
         removed_news = self.gcs.cleanup_old_topic_news(topics_data, days=TOPICS_RETENTION_DAYS)
         if removed_news > 0:
             logger.info(f"🧹 Eliminadas {removed_news} noticias >{TOPICS_RETENTION_DAYS*24}h de topics")
@@ -230,8 +230,6 @@ class HourlyProcessor:
                     
     def _normalize_title(self, title: str) -> str:
         """Normaliza título para comparación (quita emojis, espacios, etc.)"""
-        # Quitar emojis comunes
-        import re
         title = re.sub(r'[^\w\s]', '', title.lower())
         title = re.sub(r'\s+', ' ', title).strip()
         return title[:80]  # Primeros 80 chars
@@ -444,7 +442,6 @@ class HourlyProcessor:
             return {"status": "duplicate", "matched_key": normalized_new}
 
         # Check 2: similitud de palabras clave del título
-        import unicodedata
         def _keywords(text):
             text = unicodedata.normalize('NFD', text.lower())
             text = ''.join(c for c in text if unicodedata.category(c) != 'Mn')
@@ -479,7 +476,6 @@ class HourlyProcessor:
     
     def _is_relevant_for_topic(self, news_item: dict, topic: str) -> bool:
         """Verifica relevancia con keywords (sin LLM, ahorra costes)"""
-        import unicodedata
         title = news_item.get("titulo", "")
         resumen = news_item.get("resumen", "")
         combined = f"{title} {resumen}".lower()
@@ -663,9 +659,8 @@ class HourlyProcessor:
     
     def _normalize_id(self, name: str) -> str:
         """Convierte nombre a ID normalizado (sin tildes, consistente con Orchestrator)"""
-        import unicodedata as _ud
-        nfkd = _ud.normalize('NFKD', name)
-        id_str = ''.join(c for c in nfkd if not _ud.combining(c))
+        nfkd = unicodedata.normalize('NFKD', name)
+        id_str = ''.join(c for c in nfkd if not unicodedata.combining(c))
         id_str = id_str.lower().strip()
         id_str = re.sub(r'[^a-z0-9\s]', '', id_str)
         id_str = re.sub(r'\s+', '_', id_str)
@@ -704,7 +699,7 @@ class HourlyProcessor:
         self.gcs.save_topics(topics_list)
     
     async def _assign_categories(self, topic_name: str) -> list:
-        """Usa gpt-5-nano para asignar 2 categorías"""
+        """Usa LLM rápido para asignar 2 categorías"""
         categories_str = ", ".join(VALID_CATEGORIES)
         prompt = f"""
         Eres un clasificador. Dado el topic "{topic_name}", elige exactamente 2 categorías de esta lista:
@@ -728,7 +723,6 @@ class HourlyProcessor:
         """Busca artículos en GCS dinámicamente según la última ejecución"""
         
         # Calcular ventana dinámica sobre fecha_ingesta (cuándo capturamos los artículos)
-        from src.utils.constants import ARTICLES_INGEST_WINDOW_HOURS
         hours_limit = ARTICLES_INGEST_WINDOW_HOURS  # Default = 14h si no hay estado previo
         if hasattr(self, 'last_run_time') and self.last_run_time:
             delta = datetime.now() - self.last_run_time
