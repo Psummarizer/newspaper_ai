@@ -29,7 +29,7 @@ from src.services.firebase_service import FirebaseService
 from src.utils.html_builder import CATEGORY_IMAGES
 from src.utils.text_utils import validate_image_size
 from src.services.perspective_enricher import enrich_topics_with_perspectives
-from src.utils.constants import ARTICLES_RETENTION_HOURS, ARTICLES_INGEST_WINDOW_HOURS, TOPICS_RETENTION_DAYS, CATEGORIES_LIST
+from src.utils.constants import ARTICLES_RETENTION_HOURS, ARTICLES_INGEST_WINDOW_HOURS, TOPICS_RETENTION_DAYS, CATEGORIES_LIST, INGESTA_COVERAGE_HOURS
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -208,6 +208,9 @@ class HourlyProcessor:
             "last_run_finished": datetime.now().isoformat()
         })
         logger.info("💾 Estado guardado (ingest_state.json)")
+
+        # 7. ALERTA DE COBERTURA: avisar si algún topic activo tiene <3 noticias recientes
+        await self._check_coverage_and_alert(topics_data, topic_names)
         
     def _load_existing_news(self, topics_data: dict):
         """Carga noticias existentes para deduplicación semántica (con referencia completa)"""
@@ -698,6 +701,80 @@ class HourlyProcessor:
             f.write(json_str)
         self.gcs.save_topics(topics_list)
     
+    async def _check_coverage_and_alert(self, topics_data: dict, active_topic_names: list):
+        """Detecta topics activos con <3 noticias recientes y envía alerta al admin.
+
+        'Reciente' = fecha_inventariado dentro de las últimas INGESTA_COVERAGE_HOURS
+        (por defecto 20h, cubre exactamente las 2 últimas ingestas).
+        Solo evalúa los topics que se acaban de procesar (active_topic_names).
+        """
+        now = datetime.now()
+        cutoff = now - timedelta(hours=INGESTA_COVERAGE_HOURS)
+
+        low_coverage = []  # [(topic_name, count)]
+        for topic_name in active_topic_names:
+            topic_id = self._normalize_id(topic_name)
+            topic_info = topics_data.get(topic_id, {})
+            noticias = topic_info.get("noticias", [])
+            recent = 0
+            for n in noticias:
+                fecha_str = n.get("fecha_inventariado") or n.get("published_at", "")
+                if fecha_str:
+                    try:
+                        fecha = datetime.fromisoformat(fecha_str[:19])
+                        if fecha >= cutoff:
+                            recent += 1
+                    except Exception:
+                        pass
+            if recent < 3:
+                low_coverage.append((topic_name, recent))
+
+        if not low_coverage:
+            logger.info("✅ Cobertura OK: todos los topics tienen ≥3 noticias recientes")
+            return
+
+        # Log siempre
+        logger.warning(f"⚠️ COBERTURA BAJA: {len(low_coverage)} topics con <3 noticias:")
+        for name, count in low_coverage:
+            logger.warning(f"   - '{name}': {count} noticia(s)")
+
+        # Enviar email solo si hay credenciales SMTP configuradas
+        admin_email = os.getenv("ADMIN_EMAIL", "psummarizer@gmail.com")
+        try:
+            from src.services.email_service import EmailService
+            email_svc = EmailService()
+            if not email_svc.sender_email or not email_svc.sender_password:
+                return  # Sin credenciales → solo log, no simular
+
+            rows = "".join(
+                f"<tr><td style='padding:6px 12px;border-bottom:1px solid #333;'>{name}</td>"
+                f"<td style='padding:6px 12px;border-bottom:1px solid #333;color:#f39c12;'>"
+                f"{count} noticia(s)</td></tr>"
+                for name, count in sorted(low_coverage, key=lambda x: x[1])
+            )
+            html = f"""
+            <div style='font-family:monospace;background:#1a1a2e;color:#eee;padding:24px;'>
+              <h2 style='color:#e74c3c;'>⚠️ Alerta de cobertura RSS</h2>
+              <p>Los siguientes topics tuvieron <strong>&lt;3 noticias</strong> en las últimas
+              {INGESTA_COVERAGE_HOURS}h (ingesta {now.strftime('%d/%m %H:%M')}):</p>
+              <table style='border-collapse:collapse;width:100%;max-width:500px;'>
+                <tr><th style='text-align:left;padding:6px 12px;background:#2c2c54;'>Topic</th>
+                    <th style='text-align:left;padding:6px 12px;background:#2c2c54;'>Noticias</th></tr>
+                {rows}
+              </table>
+              <p style='margin-top:16px;color:#aaa;'>Considera añadir más feeds RSS para estas
+              categorías en <code>data/sources.json</code>.</p>
+            </div>
+            """
+            email_svc.send_email(
+                to_email=admin_email,
+                subject=f"[Briefing] Cobertura baja: {len(low_coverage)} topic(s) — {now.strftime('%d/%m %H:%M')}",
+                html_content=html,
+            )
+            logger.info(f"📧 Alerta de cobertura enviada a {admin_email}")
+        except Exception as e:
+            logger.error(f"Error enviando alerta de cobertura: {e}")
+
     async def _assign_categories(self, topic_name: str) -> list:
         """Usa LLM rápido para asignar 2 categorías"""
         categories_str = ", ".join(VALID_CATEGORIES)

@@ -15,9 +15,14 @@ TOPICS_RETENTION_DAYS = 2           # cleanup_old_topic_news: 48h de artículos 
 INGESTA_COVERAGE_HOURS = 20
 
 # Freshness tiers para el orchestrator (aplicados sobre fecha_inventariado)
-FRESHNESS_URGENTE_STEPS  = [12, 20, 24]   # Política, Deporte, Geopolítica, Justicia
-FRESHNESS_NORMAL_STEPS   = [12, 24, 36]   # Economía, Tecnología, Negocios, Energía
-FRESHNESS_EVERGREEN_STEPS = [24, 48]      # Nutrición, Ciencia, Cultura, Viajes
+# REGLA: ningún step supera INGESTA_COVERAGE_HOURS (20h) → nunca se muestran
+# noticias de más de 2 ingestas atrás (5:30am + 20:30pm Madrid).
+# URGENTE/NORMAL: prueban 12h primero; si <3 artículos, amplían a 20h.
+# EVERGREEN: van directo a 20h (topics como nutrición/ciencia publican poco,
+# no tiene sentido probar 12h y fallar casi siempre).
+FRESHNESS_URGENTE_STEPS  = [12, 20]   # Política, Deporte, Geopolítica, Justicia
+FRESHNESS_NORMAL_STEPS   = [12, 20]   # Economía, Tecnología, Negocios, Energía
+FRESHNESS_EVERGREEN_STEPS = [20]      # Nutrición, Ciencia, Cultura, Viajes
 
 # ─────────────────────────────────────────────────────────────────────────────
 

@@ -91,13 +91,15 @@ Estas garantías deben respetarse en todo desarrollo nuevo. Si un cambio las rom
 
 ### G2 — Solo noticias de las 2 últimas ingestas
 - El filtro primario es `fecha_inventariado` (timestamp que pone nuestro sistema al procesar), **no** `published_at` (fecha RSS, puede ser incorrecta).
-- Freshness tiers por tipo de topic (definidos en `src/utils/constants.py`):
-  - **URGENTE** (política, deporte, geopolítica): ventana 12h → 20h → 24h
-  - **NORMAL** (economía, tecnología, negocios): ventana 12h → 24h → 36h
-  - **EVERGREEN** (nutrición, ciencia, cultura, viajes): ventana 24h → 48h
-- Con 2 ingestas diarias (5:30am y 20:30pm Madrid), URGENTE captura exactamente las 2 últimas. NORMAL/EVERGREEN pueden incluir ingestas anteriores cuando hay escasez.
+- Las ingestas son a las **5:30am y 20:30pm hora Madrid**. Gap máximo entre ellas = 15h.
+- `INGESTA_COVERAGE_HOURS = 20` garantiza que ningún tier supera 2 ingestas. **No subir este valor.**
+- Freshness tiers (definidos en `src/utils/constants.py`):
+  - **URGENTE** (política, deporte, geopolítica): prueba 12h, amplía a 20h si <3 artículos
+  - **NORMAL** (economía, tecnología, negocios): prueba 12h, amplía a 20h si <3 artículos
+  - **EVERGREEN** (nutrición, ciencia, cultura, viajes): va directo a 20h (publican poco)
+- Todos los tiers están cappados en 20h = exactamente las 2 últimas ingestas como máximo.
 - `TOPICS_RETENTION_DAYS=2` limpia topics.json a 48h de tope absoluto.
-- **No cambiar** los steps de freshness sin medir impacto: ventanas más amplias = artículos más viejos en el briefing.
+- **Regla crítica**: si se añaden pasos >20h a los tiers, se rompe esta garantía.
 
 ### G3 — Sin duplicados: mismo hecho
 - **Capa 1 (ingesta)**: dedup por URL exacta + título normalizado exacto + keyword similarity >50% en `_check_duplicate_or_update`.
@@ -117,6 +119,7 @@ Estas garantías deben respetarse en todo desarrollo nuevo. Si un cambio las rom
 - Si la ingesta fue pobre, los tiers amplían la ventana temporal para encontrar ≥3 artículos.
 - Si tras la máxima ventana no hay ≥3, el topic se omite del briefing (no se rellena con noticias no relacionadas).
 - `max_per_cat` escala con el número de topics que mapean a esa categoría (3 artículos mínimo por topic).
+- **Sistema de alerta automática**: al final de cada ingesta, `_check_coverage_and_alert` evalúa todos los topics activos. Si alguno tiene <3 noticias en las últimas `INGESTA_COVERAGE_HOURS`, se envía un email de alerta al admin (`ADMIN_EMAIL` env var, defecto `psummarizer@gmail.com`) con la lista de topics afectados. Revisar y añadir feeds RSS en `data/sources.json`.
 
 ### G6 — Contexto Firestore del usuario siempre aplicado
 - El campo `topic` (map) de Firestore es **la fuente de verdad** de los intereses del usuario.

@@ -4923,7 +4923,7 @@
     "reliability": "high"
   },
   {
-    "category": "Agricultura y Alimentacion",
+    "category": "Agricultura y Alimentación",
     "name": "Agroinformación",
     "domain": "agroinformacion.com",
     "rss_url": "https://agroinformacion.com/feed/",
@@ -4936,7 +4936,7 @@
     "reliability": "medium"
   },
   {
-    "category": "Agricultura y Alimentacion",
+    "category": "Agricultura y Alimentación",
     "name": "EFEAgro",
     "domain": "efeagro.com",
     "rss_url": "https://www.efeagro.com/feed/",
@@ -5509,7 +5509,7 @@
     "reliability": "medium"
   },
   {
-    "category": "Economia y Finanzas",
+    "category": "Economía y Finanzas",
     "name": "Google News - Negocios ES",
     "domain": "news.google.com",
     "rss_url": "https://news.google.com/rss/topics/CAAqJggKIiBDQkFTRWdvSUwyMHZNRGx6TVdZU0FtVnpHZ0pGVXlnQVAB?hl=es&gl=ES&ceid=ES:es",
@@ -5522,7 +5522,7 @@
     "reliability": "medium"
   },
   {
-    "category": "Tecnologia y Digital",
+    "category": "Tecnología y Digital",
     "name": "Google News - Tecnologia ES",
     "domain": "news.google.com",
     "rss_url": "https://news.google.com/rss/topics/CAAqJggKIiBDQkFTRWdvSUwyMHZNRGRqTVhZU0FtVnpHZ0pGVXlnQVAB?hl=es&gl=ES&ceid=ES:es",
@@ -5561,7 +5561,7 @@
     "reliability": "medium"
   },
   {
-    "category": "Tecnologia y Digital",
+    "category": "Tecnología y Digital",
     "name": "Google News - Ciencia ES",
     "domain": "news.google.com",
     "rss_url": "https://news.google.com/rss/topics/CAAqJggKIiBDQkFTRWdvSUwyMHZNRFp0Y1RjU0FtVnpHZ0pGVXlnQVAB?hl=es&gl=ES&ceid=ES:es",
@@ -5574,7 +5574,7 @@
     "reliability": "medium"
   },
   {
-    "category": "Economia y Finanzas",
+    "category": "Economía y Finanzas",
     "name": "Google News - Petroleo OPEP",
     "domain": "news.google.com",
     "rss_url": "https://news.google.com/rss/search?q=petroleo+precio+OPEP&hl=es&gl=ES&ceid=ES:es",
@@ -5587,7 +5587,7 @@
     "reliability": "medium"
   },
   {
-    "category": "Economia y Finanzas",
+    "category": "Economía y Finanzas",
     "name": "Google News - Bitcoin Crypto ES",
     "domain": "news.google.com",
     "rss_url": "https://news.google.com/rss/search?q=bitcoin+criptomonedas&hl=es&gl=ES&ceid=ES:es",
@@ -5600,7 +5600,7 @@
     "reliability": "medium"
   },
   {
-    "category": "Tecnologia y Digital",
+    "category": "Tecnología y Digital",
     "name": "Google News - IA ES",
     "domain": "news.google.com",
     "rss_url": "https://news.google.com/rss/search?q=inteligencia+artificial+IA&hl=es&gl=ES&ceid=ES:es",
@@ -5613,7 +5613,7 @@
     "reliability": "medium"
   },
   {
-    "category": "Geopolitica",
+    "category": "Geopolítica",
     "name": "Google News - Aranceles Comercio",
     "domain": "news.google.com",
     "rss_url": "https://news.google.com/rss/search?q=aranceles+comercio+internacional&hl=es&gl=ES&ceid=ES:es",
@@ -5626,7 +5626,7 @@
     "reliability": "medium"
   },
   {
-    "category": "Geopolitica",
+    "category": "Geopolítica",
     "name": "Google News - Geopolitica ES",
     "domain": "news.google.com",
     "rss_url": "https://news.google.com/rss/search?q=geopolitica+conflicto+internacional&hl=es&gl=ES&ceid=ES:es",
@@ -5652,7 +5652,7 @@
     "reliability": "medium"
   },
   {
-    "category": "Economia y Finanzas",
+    "category": "Economía y Finanzas",
     "name": "OkDiario - Economia",
     "domain": "okdiario.com",
     "rss_url": "https://okdiario.com/economia/feed",
@@ -5691,7 +5691,7 @@
     "reliability": "medium"
   },
   {
-    "category": "Politica",
+    "category": "Política",
     "name": "Google News - OkDiario",
     "domain": "okdiario.com",
     "rss_url": "https://news.google.com/rss/search?q=site:okdiario.com&hl=es&gl=ES&ceid=ES:es",
@@ -5704,7 +5704,7 @@
     "reliability": "medium"
   },
   {
-    "category": "Politica",
+    "category": "Política",
     "name": "Google News - The Objective",
     "domain": "theobjective.com",
     "rss_url": "https://news.google.com/rss/search?q=site:theobjective.com&hl=es&gl=ES&ceid=ES:es",
@@ -5717,7 +5717,7 @@
     "reliability": "medium"
   },
   {
-    "category": "Economia y Finanzas",
+    "category": "Economía y Finanzas",
     "name": "Google News - Mineral Commodities",
     "domain": "news.google.com",
     "rss_url": "https://news.google.com/rss/search?q=mineral+commodities+prices+copper+lithium&hl=en&gl=US&ceid=US:en",
@@ -5726,7 +5726,7 @@
     "country": "INT"
   },
   {
-    "category": "Economia y Finanzas",
+    "category": "Economía y Finanzas",
     "name": "Google News - Copper Prices",
     "domain": "news.google.com",
     "rss_url": "https://news.google.com/rss/search?q=copper+price+market&hl=en&gl=US&ceid=US:en",
@@ -5735,7 +5735,7 @@
     "country": "INT"
   },
   {
-    "category": "Economia y Finanzas",
+    "category": "Economía y Finanzas",
     "name": "Google News - Lithium Market",
     "domain": "news.google.com",
     "rss_url": "https://news.google.com/rss/search?q=lithium+market+price&hl=en&gl=US&ceid=US:en",
@@ -5744,7 +5744,7 @@
     "country": "INT"
   },
   {
-    "category": "Economia y Finanzas",
+    "category": "Economía y Finanzas",
     "name": "Google News - Iron Ore Market",
     "domain": "news.google.com",
     "rss_url": "https://news.google.com/rss/search?q=iron+ore+price+market&hl=en&gl=US&ceid=US:en",
@@ -5753,7 +5753,7 @@
     "country": "INT"
   },
   {
-    "category": "Economia y Finanzas",
+    "category": "Economía y Finanzas",
     "name": "Google News - Rare Earth Minerals",
     "domain": "news.google.com",
     "rss_url": "https://news.google.com/rss/search?q=rare+earth+minerals+market&hl=en&gl=US&ceid=US:en",
@@ -5762,7 +5762,7 @@
     "country": "INT"
   },
   {
-    "category": "Economia y Finanzas",
+    "category": "Economía y Finanzas",
     "name": "Google News - Nickel Cobalt Market",
     "domain": "news.google.com",
     "rss_url": "https://news.google.com/rss/search?q=nickel+cobalt+commodity+price&hl=en&gl=US&ceid=US:en",
@@ -5771,7 +5771,7 @@
     "country": "INT"
   },
   {
-    "category": "Economia y Finanzas",
+    "category": "Economía y Finanzas",
     "name": "Google News - Mining Industry",
     "domain": "news.google.com",
     "rss_url": "https://news.google.com/rss/search?q=mining+industry+metals+commodity&hl=en&gl=US&ceid=US:en",
@@ -5780,7 +5780,7 @@
     "country": "INT"
   },
   {
-    "category": "Geopolitica",
+    "category": "Geopolítica",
     "name": "Google News - Iran War Commodities",
     "domain": "news.google.com",
     "rss_url": "https://news.google.com/rss/search?q=Iran+war+commodities+minerals&hl=en&gl=US&ceid=US:en",
@@ -5789,7 +5789,7 @@
     "country": "INT"
   },
   {
-    "category": "Geopolitica",
+    "category": "Geopolítica",
     "name": "Google News - Iran Conflict Supply Chain",
     "domain": "news.google.com",
     "rss_url": "https://news.google.com/rss/search?q=Iran+conflict+supply+chain+minerals+oil&hl=en&gl=US&ceid=US:en",
@@ -5798,7 +5798,7 @@
     "country": "INT"
   },
   {
-    "category": "Geopolitica",
+    "category": "Geopolítica",
     "name": "Google News - Middle East Geopolitics Commodities",
     "domain": "news.google.com",
     "rss_url": "https://news.google.com/rss/search?q=middle+east+geopolitics+commodities+impact&hl=en&gl=US&ceid=US:en",
@@ -5807,7 +5807,7 @@
     "country": "INT"
   },
   {
-    "category": "Politica",
+    "category": "Política",
     "name": "NOS Nieuws",
     "domain": "nos.nl",
     "rss_url": "https://feeds.nos.nl/nosnieuwsalgemeen",
@@ -5816,7 +5816,7 @@
     "country": "NL"
   },
   {
-    "category": "Economia y Finanzas",
+    "category": "Economía y Finanzas",
     "name": "NOS Economie",
     "domain": "nos.nl",
     "rss_url": "https://feeds.nos.nl/nosnieuwseconomie",
@@ -5825,7 +5825,7 @@
     "country": "NL"
   },
   {
-    "category": "Politica",
+    "category": "Política",
     "name": "RTL Nieuws",
     "domain": "rtlnieuws.nl",
     "rss_url": "https://www.rtlnieuws.nl/rss.xml",
@@ -5834,7 +5834,7 @@
     "country": "NL"
   },
   {
-    "category": "Politica",
+    "category": "Política",
     "name": "NU.nl Algemeen",
     "domain": "nu.nl",
     "rss_url": "https://www.nu.nl/rss/Algemeen",
@@ -5843,7 +5843,7 @@
     "country": "NL"
   },
   {
-    "category": "Economia y Finanzas",
+    "category": "Economía y Finanzas",
     "name": "NU.nl Economie",
     "domain": "nu.nl",
     "rss_url": "https://www.nu.nl/rss/Economie",
@@ -5861,7 +5861,7 @@
     "country": "NL"
   },
   {
-    "category": "Politica",
+    "category": "Política",
     "name": "The Objective - España",
     "domain": "theobjective.com",
     "rss_url": "https://theobjective.com/espana/feed/",
@@ -5888,7 +5888,7 @@
     "country": "ES"
   },
   {
-    "category": "Politica",
+    "category": "Política",
     "name": "Google - The Objective Política",
     "domain": "theobjective.com",
     "rss_url": "https://news.google.com/rss/search?q=site:theobjective.com+politica&hl=es&gl=ES&ceid=ES:es",
@@ -5897,7 +5897,7 @@
     "country": "ES"
   },
   {
-    "category": "Politica",
+    "category": "Política",
     "name": "Google - Voz Pópuli Política",
     "domain": "vozpopuli.com",
     "rss_url": "https://news.google.com/rss/search?q=site:vozpopuli.com+politica&hl=es&gl=ES&ceid=ES:es",
@@ -5906,7 +5906,7 @@
     "country": "ES"
   },
   {
-    "category": "Economia y Finanzas",
+    "category": "Economía y Finanzas",
     "name": "Google - Voz Pópuli Economía",
     "domain": "vozpopuli.com",
     "rss_url": "https://news.google.com/rss/search?q=site:vozpopuli.com+economia&hl=es&gl=ES&ceid=ES:es",
@@ -5915,7 +5915,7 @@
     "country": "ES"
   },
   {
-    "category": "Politica",
+    "category": "Política",
     "name": "Google - El Debate Política",
     "domain": "eldebate.com",
     "rss_url": "https://news.google.com/rss/search?q=site:eldebate.com+politica&hl=es&gl=ES&ceid=ES:es",
@@ -5924,7 +5924,7 @@
     "country": "ES"
   },
   {
-    "category": "Politica",
+    "category": "Política",
     "name": "Google - Libertad Digital Política",
     "domain": "libertaddigital.com",
     "rss_url": "https://news.google.com/rss/search?q=site:libertaddigital.com+politica&hl=es&gl=ES&ceid=ES:es",
@@ -5951,7 +5951,7 @@
     "country": "ES"
   },
   {
-    "category": "Agricultura y Alimentacion",
+    "category": "Agricultura y Alimentación",
     "name": "Google - Vinos España",
     "domain": "news.google.com",
     "rss_url": "https://news.google.com/rss/search?q=vinos+espa%C3%B1a+bodegas&hl=es&gl=ES&ceid=ES:es",
@@ -5960,7 +5960,7 @@
     "country": "ES"
   },
   {
-    "category": "Agricultura y Alimentacion",
+    "category": "Agricultura y Alimentación",
     "name": "Google - Catas Vino DO",
     "domain": "news.google.com",
     "rss_url": "https://news.google.com/rss/search?q=vino+tinto+blanco+DO+cata&hl=es&gl=ES&ceid=ES:es",
@@ -7003,5 +7003,302 @@
     "base_url": "https://www.investigacionyciencia.es",
     "language": "es",
     "country": "ES"
+  },
+  {
+    "category": "Cultura Digital y Sociedad de la Información",
+    "name": "ReasonWhy",
+    "domain": "reasonwhy.es",
+    "rss_url": "https://www.reasonwhy.es/rss.xml",
+    "base_url": "https://www.reasonwhy.es",
+    "language": "es",
+    "country": "ES"
+  },
+  {
+    "category": "Cultura Digital y Sociedad de la Información",
+    "name": "Nobbot (Telefónica)",
+    "domain": "nobbot.com",
+    "rss_url": "https://www.nobbot.com/feed/",
+    "base_url": "https://www.nobbot.com",
+    "language": "es",
+    "country": "ES"
+  },
+  {
+    "category": "Cultura Digital y Sociedad de la Información",
+    "name": "Genbeta",
+    "domain": "genbeta.com",
+    "rss_url": "https://www.genbeta.com/rss2.xml",
+    "base_url": "https://www.genbeta.com",
+    "language": "es",
+    "country": "ES"
+  },
+  {
+    "category": "Cultura Digital y Sociedad de la Información",
+    "name": "MIT Technology Review España",
+    "domain": "technologyreview.es",
+    "rss_url": "https://www.technologyreview.es/feed/",
+    "base_url": "https://www.technologyreview.es",
+    "language": "es",
+    "country": "ES"
+  },
+  {
+    "category": "Cultura Digital y Sociedad de la Información",
+    "name": "Social Media Today",
+    "domain": "socialmediatoday.com",
+    "rss_url": "https://www.socialmediatoday.com/rss.xml",
+    "base_url": "https://www.socialmediatoday.com",
+    "language": "en",
+    "country": "INT"
+  },
+  {
+    "category": "Cultura Digital y Sociedad de la Información",
+    "name": "Marketing Directo",
+    "domain": "marketingdirecto.com",
+    "rss_url": "https://www.marketingdirecto.com/feed",
+    "base_url": "https://www.marketingdirecto.com",
+    "language": "es",
+    "country": "ES"
+  },
+  {
+    "category": "Cultura Digital y Sociedad de la Información",
+    "name": "Digiday",
+    "domain": "digiday.com",
+    "rss_url": "https://digiday.com/feed/",
+    "base_url": "https://digiday.com",
+    "language": "en",
+    "country": "INT"
+  },
+  {
+    "category": "Educación y Conocimiento",
+    "name": "El Diario de la Educación",
+    "domain": "eldiarioeducacion.com",
+    "rss_url": "https://eldiarioeducacion.com/feed/",
+    "base_url": "https://eldiarioeducacion.com",
+    "language": "es",
+    "country": "ES"
+  },
+  {
+    "category": "Educación y Conocimiento",
+    "name": "Elige Educar",
+    "domain": "eligeeducar.cl",
+    "rss_url": "https://www.eligeeducar.cl/feed",
+    "base_url": "https://www.eligeeducar.cl",
+    "language": "es",
+    "country": "LATAM"
+  },
+  {
+    "category": "Educación y Conocimiento",
+    "name": "Times Higher Education",
+    "domain": "timeshighereducation.com",
+    "rss_url": "https://www.timeshighereducation.com/rss.xml",
+    "base_url": "https://www.timeshighereducation.com",
+    "language": "en",
+    "country": "INT"
+  },
+  {
+    "category": "Educación y Conocimiento",
+    "name": "Inside Higher Ed",
+    "domain": "insidehighered.com",
+    "rss_url": "https://www.insidehighered.com/news/rss.xml",
+    "base_url": "https://www.insidehighered.com",
+    "language": "en",
+    "country": "INT"
+  },
+  {
+    "category": "Educación y Conocimiento",
+    "name": "Universia España",
+    "domain": "universia.net",
+    "rss_url": "https://noticias.universia.es/rss/todas-las-noticias.xml",
+    "base_url": "https://www.universia.net",
+    "language": "es",
+    "country": "ES"
+  },
+  {
+    "category": "Educación y Conocimiento",
+    "name": "Edsurge",
+    "domain": "edsurge.com",
+    "rss_url": "https://www.edsurge.com/news/rss.xml",
+    "base_url": "https://www.edsurge.com",
+    "language": "en",
+    "country": "INT"
+  },
+  {
+    "category": "Filantropía e Impacto Social",
+    "name": "Diario Responsable",
+    "domain": "diarioresponsable.com",
+    "rss_url": "https://diarioresponsable.com/rss",
+    "base_url": "https://diarioresponsable.com",
+    "language": "es",
+    "country": "ES"
+  },
+  {
+    "category": "Filantropía e Impacto Social",
+    "name": "Compromiso RSE",
+    "domain": "compromisorsc.com",
+    "rss_url": "https://compromisorsc.com/feed/",
+    "base_url": "https://compromisorsc.com",
+    "language": "es",
+    "country": "ES"
+  },
+  {
+    "category": "Filantropía e Impacto Social",
+    "name": "Expansión - RSC",
+    "domain": "expansion.com",
+    "rss_url": "https://e00-expansion.uecdn.es/rss/empresas-rsc.xml",
+    "base_url": "https://www.expansion.com",
+    "language": "es",
+    "country": "ES"
+  },
+  {
+    "category": "Filantropía e Impacto Social",
+    "name": "3BL Media",
+    "domain": "3blmedia.com",
+    "rss_url": "https://www.3blmedia.com/rss.xml",
+    "base_url": "https://www.3blmedia.com",
+    "language": "en",
+    "country": "INT"
+  },
+  {
+    "category": "Filantropía e Impacto Social",
+    "name": "Stanford Social Innovation Review",
+    "domain": "ssir.org",
+    "rss_url": "https://ssir.org/articles/rss",
+    "base_url": "https://ssir.org",
+    "language": "en",
+    "country": "INT"
+  },
+  {
+    "category": "Filantropía e Impacto Social",
+    "name": "Plataforma ONG",
+    "domain": "plataformaong.org",
+    "rss_url": "https://www.plataformaong.org/rss/noticias.cfm",
+    "base_url": "https://www.plataformaong.org",
+    "language": "es",
+    "country": "ES"
+  },
+  {
+    "category": "Energía",
+    "name": "Energías Renovables",
+    "domain": "energias-renovables.com",
+    "rss_url": "https://www.energias-renovables.com/feed",
+    "base_url": "https://www.energias-renovables.com",
+    "language": "es",
+    "country": "ES"
+  },
+  {
+    "category": "Energía",
+    "name": "Renovables Verdes",
+    "domain": "renovablesverdes.com",
+    "rss_url": "https://www.renovablesverdes.com/feed/",
+    "base_url": "https://www.renovablesverdes.com",
+    "language": "es",
+    "country": "ES"
+  },
+  {
+    "category": "Energía",
+    "name": "PV Magazine España",
+    "domain": "pv-magazine.es",
+    "rss_url": "https://www.pv-magazine.es/feed/",
+    "base_url": "https://www.pv-magazine.es",
+    "language": "es",
+    "country": "ES"
+  },
+  {
+    "category": "Energía",
+    "name": "OilPrice.com",
+    "domain": "oilprice.com",
+    "rss_url": "https://oilprice.com/rss/main",
+    "base_url": "https://oilprice.com",
+    "language": "en",
+    "country": "INT"
+  },
+  {
+    "category": "Energía",
+    "name": "Recharge News",
+    "domain": "rechargenews.com",
+    "rss_url": "https://www.rechargenews.com/rss",
+    "base_url": "https://www.rechargenews.com",
+    "language": "en",
+    "country": "INT"
+  },
+  {
+    "category": "Energía",
+    "name": "Energy Monitor",
+    "domain": "energymonitor.ai",
+    "rss_url": "https://www.energymonitor.ai/feed/",
+    "base_url": "https://www.energymonitor.ai",
+    "language": "en",
+    "country": "INT"
+  },
+  {
+    "category": "Medio Ambiente y Clima",
+    "name": "Mongabay España",
+    "domain": "es.mongabay.com",
+    "rss_url": "https://es.mongabay.com/feed/",
+    "base_url": "https://es.mongabay.com",
+    "language": "es",
+    "country": "INT"
+  },
+  {
+    "category": "Medio Ambiente y Clima",
+    "name": "Carbon Brief",
+    "domain": "carbonbrief.org",
+    "rss_url": "https://www.carbonbrief.org/rss/",
+    "base_url": "https://www.carbonbrief.org",
+    "language": "en",
+    "country": "INT"
+  },
+  {
+    "category": "Medio Ambiente y Clima",
+    "name": "Greenpeace España",
+    "domain": "greenpeace.org",
+    "rss_url": "https://es.greenpeace.org/es/sala-de-prensa/noticias/feed/",
+    "base_url": "https://es.greenpeace.org",
+    "language": "es",
+    "country": "ES"
+  },
+  {
+    "category": "Medio Ambiente y Clima",
+    "name": "Ecologistas en Acción",
+    "domain": "ecologistasenaccion.org",
+    "rss_url": "https://www.ecologistasenaccion.org/?feed=rss2",
+    "base_url": "https://www.ecologistasenaccion.org",
+    "language": "es",
+    "country": "ES"
+  },
+  {
+    "category": "Justicia y Legal",
+    "name": "El Derecho",
+    "domain": "elderecho.com",
+    "rss_url": "https://elderecho.com/feed",
+    "base_url": "https://elderecho.com",
+    "language": "es",
+    "country": "ES"
+  },
+  {
+    "category": "Justicia y Legal",
+    "name": "Economist & Jurist",
+    "domain": "economistjurist.es",
+    "rss_url": "https://www.economistjurist.es/rss",
+    "base_url": "https://www.economistjurist.es",
+    "language": "es",
+    "country": "ES"
+  },
+  {
+    "category": "Justicia y Legal",
+    "name": "Reuters Legal",
+    "domain": "reuters.com",
+    "rss_url": "https://feeds.reuters.com/reuters/legalNews",
+    "base_url": "https://www.reuters.com",
+    "language": "en",
+    "country": "INT"
+  },
+  {
+    "category": "Justicia y Legal",
+    "name": "Law360",
+    "domain": "law360.com",
+    "rss_url": "https://www.law360.com/rss/articles",
+    "base_url": "https://www.law360.com",
+    "language": "en",
+    "country": "INT"
   }
 ]
