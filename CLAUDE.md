@@ -125,10 +125,20 @@ Estas garantías deben respetarse en todo desarrollo nuevo. Si un cambio las rom
 - El campo `topic` (map) de Firestore es **la fuente de verdad** de los intereses del usuario.
 - El valor de cada clave es el **contexto/instrucciones**: se usa en 3 lugares:
   1. **Pre-filtro en ingesta** (`_filter_relevant`): keywords como "masculino/femenino" excluyen artículos durante la ingesta.
-  2. **Scoring** en orchestrator: fuentes preferidas reciben +5.0 en el score.
-  3. **LLM de selección** (`_select_top_3_cached`): el contexto se pasa como instrucción al LLM.
+  2. **Scoring** en orchestrator: fuentes preferidas reciben +5.0 en el score (boost muy fuerte).
+  3. **LLM de selección** (`_select_top_3_cached`): el contexto se pasa como HARD USER RULE al LLM.
 - Los campos `Topics`/`topics` son legacy y NO se usan. Solo el campo `topic` (map).
 - `forbidden_sources` excluye dominios enteros (comparación exacta de dominio).
+
+**Comportamiento de "Fuentes preferidas: X, Y, Z" en el contexto:**
+- Se detectan por nombre en `_media_domain_map` (orchestrator.py) y se mapean a dominios.
+- Si hay suficientes artículos de esas fuentes para cubrir todos los slots → se usan SOLO esas fuentes, sin medios externos.
+- Si no hay suficientes → el LLM completa los slots restantes con los mejores artículos disponibles.
+- Esta es la semántica correcta de "preferidas": prioridad total cuando hay cobertura, fallback a otros cuando no la hay.
+- Añadir nuevos medios al `_media_domain_map` si se necesitan más variantes de nombre.
+
+**Comportamiento de categoría para topics de viajes:**
+- "viajes" mapea SOLO a `Consumo y Estilo de Vida`. No incluye `Transporte y Movilidad` porque las averías de trenes/aviones no son noticias de ocio. Si se añade cualquier keyword de viajes al `_topic_cat_map`, no incluir Transporte.
 
 ### G7 — Imágenes: reales primero, fallback genérico con sentido, sin repetición
 - **Pipeline de imagen en ingesta** (`_prepare_article_for_redaction`):

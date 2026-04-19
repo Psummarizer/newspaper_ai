@@ -492,10 +492,13 @@ JSON only: {{"invalid_ids": [1, 3], "reasons": {{"1": "basketball, not football"
             if media_name in contexts_joined:
                 _pref_domains.add(domain)
 
-        # --- Force preferred-source articles: 1 if max_count<=3, 2 if max_count>=4 ---
+        # --- Force preferred-source articles ---
+        # Collects ALL available articles from preferred sources (up to max_count).
+        # If there are enough preferred-source articles to fill the slots, we ONLY
+        # use preferred sources — no external media completes the selection.
+        # If not enough, the LLM fills remaining slots from the full pool.
         forced_articles = []
         remaining_articles = list(news_list)
-        force_count = 2 if max_count >= 4 else 1
         used_domains = set()  # Ensure source diversity in forced articles
         if _pref_domains:
             for n in news_list:
@@ -506,8 +509,12 @@ JSON only: {{"invalid_ids": [1, 3], "reasons": {{"1": "basketball, not football"
                         remaining_articles.remove(n)
                         used_domains.add(src_domain)
                         break
-                if len(forced_articles) >= force_count:
+                if len(forced_articles) >= max_count:
                     break
+            # If preferred sources cover all slots, return directly (no external media)
+            if len(forced_articles) >= max_count:
+                print(f"      🎯 Fuentes preferidas cubren los {max_count} slots — sin medios externos")
+                return forced_articles[:max_count]
 
         # --- LLM selects the rest ---
         llm_count = max_count - len(forced_articles)
@@ -968,7 +975,7 @@ JSON only: {{"invalid_ids": [1, 3], "reasons": {{"1": "basketball, not football"
             "formula 1": {"Deporte"}, "f1": {"Deporte"}, "motogp": {"Deporte"},
             "real madrid": {"Deporte"}, "futbol": {"Deporte"}, "fútbol": {"Deporte"},
             "vinos": {"Agricultura y Alimentación", "Consumo y Estilo de Vida", "Economía y Finanzas"},
-            "viajes": {"Consumo y Estilo de Vida", "Transporte y Movilidad"},
+            "viajes": {"Consumo y Estilo de Vida"},  # No Transporte: averías/infraestructura no son viajes de ocio
             "bitcoin": {"Economía y Finanzas", "Tecnología y Digital"},
             "palm oil": {"Agricultura y Alimentación", "Economía y Finanzas"},
             "soy": {"Agricultura y Alimentación", "Economía y Finanzas"},
