@@ -12,6 +12,8 @@ Project config:
 - IMAGE: europe-west1-docker.pkg.dev/pod-summarizer-ai-agent/newsletter-repo/newsletter-bot:latest
 - Working dir: d:/proyectos/Briefing_news/newspaper_ai
 
+**IMPORTANT: Always ask for user confirmation before executing Step 2 (deploy). The build can run automatically, but deployment to production requires explicit approval.**
+
 Steps to execute in order:
 
 1. **Build & push** via Cloud Build (runs in GCP, no local Docker needed):

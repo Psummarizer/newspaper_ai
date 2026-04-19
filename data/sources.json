@@ -6310,5 +6310,698 @@
     "base_url": "https://news.google.com",
     "language": "es",
     "country": "ES"
+  },
+  {
+    "category": "Política",
+    "name": "La Razón - Portada",
+    "domain": "larazon.es",
+    "rss_url": "https://www.larazon.es/rss/",
+    "base_url": "https://www.larazon.es",
+    "language": "es",
+    "country": "ES"
+  },
+  {
+    "category": "Internacional",
+    "name": "BBC Mundo",
+    "domain": "bbc.com",
+    "rss_url": "https://feeds.bbci.co.uk/mundo/rss.xml",
+    "base_url": "https://www.bbc.com/mundo",
+    "language": "es",
+    "country": "INT"
+  },
+  {
+    "category": "Internacional",
+    "name": "DW Español - Internacional",
+    "domain": "dw.com",
+    "rss_url": "https://rss.dw.com/xml/rss-sp-int",
+    "base_url": "https://www.dw.com/es",
+    "language": "es",
+    "country": "INT"
+  },
+  {
+    "category": "Internacional",
+    "name": "DW Español - Política",
+    "domain": "dw.com",
+    "rss_url": "https://rss.dw.com/xml/rss-sp-pol",
+    "base_url": "https://www.dw.com/es",
+    "language": "es",
+    "country": "INT"
+  },
+  {
+    "category": "Internacional",
+    "name": "Infobae",
+    "domain": "infobae.com",
+    "rss_url": "https://www.infobae.com/feeds/rss/",
+    "base_url": "https://www.infobae.com",
+    "language": "es",
+    "country": "INT"
+  },
+  {
+    "category": "Internacional",
+    "name": "El País - América",
+    "domain": "elpais.com",
+    "rss_url": "https://feeds.elpais.com/mrss-s/pages/ep/site/elpais.com/section/america/portada",
+    "base_url": "https://elpais.com",
+    "language": "es",
+    "country": "INT"
+  },
+  {
+    "category": "Geopolítica",
+    "name": "El Orden Mundial",
+    "domain": "elordenmundial.com",
+    "rss_url": "https://elordenmundial.com/feed/",
+    "base_url": "https://elordenmundial.com",
+    "language": "es",
+    "country": "INT"
+  },
+  {
+    "category": "Geopolítica",
+    "name": "Agenda Pública (El País)",
+    "domain": "agendapublica.elpais.com",
+    "rss_url": "https://agendapublica.elpais.com/feed/",
+    "base_url": "https://agendapublica.elpais.com",
+    "language": "es",
+    "country": "INT"
+  },
+  {
+    "category": "Geopolítica",
+    "name": "esglobal",
+    "domain": "esglobal.org",
+    "rss_url": "https://www.esglobal.org/feed/",
+    "base_url": "https://www.esglobal.org",
+    "language": "es",
+    "country": "INT"
+  },
+  {
+    "category": "Geopolítica",
+    "name": "Real Instituto Elcano",
+    "domain": "realinstitutoelcano.org",
+    "rss_url": "https://www.realinstitutoelcano.org/feed/",
+    "base_url": "https://www.realinstitutoelcano.org",
+    "language": "es",
+    "country": "ES"
+  },
+  {
+    "category": "Geopolítica",
+    "name": "Atlantic Council",
+    "domain": "atlanticcouncil.org",
+    "rss_url": "https://www.atlanticcouncil.org/feed/",
+    "base_url": "https://www.atlanticcouncil.org",
+    "language": "en",
+    "country": "US"
+  },
+  {
+    "category": "Geopolítica",
+    "name": "RAND Corporation",
+    "domain": "rand.org",
+    "rss_url": "https://www.rand.org/news/articles.rss",
+    "base_url": "https://www.rand.org",
+    "language": "en",
+    "country": "US"
+  },
+  {
+    "category": "Geopolítica",
+    "name": "Geopolitical Futures",
+    "domain": "geopoliticalfutures.com",
+    "rss_url": "https://geopoliticalfutures.com/feed/",
+    "base_url": "https://geopoliticalfutures.com",
+    "language": "en",
+    "country": "US"
+  },
+  {
+    "category": "Geopolítica",
+    "name": "Carnegie Endowment",
+    "domain": "carnegieendowment.org",
+    "rss_url": "https://carnegieendowment.org/publications/rss.xml",
+    "base_url": "https://carnegieendowment.org",
+    "language": "en",
+    "country": "US"
+  },
+  {
+    "category": "Geopolítica",
+    "name": "Stratfor (RANE)",
+    "domain": "stratfor.com",
+    "rss_url": "https://worldview.stratfor.com/rss.xml",
+    "base_url": "https://worldview.stratfor.com",
+    "language": "en",
+    "country": "US"
+  },
+  {
+    "category": "Política",
+    "name": "NPR Politics",
+    "domain": "npr.org",
+    "rss_url": "https://feeds.npr.org/1014/rss.xml",
+    "base_url": "https://www.npr.org",
+    "language": "en",
+    "country": "US"
+  },
+  {
+    "category": "Política",
+    "name": "Politico",
+    "domain": "politico.com",
+    "rss_url": "https://www.politico.com/rss/politics08.xml",
+    "base_url": "https://www.politico.com",
+    "language": "en",
+    "country": "US"
+  },
+  {
+    "category": "Política",
+    "name": "The Hill",
+    "domain": "thehill.com",
+    "rss_url": "https://thehill.com/feed/",
+    "base_url": "https://thehill.com",
+    "language": "en",
+    "country": "US"
+  },
+  {
+    "category": "Política",
+    "name": "Axios",
+    "domain": "axios.com",
+    "rss_url": "https://api.axios.com/feed/",
+    "base_url": "https://www.axios.com",
+    "language": "en",
+    "country": "US"
+  },
+  {
+    "category": "Internacional",
+    "name": "Xinhua English",
+    "domain": "xinhuanet.com",
+    "rss_url": "http://www.xinhuanet.com/english/rss/chinalatestnews.xml",
+    "base_url": "http://www.xinhuanet.com",
+    "language": "en",
+    "country": "CN"
+  },
+  {
+    "category": "Internacional",
+    "name": "China Daily",
+    "domain": "chinadaily.com.cn",
+    "rss_url": "https://www.chinadaily.com.cn/rss/index_rss.xml",
+    "base_url": "https://www.chinadaily.com.cn",
+    "language": "en",
+    "country": "CN"
+  },
+  {
+    "category": "Internacional",
+    "name": "CGTN",
+    "domain": "cgtn.com",
+    "rss_url": "https://www.cgtn.com/subscribe/feeds/rss2.0.xml",
+    "base_url": "https://www.cgtn.com",
+    "language": "en",
+    "country": "CN"
+  },
+  {
+    "category": "Internacional",
+    "name": "TASS",
+    "domain": "tass.com",
+    "rss_url": "https://tass.com/rss/v2.xml",
+    "base_url": "https://tass.com",
+    "language": "en",
+    "country": "RU"
+  },
+  {
+    "category": "Internacional",
+    "name": "Meduza (English)",
+    "domain": "meduza.io",
+    "rss_url": "https://meduza.io/rss/en/all",
+    "base_url": "https://meduza.io",
+    "language": "en",
+    "country": "RU"
+  },
+  {
+    "category": "Internacional",
+    "name": "BBC World",
+    "domain": "bbc.co.uk",
+    "rss_url": "https://feeds.bbci.co.uk/news/world/rss.xml",
+    "base_url": "https://www.bbc.co.uk",
+    "language": "en",
+    "country": "UK"
+  },
+  {
+    "category": "Política",
+    "name": "BBC UK Politics",
+    "domain": "bbc.co.uk",
+    "rss_url": "https://feeds.bbci.co.uk/news/politics/rss.xml",
+    "base_url": "https://www.bbc.co.uk",
+    "language": "en",
+    "country": "UK"
+  },
+  {
+    "category": "Política",
+    "name": "The Guardian - UK Politics",
+    "domain": "theguardian.com",
+    "rss_url": "https://www.theguardian.com/politics/rss",
+    "base_url": "https://www.theguardian.com",
+    "language": "en",
+    "country": "UK"
+  },
+  {
+    "category": "Internacional",
+    "name": "Sky News - World",
+    "domain": "skynews.com",
+    "rss_url": "https://feeds.skynews.com/feeds/rss/world.xml",
+    "base_url": "https://news.sky.com",
+    "language": "en",
+    "country": "UK"
+  },
+  {
+    "category": "Internacional",
+    "name": "Süddeutsche Zeitung",
+    "domain": "sueddeutsche.de",
+    "rss_url": "https://rss.sueddeutsche.de/rss/Topthemen",
+    "base_url": "https://www.sueddeutsche.de",
+    "language": "de",
+    "country": "DE"
+  },
+  {
+    "category": "Política",
+    "name": "Der Spiegel - Politik",
+    "domain": "spiegel.de",
+    "rss_url": "https://www.spiegel.de/politik/index.rss",
+    "base_url": "https://www.spiegel.de",
+    "language": "de",
+    "country": "DE"
+  },
+  {
+    "category": "Economía y Finanzas",
+    "name": "Handelsblatt - Wirtschaft",
+    "domain": "handelsblatt.com",
+    "rss_url": "https://www.handelsblatt.com/contentexport/feed/wirtschaft",
+    "base_url": "https://www.handelsblatt.com",
+    "language": "de",
+    "country": "DE"
+  },
+  {
+    "category": "Internacional",
+    "name": "Le Monde - Une",
+    "domain": "lemonde.fr",
+    "rss_url": "https://www.lemonde.fr/rss/une.xml",
+    "base_url": "https://www.lemonde.fr",
+    "language": "fr",
+    "country": "FR"
+  },
+  {
+    "category": "Política",
+    "name": "Le Monde - Politique",
+    "domain": "lemonde.fr",
+    "rss_url": "https://www.lemonde.fr/politique/rss_full.xml",
+    "base_url": "https://www.lemonde.fr",
+    "language": "fr",
+    "country": "FR"
+  },
+  {
+    "category": "Internacional",
+    "name": "ANSA - Italia",
+    "domain": "ansa.it",
+    "rss_url": "https://www.ansa.it/sito/ansait_rss.xml",
+    "base_url": "https://www.ansa.it",
+    "language": "it",
+    "country": "IT"
+  },
+  {
+    "category": "Política",
+    "name": "Corriere della Sera - Politica",
+    "domain": "corriere.it",
+    "rss_url": "https://www.corriere.it/rss/politica.xml",
+    "base_url": "https://www.corriere.it",
+    "language": "it",
+    "country": "IT"
+  },
+  {
+    "category": "Internacional",
+    "name": "Il Sole 24 Ore - Mondo",
+    "domain": "ilsole24ore.com",
+    "rss_url": "https://www.ilsole24ore.com/rss/notizie--mondo.xml",
+    "base_url": "https://www.ilsole24ore.com",
+    "language": "it",
+    "country": "IT"
+  },
+  {
+    "category": "Economía y Finanzas",
+    "name": "Il Sole 24 Ore - Economia",
+    "domain": "ilsole24ore.com",
+    "rss_url": "https://www.ilsole24ore.com/rss/notizie--italia.xml",
+    "base_url": "https://www.ilsole24ore.com",
+    "language": "it",
+    "country": "IT"
+  },
+  {
+    "category": "Internacional",
+    "name": "Folha de São Paulo",
+    "domain": "folha.uol.com.br",
+    "rss_url": "https://feeds.folha.uol.com.br/emcimadahora/rss091.xml",
+    "base_url": "https://www.folha.uol.com.br",
+    "language": "pt",
+    "country": "BR"
+  },
+  {
+    "category": "Internacional",
+    "name": "G1 Globo",
+    "domain": "g1.globo.com",
+    "rss_url": "https://g1.globo.com/rss/g1/",
+    "base_url": "https://g1.globo.com",
+    "language": "pt",
+    "country": "BR"
+  },
+  {
+    "category": "Internacional",
+    "name": "La Nación (Argentina)",
+    "domain": "lanacion.com.ar",
+    "rss_url": "https://www.lanacion.com.ar/arc/outboundfeeds/rss/",
+    "base_url": "https://www.lanacion.com.ar",
+    "language": "es",
+    "country": "AR"
+  },
+  {
+    "category": "Internacional",
+    "name": "NHK World",
+    "domain": "nhk.or.jp",
+    "rss_url": "https://www3.nhk.or.jp/rss/news/cat0.xml",
+    "base_url": "https://www3.nhk.or.jp",
+    "language": "en",
+    "country": "JP"
+  },
+  {
+    "category": "Internacional",
+    "name": "The Hindu",
+    "domain": "thehindu.com",
+    "rss_url": "https://www.thehindu.com/feeder/default.rss",
+    "base_url": "https://www.thehindu.com",
+    "language": "en",
+    "country": "IN"
+  },
+  {
+    "category": "Internacional",
+    "name": "Times of India",
+    "domain": "timesofindia.com",
+    "rss_url": "https://timesofindia.indiatimes.com/rssfeedstopstories.cms",
+    "base_url": "https://timesofindia.indiatimes.com",
+    "language": "en",
+    "country": "IN"
+  },
+  {
+    "category": "Geopolítica",
+    "name": "Arab News",
+    "domain": "arabnews.com",
+    "rss_url": "https://www.arabnews.com/rss.xml",
+    "base_url": "https://www.arabnews.com",
+    "language": "en",
+    "country": "SA"
+  },
+  {
+    "category": "Geopolítica",
+    "name": "Times of Israel",
+    "domain": "timesofisrael.com",
+    "rss_url": "https://www.timesofisrael.com/feed/",
+    "base_url": "https://www.timesofisrael.com",
+    "language": "en",
+    "country": "IL"
+  },
+  {
+    "category": "Deporte",
+    "name": "CBS Sports",
+    "domain": "cbssports.com",
+    "rss_url": "https://www.cbssports.com/rss/headlines/",
+    "base_url": "https://www.cbssports.com",
+    "language": "en",
+    "country": "US"
+  },
+  {
+    "category": "Deporte",
+    "name": "Sports Illustrated",
+    "domain": "si.com",
+    "rss_url": "https://www.si.com/rss/si_topstories.rss",
+    "base_url": "https://www.si.com",
+    "language": "en",
+    "country": "US"
+  },
+  {
+    "category": "Deporte",
+    "name": "Marca - Portada",
+    "domain": "marca.com",
+    "rss_url": "https://www.marca.com/rss/portada.xml",
+    "base_url": "https://www.marca.com",
+    "language": "es",
+    "country": "ES"
+  },
+  {
+    "category": "Deporte",
+    "name": "AS - Fútbol",
+    "domain": "as.com",
+    "rss_url": "https://as.com/rss/tags/futbol.xml",
+    "base_url": "https://as.com",
+    "language": "es",
+    "country": "ES"
+  },
+  {
+    "category": "Deporte",
+    "name": "AS - Portada",
+    "domain": "as.com",
+    "rss_url": "https://as.com/rss/portada.xml",
+    "base_url": "https://as.com",
+    "language": "es",
+    "country": "ES"
+  },
+  {
+    "category": "Deporte",
+    "name": "Sport.es",
+    "domain": "sport.es",
+    "rss_url": "https://www.sport.es/es/rss/",
+    "base_url": "https://www.sport.es",
+    "language": "es",
+    "country": "ES"
+  },
+  {
+    "category": "Deporte",
+    "name": "La Gazzetta dello Sport",
+    "domain": "gazzetta.it",
+    "rss_url": "https://www.gazzetta.it/rss/home.xml",
+    "base_url": "https://www.gazzetta.it",
+    "language": "it",
+    "country": "IT"
+  },
+  {
+    "category": "Deporte",
+    "name": "Tuttosport",
+    "domain": "tuttosport.com",
+    "rss_url": "https://www.tuttosport.com/rss/home.xml",
+    "base_url": "https://www.tuttosport.com",
+    "language": "it",
+    "country": "IT"
+  },
+  {
+    "category": "Deporte",
+    "name": "Corriere dello Sport",
+    "domain": "corrieredellosport.it",
+    "rss_url": "https://www.corrieredellosport.it/rss/home.xml",
+    "base_url": "https://www.corrieredellosport.it",
+    "language": "it",
+    "country": "IT"
+  },
+  {
+    "category": "Deporte",
+    "name": "Motorsport.com Italia - F1",
+    "domain": "motorsport.com",
+    "rss_url": "https://it.motorsport.com/rss/f1/news/",
+    "base_url": "https://it.motorsport.com",
+    "language": "it",
+    "country": "IT"
+  },
+  {
+    "category": "Deporte",
+    "name": "FormulaPassion.it",
+    "domain": "formulapassion.it",
+    "rss_url": "https://www.formulapassion.it/feed/",
+    "base_url": "https://www.formulapassion.it",
+    "language": "it",
+    "country": "IT"
+  },
+  {
+    "category": "Deporte",
+    "name": "Autosprint - F1",
+    "domain": "autosprint.it",
+    "rss_url": "https://www.autosprint.it/feed/",
+    "base_url": "https://www.autosprint.it",
+    "language": "it",
+    "country": "IT"
+  },
+  {
+    "category": "Deporte",
+    "name": "Tuttosport - Formula 1",
+    "domain": "tuttosport.com",
+    "rss_url": "https://www.tuttosport.com/rss/formula1.xml",
+    "base_url": "https://www.tuttosport.com",
+    "language": "it",
+    "country": "IT"
+  },
+  {
+    "category": "Deporte",
+    "name": "GPBlog Italia",
+    "domain": "gpblog.com",
+    "rss_url": "https://www.gpblog.com/it/rss.xml",
+    "base_url": "https://www.gpblog.com/it",
+    "language": "it",
+    "country": "IT"
+  },
+  {
+    "category": "Deporte",
+    "name": "F1-News.eu Italia",
+    "domain": "f1-news.eu",
+    "rss_url": "https://www.f1-news.eu/feed/",
+    "base_url": "https://www.f1-news.eu",
+    "language": "it",
+    "country": "IT"
+  },
+  {
+    "category": "Salud y Bienestar",
+    "name": "Alimente (El Confidencial)",
+    "domain": "alimente.elconfidencial.com",
+    "rss_url": "https://www.alimente.elconfidencial.com/rss/",
+    "base_url": "https://www.alimente.elconfidencial.com",
+    "language": "es",
+    "country": "ES"
+  },
+  {
+    "category": "Salud y Bienestar",
+    "name": "Directoalpaladar",
+    "domain": "directoalpaladar.com",
+    "rss_url": "https://www.directoalpaladar.com/feedburner.xml",
+    "base_url": "https://www.directoalpaladar.com",
+    "language": "es",
+    "country": "ES"
+  },
+  {
+    "category": "Salud y Bienestar",
+    "name": "El Mundo - Salud",
+    "domain": "elmundo.es",
+    "rss_url": "https://www.elmundo.es/rss/salud.xml",
+    "base_url": "https://www.elmundo.es",
+    "language": "es",
+    "country": "ES"
+  },
+  {
+    "category": "Salud y Bienestar",
+    "name": "CuidatePlus - Nutrición",
+    "domain": "cuidateplus.marca.com",
+    "rss_url": "https://cuidateplus.marca.com/alimentacion/rss",
+    "base_url": "https://cuidateplus.marca.com",
+    "language": "es",
+    "country": "ES"
+  },
+  {
+    "category": "Salud y Bienestar",
+    "name": "Consumer - Alimentación",
+    "domain": "consumer.es",
+    "rss_url": "https://www.consumer.es/alimentacion/rss",
+    "base_url": "https://www.consumer.es",
+    "language": "es",
+    "country": "ES"
+  },
+  {
+    "category": "Salud y Bienestar",
+    "name": "Nutrición sin más",
+    "domain": "nutricionsinmas.com",
+    "rss_url": "https://www.nutricionsinmas.com/feed/",
+    "base_url": "https://www.nutricionsinmas.com",
+    "language": "es",
+    "country": "ES"
+  },
+  {
+    "category": "Salud y Bienestar",
+    "name": "Healthline - Nutrition",
+    "domain": "healthline.com",
+    "rss_url": "https://www.healthline.com/rss/nutrition",
+    "base_url": "https://www.healthline.com",
+    "language": "en",
+    "country": "US"
+  },
+  {
+    "category": "Salud y Bienestar",
+    "name": "Harvard - The Nutrition Source",
+    "domain": "hsph.harvard.edu",
+    "rss_url": "https://www.hsph.harvard.edu/nutritionsource/feed/",
+    "base_url": "https://www.hsph.harvard.edu/nutritionsource",
+    "language": "en",
+    "country": "US"
+  },
+  {
+    "category": "Salud y Bienestar",
+    "name": "Nutrition.org (British)",
+    "domain": "nutrition.org.uk",
+    "rss_url": "https://www.nutrition.org.uk/feed/",
+    "base_url": "https://www.nutrition.org.uk",
+    "language": "en",
+    "country": "UK"
+  },
+  {
+    "category": "Salud y Bienestar",
+    "name": "Eat This Not That",
+    "domain": "eatthis.com",
+    "rss_url": "https://www.eatthis.com/feed/",
+    "base_url": "https://www.eatthis.com",
+    "language": "en",
+    "country": "US"
+  },
+  {
+    "category": "Salud y Bienestar",
+    "name": "Precision Nutrition",
+    "domain": "precisionnutrition.com",
+    "rss_url": "https://www.precisionnutrition.com/feed",
+    "base_url": "https://www.precisionnutrition.com",
+    "language": "en",
+    "country": "US"
+  },
+  {
+    "category": "Internacional",
+    "name": "AP News - Top Headlines",
+    "domain": "apnews.com",
+    "rss_url": "https://feeds.apnews.com/rss/apf-topnews",
+    "base_url": "https://apnews.com",
+    "language": "en",
+    "country": "US"
+  },
+  {
+    "category": "Internacional",
+    "name": "AP News - World",
+    "domain": "apnews.com",
+    "rss_url": "https://feeds.apnews.com/rss/apf-intlnews",
+    "base_url": "https://apnews.com",
+    "language": "en",
+    "country": "US"
+  },
+  {
+    "category": "Internacional",
+    "name": "Reuters - World",
+    "domain": "reuters.com",
+    "rss_url": "https://feeds.reuters.com/reuters/worldnews",
+    "base_url": "https://www.reuters.com",
+    "language": "en",
+    "country": "US"
+  },
+  {
+    "category": "Economía y Finanzas",
+    "name": "Reuters - Business",
+    "domain": "reuters.com",
+    "rss_url": "https://feeds.reuters.com/reuters/businessnews",
+    "base_url": "https://www.reuters.com",
+    "language": "en",
+    "country": "US"
+  },
+  {
+    "category": "Ciencia e Investigación",
+    "name": "Tendencias21",
+    "domain": "tendencias21.net",
+    "rss_url": "https://www.tendencias21.net/rss",
+    "base_url": "https://www.tendencias21.net",
+    "language": "es",
+    "country": "ES"
+  },
+  {
+    "category": "Ciencia e Investigación",
+    "name": "Investigación y Ciencia",
+    "domain": "investigacionyciencia.es",
+    "rss_url": "https://www.investigacionyciencia.es/rss",
+    "base_url": "https://www.investigacionyciencia.es",
+    "language": "es",
+    "country": "ES"
   }
 ]

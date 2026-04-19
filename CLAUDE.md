@@ -173,6 +173,9 @@ Los valores del map son el **contexto del usuario** para ese topic — se usa pa
 
 ## Deploy
 
+**⚠️ REGLA: Nunca ejecutar `gcloud run deploy` sin confirmación explícita del usuario.**
+El build (`gcloud builds submit`) puede correr automáticamente, pero el deploy a producción requiere un "sí" del usuario.
+
 ```bash
 # Build y push a GCR
 docker build -t gcr.io/pod-summarizer-ai-agent/newspaper-ai .
