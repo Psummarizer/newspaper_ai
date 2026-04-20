@@ -417,7 +417,7 @@ class GCSService:
         now = datetime.now()
         cutoff = now - timedelta(days=days)
         future_threshold = now + timedelta(hours=4)  # margen TZ
-        published_at_max_age = now - timedelta(hours=72)  # artículos RSS >3 días = demasiado viejos
+        published_at_max_age = now - timedelta(hours=24)  # artículos RSS >24h = demasiado viejos
         total_removed = 0
 
         for topic_id, topic_info in topics_data.items():

@@ -984,7 +984,7 @@ JSON only: {{"invalid_ids": [1, 3], "reasons": {{"1": "basketball, not football"
             # publicó hace >72h, descartarlo aunque fecha_inventariado sea reciente.
             # Esto evita que artículos viejos que reaparecen en feeds RSS se
             # re-ingesten con fecha_inventariado fresca y pasen los filtros.
-            _MAX_PUBLISHED_AGE_HOURS = 72  # artículo RSS >3 días = demasiado viejo
+            _MAX_PUBLISHED_AGE_HOURS = 24  # artículo RSS >24h = demasiado viejo para el briefing
 
             def get_fresh_news(hours_limit):
                 filtered = []
