@@ -13,12 +13,13 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Instalar Chromium, Driver y FFmpeg
+# Instalar Chromium, Driver, FFmpeg y tzdata (necesario para que TZ=Europe/Madrid funcione)
 ARG DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
     chromium \
     chromium-driver \
     ffmpeg \
+    tzdata \
     && rm -rf /var/lib/apt/lists/*
 
 # Configurar variables de entorno para Selenium

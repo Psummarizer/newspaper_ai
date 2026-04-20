@@ -310,6 +310,10 @@ class GCSService:
         now = datetime.now()
         cutoff = now - timedelta(hours=hours)
 
+        # Margen de 4h para fechas "futuras": cubre desfases de TZ (CEST=UTC+2, con margen)
+        # Solo descarta artículos que están >4h en el futuro (RSS typos reales como año 2926).
+        future_threshold = now + timedelta(hours=4)
+
         kept = []
         removed = 0
         for art in articles:
@@ -319,8 +323,8 @@ class GCSService:
                 continue
             try:
                 fecha_dt = datetime.fromisoformat(str(fecha_str)[:19].replace("Z", ""))
-                if fecha_dt > now:
-                    removed += 1  # fecha futura (RSS typo) → descartar
+                if fecha_dt > future_threshold:
+                    removed += 1  # fecha futura real (RSS typo, ej: año 2926) → descartar
                 elif fecha_dt >= cutoff:
                     kept.append(art)
                 else:
@@ -329,8 +333,12 @@ class GCSService:
                 kept.append(art)  # no parseable → mantener
 
         if removed > 0:
-            self.save_articles(kept)
-        
+            ok = self.save_articles(kept)
+            if not ok:
+                self.logger.error(
+                    f"❌ CRITICAL: cleanup save_articles FAILED — articles.json NOT cleaned up!"
+                )
+
         return removed
 
     def cleanup_old_topic_news(self, topics_data: dict, days: int = 2) -> int:
@@ -346,6 +354,7 @@ class GCSService:
         from datetime import timedelta
         now = datetime.now()
         cutoff = now - timedelta(days=days)
+        future_threshold = now + timedelta(hours=4)  # margen TZ
         total_removed = 0
 
         for topic_id, topic_info in topics_data.items():
@@ -363,8 +372,8 @@ class GCSService:
                 if isinstance(fecha_str, str):
                     try:
                         fecha_dt = datetime.fromisoformat(fecha_str[:19])
-                        if fecha_dt > now:
-                            total_removed += 1  # fecha futura → descartar
+                        if fecha_dt > future_threshold:
+                            total_removed += 1  # fecha futura real (RSS typo) → descartar
                             continue
                         if fecha_dt >= cutoff:
                             kept_news.append(news)
