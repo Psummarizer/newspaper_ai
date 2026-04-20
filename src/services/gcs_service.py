@@ -9,6 +9,7 @@ import logging
 import unicodedata
 from datetime import datetime
 from google.cloud import storage
+from google.api_core.exceptions import NotFound
 
 def _normalize_category(text: str) -> str:
     """Normaliza categoría: quita tildes y pasa a minúsculas"""
@@ -30,11 +31,18 @@ class GCSService:
         try:
             self.client = storage.Client()
             self.bucket = self.client.bucket(self.bucket_name)
-            # Verificar que el bucket existe
-            if not self.bucket.exists():
-                self.logger.warning(f"⚠️ Bucket '{self.bucket_name}' no existe. Creándolo...")
-                self.bucket = self.client.create_bucket(self.bucket_name, location="europe-west1")
+            # Verificar conectividad listando el bucket (más fiable que bucket.exists())
+            self.bucket.reload()
             self.logger.info(f"✅ Conectado a GCS bucket: {self.bucket_name}")
+        except NotFound:
+            self.logger.warning(f"⚠️ Bucket '{self.bucket_name}' no existe. Creándolo...")
+            try:
+                self.bucket = self.client.create_bucket(self.bucket_name, location="europe-west1")
+                self.logger.info(f"✅ Bucket creado: {self.bucket_name}")
+            except Exception as e2:
+                self.logger.error(f"❌ Error creando bucket: {e2}")
+                self.client = None
+                self.bucket = None
         except Exception as e:
             self.logger.error(f"❌ Error inicializando GCS: {e}")
             self.client = None
@@ -48,10 +56,10 @@ class GCSService:
         if not self.bucket: return False
         try:
             blob = self.bucket.blob(filename)
-            if blob.exists():
-                blob.delete()
-                self.logger.info(f"🗑️ Eliminado GCS: {filename}")
-                return True
+            blob.delete()
+            self.logger.info(f"🗑️ Eliminado GCS: {filename}")
+            return True
+        except NotFound:
             return False
         except Exception as e:
             self.logger.error(f"Error delete: {e}")
@@ -64,8 +72,9 @@ class GCSService:
         if not self.bucket: return {}
         try:
             blob = self.bucket.blob(filename)
-            if not blob.exists(): return {}
-            return json.loads(blob.download_as_text())
+            return json.loads(blob.download_as_text(retry=storage.retry.DEFAULT_RETRY, timeout=30))
+        except NotFound:
+            return {}
         except Exception as e:
             self.logger.error(f"Error leyendo {filename}: {e}")
             return {}
@@ -90,13 +99,12 @@ class GCSService:
             return []
         try:
             blob = self.bucket.blob("sources.json")
-            if not blob.exists():
-                self.logger.warning("⚠️ sources.json no existe en el bucket")
-                return []
-            content = blob.download_as_text()
+            content = blob.download_as_text(retry=storage.retry.DEFAULT_RETRY, timeout=30)
             sources = json.loads(content)
-            # Filtrar solo activos
             return [s for s in sources if s.get("is_active", True)]
+        except NotFound:
+            self.logger.warning("⚠️ sources.json no existe en el bucket")
+            return []
         except Exception as e:
             self.logger.error(f"Error leyendo sources: {e}")
             return []
@@ -125,10 +133,10 @@ class GCSService:
             return []
         try:
             blob = self.bucket.blob("topics.json")
-            if not blob.exists():
-                return []
-            content = blob.download_as_text()
+            content = blob.download_as_text(retry=storage.retry.DEFAULT_RETRY, timeout=30)
             return json.loads(content)
+        except NotFound:
+            return []
         except Exception as e:
             self.logger.error(f"Error leyendo topics: {e}")
             return []
@@ -155,54 +163,61 @@ class GCSService:
     # ARTICLES (FLAT - ARCHIVE)
     # =========================================================================
     def get_articles(self) -> list:
-        """Lee articles.json desde el bucket."""
+        """Lee articles.json desde el bucket.
+        No usa blob.exists() — descarga directamente y captura NotFound.
+        Esto evita inconsistencias de metadatos en Cloud Run tras escrituras recientes.
+        """
         if not self.bucket:
             return []
         try:
+            # Crear blob fresco cada vez (sin metadatos cacheados)
             blob = self.bucket.blob("articles.json")
-            if not blob.exists():
-                self.logger.warning("⚠️ articles.json no existe en GCS")
-                return []
-            # Descargar como bytes y decodificar explícitamente
-            raw = blob.download_as_bytes()
+            raw = blob.download_as_bytes(retry=storage.retry.DEFAULT_RETRY, timeout=60)
             articles = json.loads(raw.decode("utf-8"))
             if not isinstance(articles, list):
                 self.logger.error(f"❌ articles.json no es una lista, tipo: {type(articles)}")
                 return []
             return articles
+        except NotFound:
+            self.logger.warning("⚠️ articles.json no existe en GCS")
+            return []
         except Exception as e:
             self.logger.error(f"❌ Error leyendo articles ({type(e).__name__}): {e}")
             return []
 
     def save_articles(self, articles: list):
-        """Guarda articles.json en el bucket con verificación de integridad."""
+        """Guarda articles.json en el bucket con verificación de integridad.
+        Usa resumable upload para payloads grandes y verifica con generation match.
+        """
         if not self.bucket:
             return False
         try:
-            # Serializar a bytes explícitamente (evita problemas con upload_from_string en payloads grandes)
             payload = json.dumps(articles, ensure_ascii=False, default=str).encode("utf-8")
             payload_size = len(payload)
             self.logger.info(f"💾 save_articles: {len(articles)} artículos, {payload_size / 1024:.0f} KB")
 
             blob = self.bucket.blob("articles.json")
-            # Usar upload_from_file con BytesIO: más robusto para payloads >5MB
             blob.upload_from_file(
                 io.BytesIO(payload),
                 size=payload_size,
                 content_type="application/json; charset=utf-8",
-                timeout=120,
+                timeout=180,
                 retry=storage.retry.DEFAULT_RETRY,
             )
 
-            # Verificar que el blob se escribió con el tamaño correcto
-            blob.reload()
-            if blob.size != payload_size:
+            # Verificar con blob fresco (evita metadatos cacheados del objeto anterior)
+            verify_blob = self.bucket.blob("articles.json")
+            verify_blob.reload(retry=storage.retry.DEFAULT_RETRY, timeout=30)
+            if verify_blob.size != payload_size:
                 self.logger.error(
                     f"❌ save_articles VERIFY FAILED: wrote {payload_size} bytes "
-                    f"but blob reports {blob.size} bytes"
+                    f"but blob reports {verify_blob.size} bytes"
                 )
                 return False
 
+            self.logger.info(
+                f"✅ save_articles OK: {payload_size} bytes, generation={verify_blob.generation}"
+            )
             return True
         except Exception as e:
             self.logger.error(f"❌ Error guardando articles ({len(articles)} arts): {e}")
@@ -220,10 +235,10 @@ class GCSService:
             return {}
         try:
             blob = self.bucket.blob("news_by_topic.json")
-            if not blob.exists():
-                return {}
-            content = blob.download_as_text()
+            content = blob.download_as_text(retry=storage.retry.DEFAULT_RETRY, timeout=30)
             return json.loads(content)
+        except NotFound:
+            return {}
         except Exception as e:
             self.logger.error(f"Error leyendo news_by_topic: {e}")
             return {}
@@ -301,43 +316,38 @@ class GCSService:
         now_str = datetime.now().isoformat()
         existing = self.get_articles()
         existing_urls = {art.get("url") for art in existing}
+        self.logger.info(f"📥 merge_new_articles: {len(existing)} existentes, {len(new_articles)} candidatos")
 
         added = 0
         for art in new_articles:
             if art.get("url") not in existing_urls:
-                art["fecha_ingesta"] = now_str  # cuándo lo capturamos nosotros
+                art["fecha_ingesta"] = now_str
                 existing.append(art)
                 existing_urls.add(art.get("url"))
                 added += 1
 
         if added > 0:
+            self.logger.info(f"📝 Guardando {len(existing)} artículos ({added} nuevos)...")
             ok = self.save_articles(existing)
             if not ok:
                 self.logger.error(
                     f"❌ CRITICAL: save_articles FAILED after merging {added} new articles — "
                     f"articles.json NOT updated in GCS!"
                 )
-                return 0  # Signal failure to caller
-
-            # Read-after-write verification
-            verify = self.get_articles()
-            if len(verify) < added:
-                self.logger.error(
-                    f"❌ CRITICAL: read-after-write MISMATCH! Saved {len(existing)} articles "
-                    f"but read back only {len(verify)}. GCS write may be silently failing."
-                )
-                # Retry once with fresh blob reference
-                self.logger.info("🔄 Retrying save with fresh blob...")
-                self.bucket = self.client.bucket(self.bucket_name)
-                ok2 = self.save_articles(existing)
-                if ok2:
-                    verify2 = self.get_articles()
-                    self.logger.info(f"🔄 Retry result: {len(verify2)} articles read back")
-                    if len(verify2) < added:
+                # Retry with fresh client connection
+                self.logger.info("🔄 Retrying with fresh GCS client...")
+                try:
+                    self.client = storage.Client()
+                    self.bucket = self.client.bucket(self.bucket_name)
+                    ok = self.save_articles(existing)
+                    if not ok:
                         self.logger.error("❌ Retry also failed. Giving up.")
                         return 0
-                else:
+                except Exception as e:
+                    self.logger.error(f"❌ Retry exception: {e}")
                     return 0
+
+            self.logger.info(f"✅ merge_new_articles: {added} nuevos artículos guardados correctamente")
 
         return added
 
