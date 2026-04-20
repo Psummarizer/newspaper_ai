@@ -5,7 +5,10 @@
 
 # articles.json (cache raw de RSS)
 ARTICLES_RETENTION_HOURS = 72       # cleanup_old_articles: cuánto tiempo guardamos artículos crudos
-ARTICLES_INGEST_WINDOW_HOURS = 14   # ventana dinámica máx para get_articles_by_category (sobre fecha_ingesta)
+# Gap máximo entre ingestas diarias = 15h (5:30am → 20:30pm Madrid).
+# El cap debe ser > 15h para no cortar los artículos de la ingesta anterior.
+# 20h = INGESTA_COVERAGE_HOURS → el artículo raw nunca tiene ventana más corta que el orchestrator.
+ARTICLES_INGEST_WINDOW_HOURS = 20   # ventana dinámica máx para get_articles_by_category (sobre fecha_ingesta)
 
 # topics.json (artículos procesados + redactados)
 TOPICS_RETENTION_DAYS = 2           # cleanup_old_topic_news: 48h de artículos procesados

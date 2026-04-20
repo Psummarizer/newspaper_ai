@@ -217,14 +217,20 @@ class GCSService:
             self.logger.error(f"Error guardando news_by_topic: {e}")
             return False
     
-    def get_articles_by_category(self, category: str, hours_limit: int = 24) -> list:
+    def get_articles_by_category(self, category: str, hours_limit: int = 24,
+                                    articles: list = None) -> list:
         """
         Filtra artículos por categoría y ventana temporal.
         Usa fecha_ingesta (cuándo los capturamos) si existe; fallback a published_at.
         Artículos legacy sin fecha_ingesta pero con published_at válido son incluidos.
+
+        articles: lista pre-cargada (evita re-leer GCS en cada llamada).
+                  Si None, lee articles.json desde GCS.
         """
-        articles = self.get_articles()
+        if articles is None:
+            articles = self.get_articles()
         if not articles:
+            self.logger.warning(f"⚠️ get_articles_by_category('{category}'): articles.json vacío o no encontrado en GCS")
             return []
 
         from datetime import timedelta
@@ -233,10 +239,11 @@ class GCSService:
 
         filtered = []
         normalized_category = _normalize_category(category)
+        cat_count = 0
         for art in articles:
             if _normalize_category(art.get("category", "")) != normalized_category:
                 continue
-
+            cat_count += 1
             fecha_str = art.get("fecha_ingesta") or art.get("published_at")
             if not fecha_str:
                 continue
@@ -249,6 +256,10 @@ class GCSService:
             except:
                 filtered.append(art)  # no parseable → incluir por precaución
 
+        self.logger.info(
+            f"📊 get_articles_by_category('{category}', {hours_limit:.1f}h): "
+            f"{len(articles)} total → {cat_count} en categoría → {len(filtered)} en ventana"
+        )
         return filtered
     
     def merge_new_articles(self, new_articles: list) -> int:
@@ -274,7 +285,13 @@ class GCSService:
                 added += 1
 
         if added > 0:
-            self.save_articles(existing)
+            ok = self.save_articles(existing)
+            if not ok:
+                self.logger.error(
+                    f"❌ CRITICAL: save_articles FAILED after merging {added} new articles — "
+                    f"articles.json NOT updated in GCS!"
+                )
+                return 0  # Signal failure to caller
 
         return added
 

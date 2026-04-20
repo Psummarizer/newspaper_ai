@@ -83,6 +83,7 @@ class HourlyProcessor:
         self.category_news_cache = {}  # {"Deporte": [redacted_news_list]}
         self.existing_news = {}  # {normalized_title: {"news": news_dict, "topic_id": str}}
         self.existing_urls = set() # {url} para de-duplicación estricta
+        self._articles_run_cache = None  # articles.json cargado una vez por run (evita N lecturas GCS)
         
     async def run(self):
         logger.info("🚀 Inicio Pipeline Horario (OPTIMIZADO)")
@@ -105,7 +106,12 @@ class HourlyProcessor:
         removed_articles = self.gcs.cleanup_old_articles(hours=ARTICLES_RETENTION_HOURS)
         if removed_articles > 0:
             logger.info(f"🧹 Eliminados {removed_articles} artículos de articles.json (>{ARTICLES_RETENTION_HOURS}h)")
-        
+
+        # 0.2 PRE-CARGAR articles.json tras ingest+cleanup (garantiza que los topics ven
+        #     los artículos frescos y evita N lecturas GCS durante el procesado de topics)
+        self._articles_run_cache = self.gcs.get_articles()
+        logger.info(f"📦 Articles run-cache: {len(self._articles_run_cache)} artículos disponibles para topics")
+
         # 1. Obtener todos los aliases únicos de Firebase
         all_aliases_tuples = self._get_all_topics_from_firebase()
         all_aliases = [t[0] for t in all_aliases_tuples]
@@ -259,7 +265,8 @@ class HourlyProcessor:
             logger.info(f"📂 {topic_name} → {categories}")
         
         categories = topic_info["categories"]
-        
+        logger.info(f"🔍 {topic_name}: buscando en categorías {categories}")
+
         # MEJORA B: Buscar noticias ya redactadas de la misma categoría
         cached_news = self._get_cached_news_for_categories(categories)
         if cached_news:
@@ -798,21 +805,28 @@ class HourlyProcessor:
     
     def _get_articles_for_categories(self, categories: list) -> list:
         """Busca artículos en GCS dinámicamente según la última ejecución"""
-        
+
         # Calcular ventana dinámica sobre fecha_ingesta (cuándo capturamos los artículos)
-        hours_limit = ARTICLES_INGEST_WINDOW_HOURS  # Default = 14h si no hay estado previo
+        hours_limit = ARTICLES_INGEST_WINDOW_HOURS  # Default = 20h si no hay estado previo
         if hasattr(self, 'last_run_time') and self.last_run_time:
             delta = datetime.now() - self.last_run_time
             hours_limit = delta.total_seconds() / 3600
             hours_limit += 0.5  # buffer de 30 min
-            # Cap: mínimo 6 min, máximo ARTICLES_INGEST_WINDOW_HOURS (14h)
+            # Cap: mínimo 6 min, máximo ARTICLES_INGEST_WINDOW_HOURS (20h)
+            # IMPORTANTE: 20h > gap máximo entre ingestas (15h: 5:30→20:30)
+            # Usar 14h causaba que artículos de la mañana no fueran encontrados en la tarde.
             hours_limit = max(0.1, min(hours_limit, ARTICLES_INGEST_WINDOW_HOURS))
-            
-        logger.info(f"📡 Buscando artículos (Ventana dinámica: {hours_limit:.2f}h)...")
+
+        # Cargar articles.json una sola vez por run (evita N lecturas GCS para N topics)
+        if self._articles_run_cache is None:
+            self._articles_run_cache = self.gcs.get_articles()
+            logger.info(f"📦 Articles run-cache: {len(self._articles_run_cache)} artículos cargados de GCS")
 
         all_articles = []
         for cat in categories:
-            articles = self.gcs.get_articles_by_category(cat, hours_limit=hours_limit)
+            articles = self.gcs.get_articles_by_category(
+                cat, hours_limit=hours_limit, articles=self._articles_run_cache
+            )
             all_articles.extend(articles)
         # Deduplicar por URL
         seen = set()
