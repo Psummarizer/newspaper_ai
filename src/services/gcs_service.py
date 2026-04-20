@@ -3,6 +3,7 @@ Servicio de Google Cloud Storage para almacenar sources y articles como JSON.
 Mucho más rápido que Firestore para operaciones bulk.
 """
 import os
+import io
 import json
 import logging
 import unicodedata
@@ -160,26 +161,51 @@ class GCSService:
         try:
             blob = self.bucket.blob("articles.json")
             if not blob.exists():
+                self.logger.warning("⚠️ articles.json no existe en GCS")
                 return []
-            content = blob.download_as_text()
-            return json.loads(content)
+            # Descargar como bytes y decodificar explícitamente
+            raw = blob.download_as_bytes()
+            articles = json.loads(raw.decode("utf-8"))
+            if not isinstance(articles, list):
+                self.logger.error(f"❌ articles.json no es una lista, tipo: {type(articles)}")
+                return []
+            return articles
         except Exception as e:
-            self.logger.error(f"Error leyendo articles: {e}")
+            self.logger.error(f"❌ Error leyendo articles ({type(e).__name__}): {e}")
             return []
 
     def save_articles(self, articles: list):
-        """Guarda articles.json en el bucket."""
+        """Guarda articles.json en el bucket con verificación de integridad."""
         if not self.bucket:
             return False
         try:
+            # Serializar a bytes explícitamente (evita problemas con upload_from_string en payloads grandes)
+            payload = json.dumps(articles, ensure_ascii=False, default=str).encode("utf-8")
+            payload_size = len(payload)
+            self.logger.info(f"💾 save_articles: {len(articles)} artículos, {payload_size / 1024:.0f} KB")
+
             blob = self.bucket.blob("articles.json")
-            blob.upload_from_string(
-                json.dumps(articles, ensure_ascii=False, default=str),
-                content_type="application/json"
+            # Usar upload_from_file con BytesIO: más robusto para payloads >5MB
+            blob.upload_from_file(
+                io.BytesIO(payload),
+                size=payload_size,
+                content_type="application/json; charset=utf-8",
+                timeout=120,
+                retry=storage.retry.DEFAULT_RETRY,
             )
+
+            # Verificar que el blob se escribió con el tamaño correcto
+            blob.reload()
+            if blob.size != payload_size:
+                self.logger.error(
+                    f"❌ save_articles VERIFY FAILED: wrote {payload_size} bytes "
+                    f"but blob reports {blob.size} bytes"
+                )
+                return False
+
             return True
         except Exception as e:
-            self.logger.error(f"Error guardando articles: {e}")
+            self.logger.error(f"❌ Error guardando articles ({len(articles)} arts): {e}")
             return False
 
     # =========================================================================
@@ -292,6 +318,26 @@ class GCSService:
                     f"articles.json NOT updated in GCS!"
                 )
                 return 0  # Signal failure to caller
+
+            # Read-after-write verification
+            verify = self.get_articles()
+            if len(verify) < added:
+                self.logger.error(
+                    f"❌ CRITICAL: read-after-write MISMATCH! Saved {len(existing)} articles "
+                    f"but read back only {len(verify)}. GCS write may be silently failing."
+                )
+                # Retry once with fresh blob reference
+                self.logger.info("🔄 Retrying save with fresh blob...")
+                self.bucket = self.client.bucket(self.bucket_name)
+                ok2 = self.save_articles(existing)
+                if ok2:
+                    verify2 = self.get_articles()
+                    self.logger.info(f"🔄 Retry result: {len(verify2)} articles read back")
+                    if len(verify2) < added:
+                        self.logger.error("❌ Retry also failed. Giving up.")
+                        return 0
+                else:
+                    return 0
 
         return added
 
