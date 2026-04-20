@@ -1306,6 +1306,12 @@ class HourlyProcessor:
                         _now = datetime.now()
                         if pub_dt > _now:
                             pub_dt = _now  # Fecha futura (RSS malformado, ej: año 2926) → usar ahora
+                        # Descartar artículos con published_at >72h (reaparecen en feeds RSS).
+                        # Sin esto, artículos viejos que fueron limpiados de topics.json
+                        # se re-ingestan con fecha_inventariado fresca y pasan los filtros.
+                        age_hours = (_now - pub_dt).total_seconds() / 3600
+                        if age_hours > 72:
+                            continue  # artículo RSS demasiado viejo → saltar
                         published_at = pub_dt.isoformat()
                     else:
                         published_at = datetime.now().isoformat()

@@ -400,7 +400,13 @@ class GCSService:
     def cleanup_old_topic_news(self, topics_data: dict, days: int = 2) -> int:
         """
         Elimina noticias más antiguas que X días de topics.json.
-        Usa fecha_inventariado (cuándo las procesamos) como primaria; fallback a published_at.
+
+        Dos filtros independientes:
+        1. fecha_inventariado (cuándo las procesamos) > days → eliminar
+        2. published_at (fecha real RSS) > 72h → eliminar SIEMPRE
+           (evita que artículos viejos re-ingested con fecha_inventariado fresca
+            permanezcan en el cache indefinidamente)
+
         Descarta también fechas futuras (RSS typos, ej: año 2926).
         Retorna el número total de noticias eliminadas.
         """
@@ -411,6 +417,7 @@ class GCSService:
         now = datetime.now()
         cutoff = now - timedelta(days=days)
         future_threshold = now + timedelta(hours=4)  # margen TZ
+        published_at_max_age = now - timedelta(hours=72)  # artículos RSS >3 días = demasiado viejos
         total_removed = 0
 
         for topic_id, topic_info in topics_data.items():
@@ -423,13 +430,29 @@ class GCSService:
 
             kept_news = []
             for news in noticias:
-                # fecha_inventariado primero (fiable, la ponemos nosotros); fallback a published_at
+                # CHECK 1: published_at (fecha real del artículo RSS)
+                # Si es >72h, descartar aunque fecha_inventariado sea reciente.
+                # Esto evita que artículos viejos reaparecidos en feeds se queden.
+                pub_str = news.get("published_at")
+                if isinstance(pub_str, str) and pub_str:
+                    try:
+                        pub_dt = datetime.fromisoformat(pub_str[:19].replace("Z", ""))
+                        if pub_dt > future_threshold:
+                            total_removed += 1  # fecha futura (RSS typo)
+                            continue
+                        if pub_dt < published_at_max_age:
+                            total_removed += 1  # artículo RSS demasiado viejo
+                            continue
+                    except:
+                        pass  # no parseable → seguir al check 2
+
+                # CHECK 2: fecha_inventariado (cuándo procesamos el artículo)
                 fecha_str = news.get("fecha_inventariado") or news.get("published_at")
                 if isinstance(fecha_str, str):
                     try:
-                        fecha_dt = datetime.fromisoformat(fecha_str[:19])
+                        fecha_dt = datetime.fromisoformat(fecha_str[:19].replace("Z", ""))
                         if fecha_dt > future_threshold:
-                            total_removed += 1  # fecha futura real (RSS typo) → descartar
+                            total_removed += 1
                             continue
                         if fecha_dt >= cutoff:
                             kept_news.append(news)
@@ -443,6 +466,6 @@ class GCSService:
             topic_info["noticias"] = kept_news
 
         if total_removed > 0:
-            self.logger.info(f"🧹 Limpieza: {total_removed} noticias >48h o fecha futura eliminadas de topics.json")
+            self.logger.info(f"🧹 Limpieza: {total_removed} noticias antiguas/futuras eliminadas de topics.json")
 
         return total_removed

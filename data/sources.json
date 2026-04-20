@@ -7300,5 +7300,26 @@
     "base_url": "https://www.law360.com",
     "language": "en",
     "country": "INT"
+  },
+  {
+    "category": "Deporte",
+    "name": "Marca – Pádel",
+    "domain": "marca.com",
+    "rss_url": "https://e00-marca.uecdn.es/rss/padel.xml",
+    "base_url": "https://www.marca.com/padel.html"
+  },
+  {
+    "category": "Deporte",
+    "name": "AS – Pádel",
+    "domain": "as.com",
+    "rss_url": "https://feeds.as.com/mrss-s/pages/as/site/as.com/section/padel/portada/",
+    "base_url": "https://as.com/padel/"
+  },
+  {
+    "category": "Deporte",
+    "name": "Google News Padel ES",
+    "domain": "news.google.com",
+    "rss_url": "https://news.google.com/rss/search?q=premier+padel+OR+world+padel+tour&hl=es&gl=ES",
+    "base_url": "https://news.google.com"
   }
 ]

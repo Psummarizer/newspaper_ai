@@ -56,6 +56,7 @@ CATEGORY_IMAGES = {
     ],
     "Transporte y Movilidad": [
         f"{_GCS}transporte_1.jpg",
+        f"{_GCS}industria_1.jpg",
     ],
     "Industria": [
         f"{_GCS}industria_1.jpg",
@@ -82,6 +83,8 @@ CATEGORY_IMAGES = {
     ],
     "Salud y Bienestar": [
         f"{_GCS}salud_1.jpg",
+        f"{_GCS}ciencia_2.jpg",
+        f"{_GCS}ciencia_3.jpg",
     ],
     "Inmobiliario y Construccion": [
         f"{_GCS}inmobiliario_1.jpg",
@@ -89,15 +92,18 @@ CATEGORY_IMAGES = {
     ],
     "Agricultura y Alimentacion": [
         f"{_GCS}agricultura_1.jpg",
+        f"{_GCS}medioambiente_1.jpg",
     ],
     "Educacion y Conocimiento": [
         f"{_GCS}educacion_1.jpg",
     ],
     "Sociedad": [
         f"{_GCS}sociedad_1.jpg",
+        f"{_GCS}internacional_1.jpg",
     ],
     "Cultura y Entretenimiento": [
         f"{_GCS}cultura_1.jpg",
+        f"{_GCS}sociedad_1.jpg",
     ],
     "Consumo y Estilo de Vida": [
         f"{_GCS}consumo_1.jpg",

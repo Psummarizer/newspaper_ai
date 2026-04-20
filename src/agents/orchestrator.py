@@ -185,9 +185,10 @@ def _parse_subtopics(context: str) -> list:
     instrucción (ej: "Solo quiero noticias de fútbol masculino").
 
     Reglas de detección:
-    - Dividir por comas y " y "/" and "/" e "
-    - Si hay ≥2 partes, cada una ≤4 palabras, y ninguna empieza con
-      palabras de instrucción → es una lista de subtemas.
+    1. Eliminar contenido entre paréntesis (son aclaraciones, no subtemas)
+    2. Dividir por comas y " y "/" and "/" e "
+    3. Si hay ≥2 partes, cada una ≤4 palabras, y ninguna empieza con
+       palabras de instrucción → es una lista de subtemas.
     """
     if not context or not context.strip():
         return []
@@ -206,8 +207,13 @@ def _parse_subtopics(context: str) -> list:
         if ctx_lower.startswith(iw):
             return []
 
+    # Eliminar contenido entre paréntesis antes de dividir.
+    # Ej: "tenis (Alcaraz y Rafael Jodar preferentemente)" → "tenis"
+    # Esto evita que " y " dentro de paréntesis rompa la separación.
+    ctx_clean = re.sub(r'\([^)]*\)', '', ctx).strip()
+
     # Dividir por separadores de lista
-    parts = re.split(r',\s*|\s+y\s+|\s+and\s+|\s+e\s+', ctx)
+    parts = re.split(r',\s*|\s+y\s+|\s+and\s+|\s+e\s+', ctx_clean)
     parts = [p.strip().strip('.').strip() for p in parts if p.strip()]
 
     # Descartar si pocas partes o alguna parte es demasiado larga (frase, no tema)
@@ -974,10 +980,27 @@ JSON only: {{"invalid_ids": [1, 3], "reasons": {{"1": "basketball, not football"
 
             # Filtrar por fecha_inventariado (cuándo capturamos el artículo).
             # Garantiza que solo se usan artículos de las 2 últimas ingestas.
-            # published_at (fecha RSS) solo se usa para scoring, no para filtrado.
+            # PLUS: published_at sanity check — si el artículo RSS dice que se
+            # publicó hace >72h, descartarlo aunque fecha_inventariado sea reciente.
+            # Esto evita que artículos viejos que reaparecen en feeds RSS se
+            # re-ingesten con fecha_inventariado fresca y pasen los filtros.
+            _MAX_PUBLISHED_AGE_HOURS = 72  # artículo RSS >3 días = demasiado viejo
+
             def get_fresh_news(hours_limit):
                 filtered = []
                 for n in all_news:
+                    # Sanity check: published_at (fecha real del artículo) no debe
+                    # ser antigua aunque fecha_inventariado sea reciente
+                    pub_str = n.get("published_at", "")
+                    if pub_str:
+                        try:
+                            pub_dt = datetime.fromisoformat(str(pub_str)[:19].replace("Z", ""))
+                            pub_age = (current_time - pub_dt).total_seconds() / 3600
+                            if pub_age > _MAX_PUBLISHED_AGE_HOURS:
+                                continue  # artículo RSS demasiado viejo, descartar
+                        except:
+                            pass
+
                     # fecha_inventariado primero: es la fecha que pone nuestro sistema
                     fecha_str = n.get("fecha_inventariado") or n.get("published_at", "")
                     if fecha_str:
@@ -1194,6 +1217,9 @@ JSON only: {{"invalid_ids": [1, 3], "reasons": {{"1": "basketball, not football"
             "politica": {"Política", "Justicia y Legal"},
             "formula 1": {"Deporte"}, "f1": {"Deporte"}, "motogp": {"Deporte"},
             "real madrid": {"Deporte"}, "futbol": {"Deporte"}, "fútbol": {"Deporte"},
+            "tenis": {"Deporte"}, "padel": {"Deporte"}, "pádel": {"Deporte"},
+            "lakers": {"Deporte"}, "nba": {"Deporte"}, "baloncesto": {"Deporte"},
+            "deporte": {"Deporte"},
             "vinos": {"Agricultura y Alimentación", "Consumo y Estilo de Vida", "Economía y Finanzas"},
             "viajes": {"Consumo y Estilo de Vida"},  # No Transporte: averías/infraestructura no son viajes de ocio
             "bitcoin": {"Economía y Finanzas", "Tecnología y Digital"},
