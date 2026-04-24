@@ -114,11 +114,11 @@ Estas garantías deben respetarse en todo desarrollo nuevo. Si un cambio las rom
 - Siempre conserva el artículo más reciente por `published_at`.
 - Se aplica en `_select_top_3_cached` antes del LLM de selección.
 
-### G5 — Mínimo 3 noticias por topic del usuario
+### G5 — Mínimo 3 noticias por topic del usuario y máximo 5
 - `_base_slots` garantiza mínimo 3 slots por topic (incluso para topics nicho).
 - Si la ingesta fue pobre, los tiers amplían la ventana temporal para encontrar ≥3 artículos.
 - Si tras la máxima ventana no hay ≥3, el topic se omite del briefing (no se rellena con noticias no relacionadas).
-- `max_per_cat` escala con el número de topics que mapean a esa categoría (3 artículos mínimo por topic).
+- `max_per_cat` escala con el número de topics que mapean a esa categoría (3 artículos mínimo por topic y máximo 5).
 - **Sistema de alerta automática**: al final de cada ingesta, `_check_coverage_and_alert` evalúa todos los topics activos. Si alguno tiene <3 noticias en las últimas `INGESTA_COVERAGE_HOURS`, se envía un email de alerta al admin (`ADMIN_EMAIL` env var, defecto `psummarizer@gmail.com`) con la lista de topics afectados. Revisar y añadir feeds RSS en `data/sources.json`.
 
 ### G6 — Contexto Firestore del usuario siempre aplicado
@@ -141,18 +141,18 @@ Estas garantías deben respetarse en todo desarrollo nuevo. Si un cambio las rom
 **Comportamiento de categoría para topics de viajes:**
 - "viajes" mapea SOLO a `Consumo y Estilo de Vida`. No incluye `Transporte y Movilidad` porque las averías de trenes/aviones no son noticias de ocio. Si se añade cualquier keyword de viajes al `_topic_cat_map`, no incluir Transporte.
 
-### G7 — Imágenes: reales primero, fallback genérico con sentido, sin repetición
+### G7 — Imágenes: reales primero, Pexels dinámico, GCS como último recurso
 - **Pipeline de imagen en ingesta** (`_prepare_article_for_redaction`):
   1. Scraping og:image de la URL del artículo.
   2. Si falla: imagen del campo RSS (`image_url`), validada con `_is_valid_image_url` (descarta iconos/logos por URL).
   3. Validación de dimensiones: descarta imágenes <100px.
-- **En orchestrator** (`_format_cached_news_to_html`):
-  - Si `imagen_url` está vacío o no es http: llama a `pick_category_image(category, seed=titulo, topic=source_topic, used_images=briefing_used_images)`.
-  - `pick_category_image` prioriza `TOPIC_IMAGES` (F1, IA, Real Madrid, etc.) sobre `CATEGORY_IMAGES`.
-  - `used_images` (set compartido por todo el briefing) evita que 2 artículos usen la misma imagen de fallback.
-  - `seed=titulo` usa hash MD5 → imagen determinista para la misma noticia entre renders.
-  - `onerror` en el `<img>` HTML swapea a fallback de categoría si la URL falla en el cliente de email.
-- **Limitación conocida**: categorías con solo 1 imagen de fallback (`Salud`, `Transporte`, `Agricultura`, etc.) repetirán si hay 3+ noticias sin foto propia. Añadir más imágenes a `CATEGORY_IMAGES` en `src/utils/html_builder.py` si se detecta repetición.
+- **En orchestrator** — fallback en 3 capas:
+  1. **Pexels API** (`_fetch_missing_images`): antes de renderizar, busca imágenes relevantes por keywords del título en Pexels (gratis, 200 req/hora). Se ejecuta en paralelo para todos los artículos sin foto. Resultado: imagen acorde al contenido real de la noticia.
+  2. **GCS category images** (`pick_category_image`): si Pexels no encontró nada, se usa la imagen genérica de categoría almacenada en GCS (`CATEGORY_IMAGES`/`TOPIC_IMAGES` en `html_builder.py`).
+  3. **onerror HTML**: si la imagen (Pexels o propia) falla al renderizar en el email, swapea a GCS category image vía `onerror` en el `<img>`.
+- **Banners de sección**: siguen usando `CATEGORY_IMAGES` de GCS (son decorativos, no necesitan ser dinámicos).
+- **Env var**: `PEXELS_API_KEY` en `.env` (ya incluida en Docker image).
+- **Coste**: 0€. Pexels API gratuita, ~15-25 calls por briefing, bien dentro del límite de 20.000/mes.
 
 ### G8 — Portada no duplica el cuerpo
 - Los artículos seleccionados para la portada se recogen en `portada_urls`.
@@ -211,6 +211,7 @@ MISTRAL_API_KEY2=...          # Clave secundaria (fallback 429) - dejar vacío s
 GEMINI_API_KEY=...            # Google Gemini (quality tasks + fallback)
 GCS_BUCKET_NAME=newsletter-ai-data
 FIREBASE_CREDENTIALS_JSON=... # JSON completo de service account
+PEXELS_API_KEY=...            # Pexels (imágenes fallback artículos) - gratis
 OPENAI_API_KEY=...            # Backup, no se usa como primario
 ```
 

@@ -80,6 +80,8 @@ CATEGORY_IMAGES = {
         f"{_GCS}deporte_1.jpg",
         f"{_GCS}deporte_3.jpg",
         f"{_GCS}deporte_4.jpg",
+        f"{_GCS}f1_1.jpg",
+        f"{_GCS}motogp_1.jpg",
     ],
     "Salud y Bienestar": [
         f"{_GCS}salud_1.jpg",
@@ -137,13 +139,40 @@ TOPIC_IMAGES = {
     "real madrid": [
         f"{_GCS}deporte_1.jpg",   # estadio
         f"{_GCS}deporte_3.jpg",
+        f"{_GCS}deporte_4.jpg",
     ],
     "futbol": [
         f"{_GCS}deporte_4.jpg",
         f"{_GCS}deporte_1.jpg",
+        f"{_GCS}deporte_3.jpg",
     ],
     "tenis": [
         f"{_GCS}deporte_3.jpg",
+        f"{_GCS}deporte_4.jpg",
+    ],
+    "padel": [
+        f"{_GCS}deporte_3.jpg",
+        f"{_GCS}deporte_4.jpg",
+    ],
+    "lakers": [
+        f"{_GCS}deporte_4.jpg",
+        f"{_GCS}deporte_3.jpg",
+    ],
+    "nba": [
+        f"{_GCS}deporte_4.jpg",
+        f"{_GCS}deporte_3.jpg",
+    ],
+    "baloncesto": [
+        f"{_GCS}deporte_4.jpg",
+        f"{_GCS}deporte_3.jpg",
+    ],
+    "basket": [
+        f"{_GCS}deporte_4.jpg",
+        f"{_GCS}deporte_3.jpg",
+    ],
+    "atletismo": [
+        f"{_GCS}deporte_3.jpg",
+        f"{_GCS}deporte_4.jpg",
     ],
     "inteligencia artificial": [
         f"{_GCS}ia_1.jpg",

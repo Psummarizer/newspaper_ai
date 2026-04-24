@@ -924,6 +924,14 @@ class HourlyProcessor:
             - Acepta noticias del equipo, competición, fichajes, partidos, declaraciones
             - Acepta contenido relacionado (ej: F1 → carreras, pilotos, equipos, FIA, circuitos)
 
+            ENFOQUE PARA TOPICS DE NUTRICIÓN/SALUD (ej: Nutricion, salud/nutrición):
+            - SÉ INCLUSIVO: acepta alimentación, dietas, nutrientes, alimentos,
+              estudios sobre comida/bebida, propiedades de alimentos, recetas saludables
+            - Acepta: vitaminas, minerales, suplementos, microbiota intestinal (si
+              relacionado con dieta), efectos de alimentos en la salud
+            - RECHAZAR: noticias puramente médicas sin relación con alimentación
+              (ej: cirugía, fármacos, epidemias, vacunas, genética pura)
+
             ENFOQUE PARA TOPICS DE VIAJES/OCIO (ej: Viajes de ocio, turismo):
             - SOLO aceptar: destinos turísticos, experiencias de viaje, rutas, gastronomía local, hoteles, spas, escapadas, guías de viaje, turismo cultural
             - RECHAZAR: noticias de aviación comercial (aerolíneas, rutas aéreas, precios combustible), transporte público, logística, carburantes, coches, normativa de tráfico, eventos artísticos/culturales sin relación directa con turismo
@@ -1101,37 +1109,40 @@ class HourlyProcessor:
             articles_input += f"\n--- ARTÍCULO {i} ---\nTítulo: {art['title']}\nContenido: {art['content'][:1500]}\n"
 
         prompt = f"""
-        Eres un periodista experto. Redacta estas {len(prepared_articles)} noticias DE CERO con tus propias palabras.
+        Eres un redactor de noticias. Tu ÚNICO trabajo es RESUMIR y REFORMULAR el contenido
+        proporcionado abajo. NO uses tu conocimiento general del mundo. SOLO puedes usar la
+        información que aparece en el texto de cada artículo.
 
         {articles_input}
 
         REGLAS CRITICAS DE REDACCIÓN (OBLIGATORIAS):
 
-        1. 🚫 PROHIBIDO COPIAR Y PEGAR: Reescribe TODO con tu propio estilo.
+        1. 🚫 SOLO EL TEXTO PROPORCIONADO: Trabaja EXCLUSIVAMENTE con la información del
+           contenido de cada artículo. NO añadas NADA de tu conocimiento general.
+           Si el contenido es escaso, la redacción será corta. NUNCA "completes" con datos externos.
         2. 🚫 LIMPIEZA: ELIMINA prefijos como "EN DIRECTO", "Última Hora". Crea títulos NUEVOS y atractivos.
            Redacta solo los HECHOS, sin meta-referencias a cómo se obtuvo la noticia.
         3. FORMATO E IDIOMA:
-           - IDIOMA: Español peninsular. Traduce todo.
+           - IDIOMA: Español peninsular. Traduce todo lo que no esté en español.
            - TÍTULO: Descriptivo y claro (sujeto + acción). Emoji al principio.
            - RESUMEN: 10-25 palabras.
            - NOTICIA: 150-250 palabras con etiquetas <p>. Usa <b>negrita</b> para 3 frases clave.
-        4. 🚫 FIDELIDAD AL ORIGINAL (CRÍTICO — rol de redactor, NO de editorialista):
+        4. 🚫 FIDELIDAD AL ORIGINAL (CRÍTICO — rol de RESUMIDOR, NO de editorialista):
            - NO inventes citas textuales. Si usas comillas «...» o "..." deben ser
              PALABRAS EXACTAS del contenido original. Si no hay cita textual, NO
              pongas comillas — reformula sin comillas.
-           - NO añadas datos (fechas, cifras, nombres, declaraciones) que no estén
-             en el contenido original.
+           - NO añadas datos (fechas, cifras, nombres, declaraciones, resultados,
+             marcadores, alineaciones, fichajes) que NO estén en el contenido original.
+             Tu conocimiento del mundo está DESACTIVADO para esta tarea.
+           - Si el artículo habla de un partido futuro, NO inventes el resultado.
+             Si habla de un fichaje rumoreado, NO lo des por hecho.
            - MISMO ÁNGULO Y TONO: Si el original es mesurado, tu redacción es
              mesurada. Si es especulativo, presenta como especulación. Si es
              neutro, queda neutro. NO conviertas declaraciones matizadas en
              contundentes. NO enfrentes a dos actores si el original no los
              enfrenta. NO añadas dramatismo que no esté.
-           - Ejemplo: si el original dice «Alonso agradece el trabajo del equipo
-             pero reconoce que sin competitividad no hay satisfacción», NO redactes
-             «Alonso, contundente, reprocha a Honda que vendieran como éxito
-             acabar la carrera» — eso cambia el ángulo de reconocimiento a reproche.
-           - Tu trabajo es REESCRIBIR con otras palabras (evitar copia textual),
-             NO reinterpretar ni editorializar.
+           - Tu trabajo es REFORMULAR con otras palabras (evitar copia textual),
+             NO reinterpretar ni completar con información externa.
         5. 🛡️ FILTRO — DESCARTAR (responder null) si la noticia es:
            - Ambigua (no nombra sujetos concretos) o depende de contexto externo
            - Contenido promocional, publirreportaje o patrocinado

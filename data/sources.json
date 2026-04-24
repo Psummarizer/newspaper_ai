@@ -7321,5 +7321,35 @@
     "domain": "news.google.com",
     "rss_url": "https://news.google.com/rss/search?q=premier+padel+OR+world+padel+tour&hl=es&gl=ES",
     "base_url": "https://news.google.com"
+  },
+  {
+    "name": "Google News - Nutricion ES",
+    "rss_url": "https://news.google.com/rss/search?q=nutrici%C3%B3n+OR+alimentaci%C3%B3n+saludable+OR+dieta&hl=es&gl=ES&ceid=ES:es",
+    "category": "Salud y Bienestar",
+    "is_active": true
+  },
+  {
+    "name": "ABC - Nutricion",
+    "rss_url": "https://www.abc.es/bienestar/alimentacion/rss/",
+    "category": "Salud y Bienestar",
+    "is_active": true
+  },
+  {
+    "name": "La Vanguardia - Comer",
+    "rss_url": "https://www.lavanguardia.com/comer/rss",
+    "category": "Salud y Bienestar",
+    "is_active": true
+  },
+  {
+    "name": "20 Minutos - Nutricion",
+    "rss_url": "https://www.20minutos.es/rss/nutricion/",
+    "category": "Salud y Bienestar",
+    "is_active": true
+  },
+  {
+    "name": "El Espanol - Nutricion",
+    "rss_url": "https://www.elespanol.com/rss/ciencia/nutricion/",
+    "category": "Salud y Bienestar",
+    "is_active": true
   }
 ]

@@ -6,7 +6,9 @@ import re
 import unicodedata
 from datetime import datetime
 from typing import List, Dict
-from urllib.parse import urlparse
+from urllib.parse import urlparse, quote_plus
+
+import aiohttp
 
 from src.services.classifier_service import ClassifierService
 from src.agents.content_processor import ContentProcessorAgent
@@ -483,6 +485,60 @@ class Orchestrator:
         </div>
         '''
 
+    # -- Stop words para limpiar queries de búsqueda de imagen --
+    _IMG_STOPWORDS = {
+        "el", "la", "los", "las", "un", "una", "unos", "unas", "de", "del",
+        "en", "y", "o", "que", "por", "para", "con", "sin", "al", "se",
+        "su", "sus", "es", "son", "ha", "han", "fue", "ser", "como", "más",
+        "muy", "este", "esta", "estos", "estas", "pero", "ya", "no", "si",
+        "sobre", "entre", "hasta", "desde", "tras", "según", "ante",
+        "the", "a", "an", "in", "on", "of", "and", "or", "to", "is", "for",
+    }
+
+    async def _search_pexels_image(self, query: str) -> str:
+        """Busca una imagen relevante en Pexels API.
+        Devuelve la URL de la primera foto landscape o '' si falla."""
+        api_key = os.getenv("PEXELS_API_KEY", "")
+        if not api_key:
+            return ""
+        # Limpiar query: quitar stop words, limitar a 5 palabras clave
+        words = re.sub(r'[^\w\s]', '', query.lower()).split()
+        keywords = [w for w in words if len(w) > 2 and w not in self._IMG_STOPWORDS][:5]
+        if not keywords:
+            return ""
+        search_q = " ".join(keywords)
+        url = f"https://api.pexels.com/v1/search?query={quote_plus(search_q)}&per_page=1&orientation=landscape"
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, headers={"Authorization": api_key}, timeout=aiohttp.ClientTimeout(total=5)) as resp:
+                    if resp.status != 200:
+                        return ""
+                    data = await resp.json()
+                    photos = data.get("photos", [])
+                    if photos:
+                        # Usar tamaño medium (800px wide aprox) para email
+                        return photos[0].get("src", {}).get("medium", "")
+        except Exception as e:
+            self.logger.debug(f"Pexels search failed for '{search_q}': {e}")
+        return ""
+
+    async def _fetch_missing_images(self, articles: List[Dict]) -> None:
+        """Pre-fetch Pexels images for all articles without imagen_url.
+        Modifica los dicts in-place."""
+        missing = [(i, a) for i, a in enumerate(articles)
+                   if not a.get("imagen_url") or not a["imagen_url"].startswith("http")]
+        if not missing:
+            return
+        self.logger.info(f"🖼️ Buscando imágenes Pexels para {len(missing)} artículos sin foto...")
+        tasks = [self._search_pexels_image(a.get("titulo", "")) for _, a in missing]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        found = 0
+        for (idx, art), result in zip(missing, results):
+            if isinstance(result, str) and result:
+                art["imagen_url"] = result
+                found += 1
+        self.logger.info(f"🖼️ Pexels: {found}/{len(missing)} imágenes encontradas")
+
     @staticmethod
     def _extract_event_entities(text: str) -> set:
         """Extrae entidades propias (nombres en mayúsculas, 4+ chars) del texto.
@@ -763,13 +819,23 @@ JSON only: {{"invalid_ids": [1, 3], "reasons": {{"1": "basketball, not football"
                 f"   - A subtopic with NO available articles may be skipped.\n"
             )
 
+        # --- Topic name emphasis for compound topics (e.g. "salud/nutrición") ---
+        topic_emphasis_str = ""
+        topic_parts = [p.strip() for p in topic.split("/") if p.strip()]
+        if len(topic_parts) >= 2:
+            topic_emphasis_str = (
+                f"\n⚠️ TOPIC SCOPE: This topic covers BOTH {' AND '.join(topic_parts)}.\n"
+                f"   You MUST select articles that cover ALL aspects, not just one.\n"
+                f"   Aim for a balanced mix across: {', '.join(topic_parts)}.\n"
+            )
+
         prompt = f"""
         Select the {llm_count} most relevant news for topic "{topic}".
-        {source_pref_str}{subtopics_str}
+        {source_pref_str}{subtopics_str}{topic_emphasis_str}
         SELECTION CRITERIA (in priority order):
         1. HIGH IMPACT & TRENDING: Choose news that are generating the most debate, that are breaking news, that affect many people, or that represent major developments. Avoid minor/local news when bigger stories exist.
         2. DIRECTLY about "{topic}" - not tangential.
-        3. SOURCE DIVERSITY: Pick articles from DIFFERENT media outlets. Never select 2 articles from the same source.
+        3. SOURCE DIVERSITY: Pick articles from DIFFERENT media outlets. NEVER select 2 articles from the same source domain. This is a HARD rule.
         4. NO DUPLICATES: If two articles cover the same event, pick only the best one.
         5. TODAY'S NEWS FIRST. Post-event results over previews.
 
@@ -790,10 +856,157 @@ JSON only: {{"invalid_ids": [1, 3], "reasons": {{"1": "basketball, not football"
             result = json.loads(response.choices[0].message.content)
             ids = result.get("selected_ids", [])
             llm_selected = [remaining_articles[i] for i in ids if i < len(remaining_articles)]
-            return (forced_articles + llm_selected)[:max_count]
+            combined = (forced_articles + llm_selected)[:max_count]
         except Exception as e:
             self.logger.error(f"Error seleccionando top {max_count}: {e}")
-            return (forced_articles + remaining_articles)[:max_count]
+            combined = (forced_articles + remaining_articles)[:max_count]
+
+        # --- STEP: Deterministic source diversity enforcement ---
+        # If multiple articles share the same domain, swap duplicates for
+        # different-source articles from the pool (preserving quality order).
+        combined = self._enforce_source_diversity(combined, news_list)
+
+        # --- STEP: Deterministic subtopic coverage guarantee ---
+        # After LLM selection, ensure at least 1 article per subtopic.
+        # If a subtopic is missing, find the best matching article from the full
+        # pool and swap it in (replacing the last non-subtopic-matched article).
+        if subtopics and len(subtopics) >= 2:
+            combined = self._ensure_subtopic_coverage(
+                combined, news_list, subtopics, max_count
+            )
+        return combined
+
+    @staticmethod
+    def _get_article_domain(article: Dict) -> str:
+        """Extract primary domain from article sources."""
+        sources = article.get("fuentes", [])
+        if sources:
+            return urlparse(sources[0]).netloc.lower().replace("www.", "")
+        return ""
+
+    def _enforce_source_diversity(self, selected: List[Dict], full_pool: List[Dict]) -> List[Dict]:
+        """Ensure no more than 2 articles from the same domain.
+
+        If a domain appears 3+ times, swap excess articles for alternatives
+        from different domains in the full pool."""
+        from collections import Counter
+        domain_counts = Counter(self._get_article_domain(a) for a in selected)
+        max_per_domain = 2
+
+        over_represented = {d for d, c in domain_counts.items() if c > max_per_domain and d}
+        if not over_represented:
+            return selected
+
+        selected_urls = {a.get("fuentes", [""])[0] for a in selected}
+        used_domains = set(domain_counts.keys())
+
+        for domain in over_represented:
+            # Find indices of articles from this domain (keep the first max_per_domain)
+            domain_indices = [i for i, a in enumerate(selected)
+                             if self._get_article_domain(a) == domain]
+            excess_indices = domain_indices[max_per_domain:]  # indices to replace
+
+            for idx in excess_indices:
+                # Find a replacement from a different domain
+                replacement = None
+                for art in full_pool:
+                    art_url = art.get("fuentes", [""])[0]
+                    if art_url in selected_urls:
+                        continue
+                    art_domain = self._get_article_domain(art)
+                    if art_domain in over_represented or art_domain == domain:
+                        continue
+                    replacement = art
+                    break
+
+                if replacement:
+                    self.logger.info(
+                        f"      🔀 Diversidad: reemplazando '{selected[idx].get('titulo','')[:40]}' "
+                        f"({domain}) por artículo de {self._get_article_domain(replacement)}"
+                    )
+                    selected_urls.discard(selected[idx].get("fuentes", [""])[0])
+                    selected[idx] = replacement
+                    selected_urls.add(replacement.get("fuentes", [""])[0])
+                    used_domains.add(self._get_article_domain(replacement))
+
+        return selected
+
+    @staticmethod
+    def _article_matches_subtopic(article: Dict, subtopic: str) -> bool:
+        """Check if an article's title+summary mentions the subtopic."""
+        sub_lower = subtopic.lower()
+        # Normalize: remove accents for matching
+        sub_norm = ''.join(c for c in unicodedata.normalize('NFKD', sub_lower)
+                          if not unicodedata.combining(c))
+        text = (article.get("titulo", "") + " " + article.get("resumen", "")).lower()
+        text_norm = ''.join(c for c in unicodedata.normalize('NFKD', text)
+                           if not unicodedata.combining(c))
+        # Word-boundary match for short subtopics (≤3 chars like "f1", "nba")
+        if len(sub_norm.replace(" ", "")) <= 3:
+            return bool(re.search(r'\b' + re.escape(sub_norm) + r'\b', text_norm))
+        return sub_norm in text_norm
+
+    def _ensure_subtopic_coverage(self, selected: List[Dict], full_pool: List[Dict],
+                                   subtopics: list, max_count: int) -> List[Dict]:
+        """Guarantee ≥1 article per subtopic in the selection.
+
+        For each missing subtopic, find the best article from the full pool
+        and add it (or swap it in if already at max_count)."""
+        selected_urls = {s.get("fuentes", [""])[0] for s in selected}
+
+        # Check which subtopics are already covered
+        covered = set()
+        for sub in subtopics:
+            for art in selected:
+                if self._article_matches_subtopic(art, sub):
+                    covered.add(sub)
+                    break
+
+        missing = [s for s in subtopics if s not in covered]
+        if not missing:
+            return selected
+
+        self.logger.info(f"      📌 Subtopics sin cobertura: {missing}. Forzando inclusión.")
+
+        for sub in missing:
+            # Find best candidate from full pool (not already selected)
+            candidate = None
+            for art in full_pool:
+                art_url = art.get("fuentes", [""])[0]
+                if art_url in selected_urls:
+                    continue
+                if self._article_matches_subtopic(art, sub):
+                    candidate = art
+                    break  # pool is pre-sorted by score, first match is best
+            if not candidate:
+                self.logger.info(f"      ⚠️ No hay artículos disponibles para subtopic '{sub}'")
+                continue
+
+            if len(selected) < max_count:
+                # Room to add
+                selected.append(candidate)
+            else:
+                # At capacity: replace the last article that doesn't cover any subtopic
+                replaced = False
+                for i in range(len(selected) - 1, -1, -1):
+                    art_covers_sub = False
+                    for s in subtopics:
+                        if self._article_matches_subtopic(selected[i], s):
+                            art_covers_sub = True
+                            break
+                    if not art_covers_sub:
+                        self.logger.info(f"      🔄 Reemplazando '{selected[i].get('titulo','')[:40]}' por subtopic '{sub}'")
+                        selected[i] = candidate
+                        replaced = True
+                        break
+                if not replaced:
+                    # All current articles cover a subtopic; can't swap. Skip.
+                    self.logger.info(f"      ⚠️ No se puede incluir subtopic '{sub}' sin desplazar otro subtopic")
+                    continue
+
+            selected_urls.add(candidate.get("fuentes", [""])[0])
+
+        return selected
 
     async def _translate_news_list(self, news_list: List[Dict], target_lang: str) -> List[Dict]:
         """Traduce una lista de noticias seleccionadas al idioma objetivo sin límite de tokens restrictivo."""
@@ -878,7 +1091,12 @@ JSON only: {{"invalid_ids": [1, 3], "reasons": {{"1": "basketball, not football"
         else:
             topics = [t.strip() for t in topics_raw if t.strip()]
         user_lang = user_data.get('Language') or user_data.get('language', 'es')
-        
+        self.logger.info(f"📋 Topics del usuario: {topics}")
+        if isinstance(topics_raw, dict):
+            for tk, tv in topics_raw.items():
+                if tv:
+                    self.logger.info(f"   📝 '{tk}' → contexto: '{str(tv)[:100]}'")
+
         # Cargar Caché Global
         topics_cache = self._load_topics_cache()
         print(f"📦 Cache topics cargado: {len(topics_cache)} topics disponibles globalmente")
@@ -1166,7 +1384,35 @@ JSON only: {{"invalid_ids": [1, 3], "reasons": {{"1": "basketball, not football"
             subs = _parse_subtopics(ctx)
             if subs:
                 topic_subtopics[t] = subs
-                print(f"   🔀 Subtopics detectados para '{t}': {subs}")
+                self.logger.info(f"🔀 Subtopics detectados para '{t}': {subs}")
+            elif ctx:
+                self.logger.info(f"ℹ️ Topic '{t}' tiene contexto pero no subtopics: '{ctx[:80]}'")
+
+        # --- Auto-subtopics for broad topics without Firestore context ---
+        # When user has a broad topic like "deporte" with no context, auto-detect
+        # subtopics by scanning the articles already fetched for that topic.
+        # Extract proper nouns / sport names that appear frequently.
+        _BROAD_TOPIC_SUBTOPIC_MAP = {
+            "deporte": ["real madrid", "futbol", "formula 1", "f1", "tenis", "motogp",
+                        "padel", "nba", "lakers", "baloncesto", "ciclismo", "atletismo"],
+        }
+        for t in topics:
+            if t in topic_subtopics:
+                continue  # already has subtopics from context
+            t_lower = t.lower().strip()
+            if t_lower in _BROAD_TOPIC_SUBTOPIC_MAP and t in topic_fresh_news:
+                # Check which subtopics actually have articles in the pool
+                candidate_subs = _BROAD_TOPIC_SUBTOPIC_MAP[t_lower]
+                fresh_articles = topic_fresh_news[t][0]
+                available_subs = []
+                for sub in candidate_subs:
+                    for art in fresh_articles:
+                        if self._article_matches_subtopic(art, sub):
+                            available_subs.append(sub)
+                            break
+                if len(available_subs) >= 2:
+                    topic_subtopics[t] = available_subs
+                    self.logger.info(f"🔀 Auto-subtopics para '{t}' (sin contexto): {available_subs}")
 
         # Base slots per topic: 5 max (user cap), scaled by subtopic count when detected
         _niche_keywords = {"vino", "viaje", "nutrici", "estilo", "ocio", "familia",
@@ -1210,7 +1456,7 @@ JSON only: {{"invalid_ids": [1, 3], "reasons": {{"1": "basketball, not football"
                 topic_slots[t] += bonus
                 surplus -= bonus
 
-        print(f"\n📊 Distribución de slots: {topic_slots}")
+        self.logger.info(f"📊 Distribución de slots: {topic_slots}")
 
         # Topic-to-category map (used for reclassification guard + expected categories)
         _topic_cat_map = {
@@ -1249,6 +1495,8 @@ JSON only: {{"invalid_ids": [1, 3], "reasons": {{"1": "basketball, not football"
             # "inteligencia" eliminado: era ambiguo con "inteligencia empresarial".
             # Topics de "Inteligencia y Contrainteligencia" → LLM asigna Geopolítica directamente.
             "negocios": {"Negocios y Empresas"},
+            "nutrici": {"Salud y Bienestar", "Agricultura y Alimentación"},
+            "salud": {"Salud y Bienestar"},
         }
 
         # --- Second pass: select and process ---
@@ -1404,21 +1652,33 @@ JSON only: {{"invalid_ids": [1, 3], "reasons": {{"1": "basketball, not football"
 
                 # Usar URL como key
                 art_url = sources[0] if sources else f"no_url_{len(category_map[final_cat])}"
-                
-                # Generar HTML pre-renderizado (Ya viene redactado, solo envolver)
-                # OJO: Pasamos 'final_cat' para que el HTML (colores etc) si dependiera de ello, salga bien.
-                pre_html = self._format_cached_news_to_html(news, final_cat, user_lang=user_lang,
-                                                             used_images=briefing_used_images)
-                
+
+                # Guardar sin renderizar todavía (se renderiza tras Pexels fetch)
                 category_map[final_cat][art_url] = {
                     "title": title,
-                    "content": news.get("resumen"), # Para selección portada
+                    "content": news.get("resumen"),
                     "url": art_url,
                     "category": final_cat,
                     "image_url": news.get("imagen_url"),
-                    "pre_rendered_html": pre_html,
-                    "source_topic": topic,  # Track which user topic this came from
+                    "pre_rendered_html": "",  # se rellena después
+                    "source_topic": topic,
+                    "_news_ref": news,  # referencia para renderizar después
                 }
+
+        # --- FASE 1b: PRE-FETCH PEXELS IMAGES PARA ARTÍCULOS SIN FOTO ---
+        all_news_refs = [art["_news_ref"] for cat in category_map.values()
+                         for art in cat.values() if "_news_ref" in art]
+        await self._fetch_missing_images(all_news_refs)
+
+        # Ahora renderizar HTML con las imágenes ya populadas
+        for final_cat, articles in category_map.items():
+            for art_url, art_data in articles.items():
+                news = art_data.pop("_news_ref", None)
+                if news:
+                    art_data["pre_rendered_html"] = self._format_cached_news_to_html(
+                        news, final_cat, user_lang=user_lang,
+                        used_images=briefing_used_images)
+                    art_data["image_url"] = news.get("imagen_url")
 
         # --- FASE 2: GENERACIÓN DE HTML (PORTADA + SECCIONES) ---
 
@@ -1606,6 +1866,18 @@ JSON only: {{"invalid_ids": [1, 3], "reasons": {{"1": "basketball, not football"
                             selected_articles.append(art)
                             selected_urls.add(art.get("url"))
                             remaining_slots -= 1
+
+            # Re-order: group articles by source_topic so related news appear together.
+            # Within each group, preserve original order (by relevance score).
+            grouped_ordered = []
+            seen_topics_order = []
+            for art in selected_articles:
+                st = art.get("source_topic", "unknown")
+                if st not in seen_topics_order:
+                    seen_topics_order.append(st)
+            for st in seen_topics_order:
+                grouped_ordered.extend(a for a in selected_articles if a.get("source_topic", "unknown") == st)
+            selected_articles = grouped_ordered
 
             # Render HTML — skip articles already shown in portada
             items_html = []
