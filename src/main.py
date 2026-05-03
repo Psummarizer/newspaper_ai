@@ -74,7 +74,7 @@ async def trigger_user_test_newsletter(email: str):
     if not user_topics_list:
         return {"status": "error", "message": f"Usuario {email} sin topics definidos"}
 
-    raw_topic_map = sub_data.get("topic", {})
+    raw_topic_map = sub_data.get("topic") or sub_data.get("topics", {})
     user_input = {
         "email": email,
         "Topics": user_topics_list,

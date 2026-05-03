@@ -116,7 +116,7 @@ async def generate_and_send():
         # 4. Run Orchestrator
         # 4. Run Orchestrator
         # Include 'topic' map so orchestrator can extract user context & preferred sources
-        raw_topic_map = sub_data.get("topic", {})
+        raw_topic_map = sub_data.get("topic") or sub_data.get("topics", {})
         user_input = {
             "email": email,
             "Topics": user_topics_list,

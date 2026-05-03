@@ -179,57 +179,163 @@ def _resolve_preferred_domains(context: str) -> set:
     return domains
 
 
-def _parse_subtopics(context: str) -> list:
-    """Detecta si el contexto de Firestore es una lista de subtemas y los extrae.
+def _sanitize_text_garbage(text) -> str:
+    """Limpia output corrupto del LLM redactor (BOMs, símbolos repetidos al final,
+    JSON garbage). Aplicado en orchestrator antes de renderizar para limpiar
+    también cache vieja redactada con bugs LLM."""
+    if not text or not isinstance(text, str):
+        return text or ""
+    s = text
+    # Strip BOM y zero-width chars
+    s = re.sub(r'[﻿￾​-‏‪-‮￰-￿︀-️]', '', s)
+    # Strip control chars (no \n \t \r)
+    s = re.sub(r'[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]', '', s)
+    # JSON garbage al final (}}}}, ]]]}, }))
+    s = re.sub(r'(?:[\}\]\)]+\s*)+\s*$', '', s)
+    # Char repetido >5 veces
+    s = re.sub(r'(.)\1{5,}', r'\1\1\1', s)
+    # Patrones cortos repetidos (alternancia tipo "}﬿}﬿")
+    m = re.search(r'([^\w\s]{1,4})\1{2,}', s)
+    if m:
+        s = s[:m.start()].rstrip()
+    return s.strip()
 
-    Retorna una lista con los subtemas si el contexto parece una enumeración
-    (ej: "Real Madrid, tenis, padel, F1 y NBA") y lista vacía si es una
-    instrucción (ej: "Solo quiero noticias de fútbol masculino").
 
-    Reglas de detección:
-    1. Eliminar contenido entre paréntesis (son aclaraciones, no subtemas)
-    2. Dividir por comas y " y "/" and "/" e "
-    3. Si hay ≥2 partes, cada una ≤4 palabras, y ninguna empieza con
-       palabras de instrucción → es una lista de subtemas.
+def _sanitize_html_garbage(html) -> str:
+    """Igual que _sanitize_text_garbage pero preserva tags HTML legítimos."""
+    if not html or not isinstance(html, str):
+        return html or ""
+    s = html
+    s = re.sub(r'[﻿￾​-‏‪-‮￰-￿︀-️]', '', s)
+    s = re.sub(r'[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]', '', s)
+    s = re.sub(r'(?:[\}\]\)]+\s*)+\s*$', '', s)
+    s = re.sub(r'(.)\1{5,}', r'\1\1\1', s)
+    m = re.search(r'([^\w\s<>/]{1,4})\1{2,}', s)
+    if m:
+        s = s[:m.start()].rstrip()
+    return s.strip()
+
+
+async def _parse_subtopics_llm(topic: str, context: str, processor) -> list:
+    """Parse user context into structured subtopics using LLM.
+
+    Returns list of dicts: [{"name": "tenis", "rule": ""}, {"name": "fútbol", "rule": "solo masculino"}]
+    Cost: 1 Mistral call (~200 tokens), free tier. Called once per topic per user.
     """
     if not context or not context.strip():
         return []
-    ctx = context.strip()
+    # Truncate context to 300 chars to cap LLM cost
+    ctx = context.strip()[:300]
 
+    prompt = f"""Eres un parser de preferencias de usuario para un newsletter.
+
+TOPIC: "{topic}"
+CONTEXTO DEL USUARIO: "{ctx}"
+
+Extrae los SUBTEMAS y sus REGLAS INDIVIDUALES.
+
+REGLAS:
+1. Cada subtema = 1-3 palabras (deporte, equipo, jugador, tema concreto).
+2. Si una regla aplica SOLO a un subtema (ej: "fútbol masculino"), asígnala a ese subtema.
+3. Regla GLOBAL (ej: "solo noticias de España") → aplícala a TODOS.
+4. Preferencias de jugadores/personas → ponlas en rule (ej: "preferir Alcaraz").
+5. "Fuentes preferidas: X" NO es un subtema. Devuelve [].
+6. Si el contexto es una instrucción simple sin subtemas claros (ej: "solo masculino"), devuelve un solo subtema con la regla.
+7. Máximo 8 subtemas.
+
+EJEMPLOS:
+- "tenis, padel, F1 y NBA" → [{{"name":"tenis","rule":""}},{{"name":"padel","rule":""}},{{"name":"F1","rule":""}},{{"name":"NBA","rule":""}}]
+- "quiero tenis y fútbol masculino pero baloncesto femenino" → [{{"name":"tenis","rule":""}},{{"name":"fútbol","rule":"solo masculino"}},{{"name":"baloncesto","rule":"solo femenino"}}]
+- "Real Madrid, tenis (Alcaraz y Jódar), padel" → [{{"name":"Real Madrid","rule":""}},{{"name":"tenis","rule":"preferir Alcaraz y Jódar"}},{{"name":"padel","rule":""}}]
+- "Solo quiero noticias de fútbol masculino" → [{{"name":"fútbol","rule":"solo masculino"}}]
+- "Fuentes preferidas: Marca, AS" → []
+- "Solo masculino" → []
+- "F1 y MotoGP, no coches eléctricos" → [{{"name":"F1","rule":"no coches eléctricos"}},{{"name":"MotoGP","rule":"no coches eléctricos"}}]
+
+JSON only: {{"subtopics": [...]}}"""
+
+    try:
+        response = await processor.client.chat.completions.create(
+            model=processor.model_fast,
+            messages=[{"role": "user", "content": prompt}],
+            response_format={"type": "json_object"}
+        )
+        result = json.loads(response.choices[0].message.content)
+        subtopics = result.get("subtopics", [])
+        validated = []
+        seen = set()
+        for s in subtopics[:8]:
+            if isinstance(s, dict) and "name" in s:
+                name = str(s["name"]).strip()
+                rule = str(s.get("rule", "")).strip()
+                name_lower = name.lower()
+                if name_lower not in seen and len(name) >= 1:
+                    validated.append({"name": name, "rule": rule})
+                    seen.add(name_lower)
+        return validated
+    except Exception as e:
+        logging.getLogger(__name__).warning(f"LLM subtopic parse failed for '{topic}': {e}. Regex fallback.")
+        return _parse_subtopics_regex(context)
+
+
+def _parse_subtopics_regex(context: str) -> list:
+    """Regex fallback for subtopic parsing. Returns [{"name": ..., "rule": ""}]."""
+    if not context or not context.strip():
+        return []
+    ctx = context.strip()
     _INSTRUCTION_STARTS = {
         "solo", "quiero", "prefiero", "noticias", "sin", "no ",
         "únicamente", "unicamente", "sobre", "acerca", "quiero ver",
         "principalmente", "también", "tambien", "especialmente",
         "fuentes", "prefiero ver",
     }
-
-    # Instrucción si empieza con un verbo o "solo" típico de una frase
     ctx_lower = ctx.lower()
     for iw in _INSTRUCTION_STARTS:
         if ctx_lower.startswith(iw):
             return []
-
-    # Eliminar contenido entre paréntesis antes de dividir.
-    # Ej: "tenis (Alcaraz y Rafael Jodar preferentemente)" → "tenis"
-    # Esto evita que " y " dentro de paréntesis rompa la separación.
     ctx_clean = re.sub(r'\([^)]*\)', '', ctx).strip()
-
-    # Dividir por separadores de lista
     parts = re.split(r',\s*|\s+y\s+|\s+and\s+|\s+e\s+', ctx_clean)
     parts = [p.strip().strip('.').strip() for p in parts if p.strip()]
-
-    # Descartar si pocas partes o alguna parte es demasiado larga (frase, no tema)
     if len(parts) < 2:
         return []
     if any(len(p.split()) > 4 for p in parts):
         return []
-    # Descartar si alguna parte es claramente instructiva
     for p in parts:
-        p_low = p.lower()
-        if any(p_low.startswith(iw.rstrip()) for iw in _INSTRUCTION_STARTS):
+        if any(p.lower().startswith(iw.rstrip()) for iw in _INSTRUCTION_STARTS):
             return []
-
-    return parts
+    _FILLER = {"de", "del", "la", "el", "los", "las", "en", "con",
+               "por", "para", "premiere", "premier", "liga", "tour"}
+    atomic = []
+    seen = set()
+    for part in parts:
+        words = part.split()
+        if len(words) == 1:
+            key = part.lower().strip()
+            if key not in seen:
+                atomic.append({"name": part, "rule": ""})
+                seen.add(key)
+        elif len(words) == 2:
+            meaningful = [w for w in words if w.lower() not in _FILLER]
+            if len(meaningful) == 2:
+                key = part.lower().strip()
+                if key not in seen:
+                    atomic.append({"name": part, "rule": ""})
+                    seen.add(key)
+            else:
+                for w in meaningful:
+                    w_low = w.lower().strip()
+                    if w_low not in seen and len(w_low) >= 2:
+                        atomic.append({"name": w, "rule": ""})
+                        seen.add(w_low)
+        else:
+            for w in words:
+                w_low = w.lower().strip()
+                if w_low in _FILLER or len(w_low) < 2:
+                    continue
+                if w_low not in seen:
+                    atomic.append({"name": w, "rule": ""})
+                    seen.add(w_low)
+    return atomic
 
 
 class Orchestrator:
@@ -420,8 +526,11 @@ class Orchestrator:
         `used_images`: set compartido por todo el briefing para evitar que dos
         artículos (o un artículo y el banner de sección) muestren la misma imagen
         de fallback. Se muta in-place al asignar un fallback."""
-        title = news_item.get("titulo", "")
-        body = news_item.get("noticia", "")
+        # Sanitiza título + body — limpia garbage del LLM redactor (BOMs,
+        # JSON corrupto, símbolos repetitivos) que pudiera estar en cache vieja
+        # antes de que se desplegara la sanitización en ingest.
+        title = _sanitize_text_garbage(news_item.get("titulo", ""))
+        body = _sanitize_html_garbage(news_item.get("noticia", ""))
 
         image_url = news_item.get("imagen_url", "")
         sources = news_item.get("fuentes", [])
@@ -485,52 +594,127 @@ class Orchestrator:
         </div>
         '''
 
-    # -- Stop words para limpiar queries de búsqueda de imagen --
-    _IMG_STOPWORDS = {
-        "el", "la", "los", "las", "un", "una", "unos", "unas", "de", "del",
-        "en", "y", "o", "que", "por", "para", "con", "sin", "al", "se",
-        "su", "sus", "es", "son", "ha", "han", "fue", "ser", "como", "más",
-        "muy", "este", "esta", "estos", "estas", "pero", "ya", "no", "si",
-        "sobre", "entre", "hasta", "desde", "tras", "según", "ante",
-        "the", "a", "an", "in", "on", "of", "and", "or", "to", "is", "for",
-    }
+    async def _generate_pexels_queries_llm(self, articles: List[Dict]) -> Dict[int, str]:
+        """Genera queries de búsqueda VISUAL de Pexels para una lista de artículos
+        usando una sola llamada LLM batch.
 
-    async def _search_pexels_image(self, query: str) -> str:
-        """Busca una imagen relevante en Pexels API.
-        Devuelve la URL de la primera foto landscape o '' si falla."""
+        Devuelve {idx_articulo: "query en inglés"}. Coste: 1 call Mistral free tier
+        para todo el lote (~300 tokens output). Se llama una vez por briefing.
+
+        El LLM extrae el TEMA VISUAL real (no keywords del título) para que Pexels
+        devuelva fotos coherentes:
+        - "Rally tecnológico impulsa Wall Street" → "stock market trading floor"
+        - "Legora levanta 50 millones" → "business meeting investment"
+        - "BCE mantiene tipos" → "european central bank frankfurt"
+        """
+        if not articles:
+            return {}
+
+        articles_input = ""
+        for i, a in enumerate(articles):
+            title = a.get("titulo", "")[:150]
+            resumen = a.get("resumen", "")[:200]
+            articles_input += f"ID {i}: {title} | {resumen}\n"
+
+        prompt = f"""You generate Pexels stock-photo SEARCH QUERIES for news articles.
+
+For each article, output 2-4 ENGLISH keywords that describe the VISUAL TOPIC
+of the news (NOT the literal article title). The keywords must produce a
+photo that visually matches what the article is ACTUALLY about.
+
+RULES:
+- Output English ALWAYS (Pexels English search has best results).
+- Focus on the SUBJECT: company office, stock exchange, ECB building, tennis match, etc.
+- AVOID literal title words that mislead Pexels:
+  · "Rally tecnológico" (= tech stocks rally) → "stock market trading"
+    (NOT "rally car" — that's literal but wrong)
+  · "Legora levanta 50M" (= legal startup funding round) → "business meeting investment"
+    (NOT "Legora" — Pexels doesn't know that name)
+  · "BCE mantiene tipos" → "european central bank frankfurt"
+  · "Alcaraz lesión muñeca" → "tennis player injury"
+- For famous entities (Real Madrid, Wall Street, Putin) you CAN use the literal name.
+- For unknown company/person names, use the GENERIC concept (startup, executive, scientist).
+
+Articles:
+{articles_input}
+
+Return JSON only with a SINGLE STRING per id (NOT a list):
+{{"queries": {{"0": "stock market trading floor", "1": "business meeting startup", ...}}}}"""
+
+        try:
+            response = await self.processor.client.chat.completions.create(
+                model=self.processor.model_fast,
+                messages=[{"role": "user", "content": prompt}],
+                response_format={"type": "json_object"},
+            )
+            result = json.loads(response.choices[0].message.content)
+            raw = result.get("queries", {}) or {}
+            out: Dict[int, str] = {}
+            for k, v in raw.items():
+                try:
+                    idx = int(k)
+                except Exception:
+                    continue
+                # LLM puede devolver string o lista. Aceptar ambos.
+                if isinstance(v, list) and v:
+                    q = str(v[0]).strip()
+                else:
+                    q = str(v).strip()
+                if q and 0 <= idx < len(articles):
+                    out[idx] = q
+            return out
+        except Exception as e:
+            self.logger.warning(f"Pexels LLM query gen failed: {e}. Fallback a títulos crudos.")
+            return {}
+
+    async def _pexels_search(self, query: str) -> str:
+        """Búsqueda Pexels HTTP. Devuelve URL de la primera foto landscape o ''."""
         api_key = os.getenv("PEXELS_API_KEY", "")
-        if not api_key:
+        if not api_key or not query:
             return ""
-        # Limpiar query: quitar stop words, limitar a 5 palabras clave
-        words = re.sub(r'[^\w\s]', '', query.lower()).split()
-        keywords = [w for w in words if len(w) > 2 and w not in self._IMG_STOPWORDS][:5]
-        if not keywords:
-            return ""
-        search_q = " ".join(keywords)
-        url = f"https://api.pexels.com/v1/search?query={quote_plus(search_q)}&per_page=1&orientation=landscape"
+        url = f"https://api.pexels.com/v1/search?query={quote_plus(query)}&per_page=1&orientation=landscape"
         try:
             async with aiohttp.ClientSession() as session:
-                async with session.get(url, headers={"Authorization": api_key}, timeout=aiohttp.ClientTimeout(total=5)) as resp:
+                async with session.get(url, headers={"Authorization": api_key},
+                                       timeout=aiohttp.ClientTimeout(total=5)) as resp:
                     if resp.status != 200:
                         return ""
                     data = await resp.json()
                     photos = data.get("photos", [])
                     if photos:
-                        # Usar tamaño medium (800px wide aprox) para email
                         return photos[0].get("src", {}).get("medium", "")
         except Exception as e:
-            self.logger.debug(f"Pexels search failed for '{search_q}': {e}")
+            self.logger.debug(f"Pexels search failed for '{query}': {e}")
         return ""
 
     async def _fetch_missing_images(self, articles: List[Dict]) -> None:
-        """Pre-fetch Pexels images for all articles without imagen_url.
-        Modifica los dicts in-place."""
+        """Pre-fetch Pexels images para artículos sin foto.
+
+        Pipeline:
+        1. Identifica artículos sin imagen.
+        2. UNA llamada LLM batch para generar queries visuales en inglés.
+        3. Búsqueda Pexels en paralelo con esos queries.
+        Modifica los dicts in-place.
+        """
         missing = [(i, a) for i, a in enumerate(articles)
                    if not a.get("imagen_url") or not a["imagen_url"].startswith("http")]
         if not missing:
             return
-        self.logger.info(f"🖼️ Buscando imágenes Pexels para {len(missing)} artículos sin foto...")
-        tasks = [self._search_pexels_image(a.get("titulo", "")) for _, a in missing]
+        self.logger.info(f"🖼️ Generando queries Pexels para {len(missing)} artículos...")
+
+        # Batch LLM call para generar queries visuales
+        missing_articles = [a for _, a in missing]
+        queries_map = await self._generate_pexels_queries_llm(missing_articles)
+
+        # Búsqueda Pexels en paralelo
+        async def _search_one(i: int, art: Dict) -> str:
+            q = queries_map.get(i, "")
+            if not q:
+                # Fallback: título crudo si el LLM no generó query
+                q = art.get("titulo", "")[:60]
+            return await self._pexels_search(q)
+
+        tasks = [_search_one(i, a) for i, (_, a) in enumerate(missing)]
         results = await asyncio.gather(*tasks, return_exceptions=True)
         found = 0
         for (idx, art), result in zip(missing, results):
@@ -552,7 +736,14 @@ class Orchestrator:
                      "según", "segun", "sobre", "tras", "desde", "hasta", "como",
                      "mientras", "pero", "además", "ademas", "también", "tambien",
                      "solo", "sólo", "ayer", "hoy", "mañana", "manana", "champions",
-                     "liga", "copa"}
+                     "liga", "copa",
+                     # Cities/countries: too generic to identify a specific event
+                     "madrid", "barcelona", "paris", "londres", "london", "roma",
+                     "miami", "nueva", "york", "berlín", "berlin", "tokio", "tokyo",
+                     "washington", "bruselas", "pekín", "pekin", "moscú", "moscu",
+                     "españa", "espana", "francia", "alemania", "italia", "china",
+                     "rusia", "israel", "ucrania", "europa", "estados", "unidos",
+                     "premier", "mundial", "open", "grand", "slam"}
         tokens = re.findall(r'\b[A-ZÁÉÍÓÚÑ][a-záéíóúñ]{3,}\b', text or "")
         return {t.lower() for t in tokens if t.lower() not in stopwords}
 
@@ -615,15 +806,227 @@ class Orchestrator:
             kept_data.append((ents, art_date, art.get("titulo", "")))
         return kept
 
-    async def _filter_by_user_rules(self, topic: str, news_list: List[Dict], user_context: str) -> List[Dict]:
+    async def _dedup_briefing_llm(self, category_map: dict) -> int:
+        """Dedup semántica final con LLM sobre TODOS los artículos seleccionados.
+
+        Captura duplicados cross-categoría que el dedup por keyword no atrapa
+        (ej: "BCE mantiene tipos sin cambios" vs "BCE frena tipos al 2% pese a
+        inflación" — keywords distintas pero mismo evento).
+
+        Mutates category_map in-place. Devuelve el nº de artículos eliminados.
+        Coste: 1 llamada Mistral (~400 tokens output máximo).
+        """
+        # Aplanar y enumerar
+        flat: list = []  # [(cat, art_url, title, resumen, published_at)]
+        for cat, articles in category_map.items():
+            for url, art in articles.items():
+                ref = art.get("_news_ref") or {}
+                flat.append((
+                    cat, url,
+                    ref.get("titulo", art.get("title", "")),
+                    ref.get("resumen", art.get("content", ""))[:200],
+                    ref.get("published_at", ""),
+                ))
+        if len(flat) < 2:
+            return 0
+
+        items_input = ""
+        for i, (cat, _url, title, resumen, _pub) in enumerate(flat):
+            items_input += f"ID {i} [{cat}]: {title} | {resumen}\n"
+
+        prompt = f"""Detecta artículos sobre el MISMO EVENTO de noticia en este briefing.
+
+Artículos:
+{items_input}
+
+REGLAS:
+- "Mismo evento" = misma decisión, anuncio, partido, hecho concreto. NO basta con
+  compartir entidad principal: BCE habla todos los días, pero "BCE sube tipos" y
+  "BCE comenta inflación" son eventos distintos.
+- Variaciones del MISMO evento (distinto ángulo, fuente, redacción): SÍ duplicado.
+  Ej: "BCE mantiene tipos sin cambios" + "BCE deja tipos al 2% pese a inflación" → mismo evento.
+- Eventos relacionados pero distintos: NO duplicado.
+
+Devuelve SOLO los grupos donde haya ≥2 IDs sobre el mismo evento. Si no hay ninguno, lista vacía.
+
+JSON: {{"duplicate_groups": [[0, 5], [3, 7, 11]]}}"""
+
+        try:
+            response = await self.processor.client.chat.completions.create(
+                model=self.processor.model_fast,
+                messages=[{"role": "user", "content": prompt}],
+                response_format={"type": "json_object"},
+            )
+            result = json.loads(response.choices[0].message.content)
+            groups = result.get("duplicate_groups", []) or []
+        except Exception as e:
+            self.logger.warning(f"LLM briefing dedup failed: {e}. Skip.")
+            return 0
+
+        # En cada grupo, conservar el de published_at más reciente; eliminar el resto
+        from datetime import datetime as _dt
+        def _parse_pub(s: str):
+            try:
+                return _dt.fromisoformat(s[:19]) if s else None
+            except Exception:
+                return None
+
+        to_remove: set = set()  # set of (cat, url)
+        for group in groups:
+            try:
+                ids = [int(x) for x in group if 0 <= int(x) < len(flat)]
+            except Exception:
+                continue
+            if len(ids) < 2:
+                continue
+            # Keep most recent
+            best_id = max(ids, key=lambda i: _parse_pub(flat[i][4]) or _dt.min)
+            for i in ids:
+                if i != best_id:
+                    cat, url = flat[i][0], flat[i][1]
+                    to_remove.add((cat, url))
+
+        for cat, url in to_remove:
+            if cat in category_map and url in category_map[cat]:
+                title = (category_map[cat][url].get("title", "") or "")[:50]
+                self.logger.info(f"      🧹 Dedup briefing: elimina '{title}' de {cat}")
+                del category_map[cat][url]
+        # Limpiar categorías vacías
+        for cat in list(category_map.keys()):
+            if not category_map[cat]:
+                del category_map[cat]
+
+        return len(to_remove)
+
+    async def _classify_articles_by_subtopic_llm(
+        self, topic: str, articles: List[Dict], subtopics: list
+    ) -> Dict[int, str]:
+        """Clasifica artículos por subtopic usando 1 llamada Mistral batch.
+
+        Devuelve {art_index: subtopic_name} — si un artículo no encaja en
+        ninguno, recibe "" (string vacío). Esto reemplaza el keyword matching
+        de `_article_matches_subtopic` con comprensión semántica real.
+
+        Coste: ~1 call Mistral free/topic (~300 tokens output máximo).
+        Solo se llama si hay subtopics y ≥2 artículos. Cachea en `articles[i]["_subtopic"]`
+        para que llamadas posteriores no repitan trabajo.
+        """
+        if not subtopics or not articles:
+            return {}
+
+        # Filter ya clasificados (cache hit)
+        to_classify = []
+        cached: Dict[int, str] = {}
+        for i, art in enumerate(articles):
+            cached_sub = art.get("_subtopic")
+            if cached_sub is not None:
+                cached[i] = cached_sub
+            else:
+                to_classify.append((i, art))
+
+        if not to_classify:
+            return cached
+
+        # Build batch input (limit per call: 30 articles to stay under token limit)
+        BATCH = 30
+        sub_list = ", ".join(subtopics)
+        result_map: Dict[int, str] = dict(cached)
+
+        for batch_start in range(0, len(to_classify), BATCH):
+            batch = to_classify[batch_start:batch_start + BATCH]
+            articles_input = ""
+            for j, (orig_i, art) in enumerate(batch):
+                title = (art.get("titulo", "") or "")[:120]
+                resumen = (art.get("resumen", "") or "")[:180]
+                articles_input += f"ID {j}: {title} | {resumen}\n"
+
+            prompt = f"""Clasifica cada artículo según el subtopic al que pertenece.
+
+TOPIC GENERAL: "{topic}"
+SUBTOPICS DISPONIBLES: [{sub_list}]
+
+Artículos:
+{articles_input}
+
+INSTRUCCIONES ESTRICTAS:
+- Para cada artículo, devuelve el NOMBRE EXACTO del subtopic que MEJOR lo describe.
+- Si un artículo NO trata CLARAMENTE sobre uno de los subtopics, devuelve "".
+- ⚠️ NO asignes un subtopic basándote solo en palabras parecidas. La noticia debe
+  tratar sustancialmente sobre el sujeto del subtopic.
+- ⚠️ Cada subtopic es un DEPORTE/EQUIPO/PERSONA distinto:
+  · "F1" = Fórmula 1 (Ferrari, McLaren, Verstappen, Sainz, Alonso, Leclerc, GP de F1, FIA F1).
+    NO incluye MotoGP, automovilismo genérico, motos, ciclismo, NASCAR.
+  · "padel" / "pádel" = SOLO pádel (Premier Padel, WPT, padelistas, torneos de pádel).
+    NO incluye tenis, baloncesto, fútbol — aunque mencionen "raqueta" o "pista".
+  · "tenis" = SOLO tenis (ATP/WTA, Roland Garros, Wimbledon, US Open, jugadores de tenis).
+    NO incluye pádel.
+  · "Lakers" = SOLO los Los Angeles Lakers (NBA). NO otros equipos NBA, NO baloncesto europeo.
+  · "Real Madrid" = el PRIMER EQUIPO del Real Madrid (fútbol Liga/Champions, baloncesto
+    ACB/Euroliga). NO incluye Castilla, filial, cantera, juvenil, sub-19, sub-21
+    salvo que el usuario lo pida explícitamente. NO incluye Atlético, Rayo, otros
+    equipos de Madrid. Una noticia sobre el Castilla = clasifica "" (no Real Madrid).
+- Un artículo solo se asigna a UN subtopic (el más específico).
+- ANTE LA DUDA → devuelve "".
+
+EJEMPLOS:
+- "LeBron lidera Lakers a semifinales" → "Lakers"
+- "Joventut-Unicaja se suspende" → ""  (es ACB europea, NO Lakers, NO padel)
+- "Augsburger triunfa Elevia Padel Tour" → "padel"
+- "Sinner gana final Madrid Open" → "tenis"
+- "Sainz lidera FP1 en Miami" → "F1"
+- "Bulega bate récords en MotoGP" → ""  (no es F1)
+- "Castilla gana 3-0" → ""  (filial, NO el primer equipo)
+- "Bellingham marca un golazo en el Real Madrid" → "Real Madrid"
+- "Llull jugador Real Madrid baloncesto" → "Real Madrid"
+
+JSON only: {{"classifications": {{"0": "F1", "1": "Lakers", "2": "", "3": "padel", ...}}}}"""
+
+            try:
+                response = await self.processor.client.chat.completions.create(
+                    model=self.processor.model_fast,
+                    messages=[{"role": "user", "content": prompt}],
+                    response_format={"type": "json_object"},
+                )
+                result = json.loads(response.choices[0].message.content)
+                classif = result.get("classifications", {}) or {}
+                # Normalize subtopic names (case-insensitive match against canonical list)
+                sub_canonical = {s.lower(): s for s in subtopics}
+                for k, v in classif.items():
+                    try:
+                        j = int(k)
+                    except Exception:
+                        continue
+                    if j < 0 or j >= len(batch):
+                        continue
+                    orig_i = batch[j][0]
+                    sub_name = str(v or "").strip()
+                    if sub_name and sub_name.lower() in sub_canonical:
+                        canonical = sub_canonical[sub_name.lower()]
+                        result_map[orig_i] = canonical
+                        articles[orig_i]["_subtopic"] = canonical
+                    else:
+                        result_map[orig_i] = ""
+                        articles[orig_i]["_subtopic"] = ""
+            except Exception as e:
+                self.logger.warning(f"LLM subtopic classification failed for '{topic}' batch {batch_start}: {e}")
+                # Fallback: keyword match para este batch
+                for orig_i, art in batch:
+                    sub_match = ""
+                    for s in subtopics:
+                        if self._article_matches_subtopic(art, s):
+                            sub_match = s; break
+                    result_map[orig_i] = sub_match
+                    articles[orig_i]["_subtopic"] = sub_match
+
+        return result_map
+
+    async def _filter_by_user_rules(self, topic: str, news_list: List[Dict],
+                                     user_context: str, subtopics: list = None,
+                                     subtopic_rules: list = None) -> List[Dict]:
         """Filtro semántico universal: usa LLM para excluir artículos que violen
-        CUALQUIER regla del campo topic-map de Firestore del usuario.
+        las reglas del usuario, con reglas INDIVIDUALES por subtopic.
 
-        Agnóstico al tipo de regla. Funciona con:
-          - Exclusiones: "solo masculino", "no moda", "sin lujo"
-          - Preferencias: "prefiero Carlos Sainz", "solo bodegas españolas"
-          - Geografía: "no noticias de EEUU"
-
+        subtopic_rules: [{"name": "tenis", "rule": ""}, {"name": "fútbol", "rule": "solo masculino"}]
         Coste: 1 llamada Mistral/topic (free tier). ~500-800 tokens/call.
         """
         if not user_context or not news_list:
@@ -635,42 +1038,70 @@ class Orchestrator:
             summary = n.get("resumen", "")[:150]
             articles_input += f"ID {i}: {title} | {summary}\n"
 
-        prompt = f"""Eres un moderador estricto de noticias. El usuario definió estas reglas para el topic "{topic}":
+        # Build per-subtopic rules section
+        rules_section = ""
+        if subtopic_rules:
+            lines = []
+            for sr in subtopic_rules:
+                name = sr["name"]
+                rule = sr.get("rule", "")
+                if rule:
+                    lines.append(f"- {name}: {rule}")
+                else:
+                    lines.append(f"- {name}: sin restricciones, TODA noticia de {name} es válida")
+            rules_section = "SUBTOPICS CON REGLAS INDIVIDUALES:\n" + "\n".join(lines) + "\n"
+        elif subtopics:
+            # Legacy: plain list without rules
+            subtopics_list = ", ".join(subtopics)
+            rules_section = f"SUBTOPICS: [{subtopics_list}]\nTODA noticia de cualquiera de estos subtopics es válida.\n"
 
-REGLAS DEL USUARIO: "{user_context}"
+        prompt = f"""Eres un filtro PERMISIVO de noticias para el topic "{topic}".
 
+CONTEXTO ORIGINAL DEL USUARIO: "{user_context}"
+
+{rules_section}
 Artículos candidatos:
 {articles_input}
 
-LÓGICA DE MODERACIÓN:
+REGLAS CRÍTICAS:
 
-1. DESCRIPCIÓN DEL TOPIC (sin "prefiero") → WHITELIST implícita:
-   Si el contexto describe QUÉ es el topic (ej: "balonmano Barça masculino",
-   "fútbol masculino", "vinos españoles tintos"), el artículo DEBE tratar
-   exactamente eso. Todo lo demás viola la regla.
-   - "balonmano Barça masculino" → viola: fútbol del Barça, baloncesto del Barça,
-     balonmano femenino, balonmano de otro club.
-   - "fútbol masculino" → viola: baloncesto, tenis, fútbol femenino, eSports, cantera.
-   - "vinos españoles tintos" → viola: vinos franceses, vinos blancos, cervezas.
+1. POR DEFECTO: TODA noticia de CUALQUIER subtopic es VÁLIDA.
+   La fila "Subtopics con reglas individuales" lista todos los subtopics que el
+   usuario quiere recibir. Cualquier noticia que trate sobre uno de ellos pasa
+   directamente, salvo que viole una regla EXPLÍCITA y CLARA.
 
-2. REGLAS "solo X" → WHITELIST explícita: igual que el punto 1.
-   - "solo fútbol masculino" → viola todo lo que no sea fútbol masculino adulto.
-   - "solo bodegas españolas" → viola: bodegas de otros países.
+2. Las reglas individuales SOLO aplican a SU PROPIO subtopic, NUNCA cruzan:
+   - "Real Madrid: solo masculino" → SOLO afecta noticias de Real Madrid.
+     NO afecta noticias de F1, padel, tenis, otros equipos.
+   - "tenis: preferir Alcaraz" → NO es exclusión. NUNCA excluyas tenis por esto.
+     Cualquier noticia de tenis (Sinner, Kostyuk, Jódar, Mérida...) es VÁLIDA.
 
-3. REGLAS "no Y" / "sin Y" → BLACKLIST: excluir artículos sobre Y.
-   - "no moda" → viola: ropa, runway, fashion week, outfits.
-   - "sin política" → viola: gobierno, partidos, elecciones.
+3. "preferir X / preferentemente X" = PREFERENCIA, NO regla. NUNCA excluye.
 
-4. REGLAS "prefiero Z" → NO son exclusión. No marcar ningún artículo por esto.
+4. "solo masculino" = excluye SOLO femenino EXPLÍCITO en ese subtopic.
+   ⚠️ Por defecto, fútbol/baloncesto/tenis sin género especificado = MASCULINO.
+   El fútbol "Liga", "Champions", "Sevilla-Madrid", "Castilla", "filial",
+   "cantera" → MASCULINO por defecto. NO excluir.
+   SOLO excluir si el título dice EXPLÍCITAMENTE "femenino", "femenina",
+   "Women", "WTA" (en deportes mixtos), "Liga F", etc.
 
-5. CASOS IMPLÍCITOS (aplicar siempre):
-   - Clubs grandes (Real Madrid, Barça, etc.) tienen múltiples deportes. Si el
-     topic especifica un deporte concreto, los otros deportes del club VIOLAN la regla.
-   - "masculino" → también viola: sub-23, sub-21, femenino, juvenil, infantil, cantera.
+5. RECONOCIMIENTO DE SUBTOPICS — sé generoso:
+   - "F1" cubre: Fórmula 1, Ferrari, McLaren, Mercedes, Red Bull, Verstappen,
+     Sainz, Alonso, Leclerc, GP de cualquier ciudad, FIA, sprint, pole, parrilla.
+   - "padel" / "pádel" cubre: TODA noticia de pádel (cualquier torneo, jugador,
+     Premier Padel, WPT, Elevia, padelistas).
+   - "Lakers" cubre: LeBron, Lakers playoffs, NBA Lakers, jugadores de Lakers.
+   - "Real Madrid" cubre: Madrid (fútbol o baloncesto masculino), Castilla,
+     filial, cantera, jugadores. NO descartes por "no masculino" si no hay
+     mención explícita de "femenino".
+   - "tenis" cubre: TODO tenis (ATP, WTA, Masters, Roland Garros, jugador X).
 
-Marca los IDs que violan las reglas. Si ninguno viola, devuelve lista vacía.
+6. ANTE LA DUDA → NO EXCLUYAS. Solo marca como inválido lo que CLARAMENTE no
+   trate sobre ningún subtopic, o que viole EXPLÍCITAMENTE una regla.
 
-JSON only: {{"invalid_ids": [1, 3], "reasons": {{"1": "basketball, not football", "3": "women's team"}}}}
+Marca los IDs que violan las reglas (deben ser POCOS). Si ninguno viola, lista vacía.
+
+JSON only: {{"invalid_ids": [1, 3], "reasons": {{"1": "...", "3": "..."}}}}
 """
         try:
             response = await self.processor.client.chat.completions.create(
@@ -698,47 +1129,27 @@ JSON only: {{"invalid_ids": [1, 3], "reasons": {{"1": "basketball, not football"
             return news_list
 
     async def _select_top_3_cached(self, topic: str, news_list: List[Dict], max_count: int = 3,
-                                    user_contexts: List[str] = None, subtopics: list = None) -> List[Dict]:
+                                    user_contexts: List[str] = None, subtopics: list = None,
+                                    subtopic_rules: list = None,
+                                    full_topic_cache: List[Dict] = None) -> List[Dict]:
         """Selecciona las top N noticias más relevantes de la lista cacheada usando LLM.
         Guarantees at least 1 article from user-preferred sources if available.
-        When subtopics are provided, guarantees ≥1 article per subtopic (up to max_count cap)."""
+        When subtopics are provided, guarantees ≥1 article per subtopic (up to max_count cap).
+        subtopic_rules: [{"name":"tenis","rule":""},{"name":"fútbol","rule":"solo masculino"}]"""
         # --- Context aggregation ---
         contexts_joined = ""
         if user_contexts:
             contexts_joined = " ".join(str(c) for c in user_contexts if c).lower()
 
-        # --- STEP 1: Universal semantic rule filter (LLM, always runs if context exists) ---
-        # Agnóstico al tipo de regla. Corre SIEMPRE antes del early return para que topics
-        # con pocos artículos también se filtren.
+        # --- STEP 1: Universal semantic rule filter (LLM with per-subtopic rules) ---
         if contexts_joined.strip():
             original_context = " ".join(str(c) for c in (user_contexts or []) if c)
-            news_list = await self._filter_by_user_rules(topic, news_list, original_context)
+            news_list = await self._filter_by_user_rules(
+                topic, news_list, original_context,
+                subtopics=subtopics, subtopic_rules=subtopic_rules
+            )
 
-        # --- STEP 2: Keyword safety net (cheap, deterministic, catches common patterns) ---
-        if contexts_joined:
-            filtered_list = []
-            exclude_keywords = []
-            if "solo" in contexts_joined and ("masculino" in contexts_joined or "hombres" in contexts_joined):
-                exclude_keywords = ["femenino", "femenina", "femenil", "cantera", "infantil", "juvenil",
-                                    "cadete", "sub-19", "sub-17", "sub-21", "sub-23",
-                                    "women", "women's", "womens", "u19", "u17", "u21", "u23",
-                                    "female"]
-                if any(kw in contexts_joined for kw in ["futbol", "fútbol", "football", "soccer"]):
-                    exclude_keywords += ["baloncesto", "basket", "basketball",
-                                         "euroliga", "euroleague", "nba", "acb", "canasta"]
-            if "no moda" in contexts_joined:
-                exclude_keywords.extend(["moda", "fashion", "vogue", "tendencia", "outfit"])
-
-            if exclude_keywords:
-                for n in news_list:
-                    combined = (n.get("titulo", "") + " " + n.get("resumen", "")).lower()
-                    if not any(kw in combined for kw in exclude_keywords):
-                        filtered_list.append(n)
-                if len(filtered_list) < len(news_list):
-                    print(f"      🔍 Keyword safety net '{topic}': {len(news_list)} -> {len(filtered_list)}")
-                news_list = filtered_list
-
-        # --- STEP 3: Same-event dedup (pre-LLM) ---
+        # --- STEP 2: Same-event dedup (pre-LLM) ---
         # Evita que 2 artículos del mismo partido/incidente lleguen al LLM.
         # Prioriza el más reciente de cada grupo.
         before_dedup = len(news_list)
@@ -864,15 +1275,16 @@ JSON only: {{"invalid_ids": [1, 3], "reasons": {{"1": "basketball, not football"
         # --- STEP: Deterministic source diversity enforcement ---
         # If multiple articles share the same domain, swap duplicates for
         # different-source articles from the pool (preserving quality order).
-        combined = self._enforce_source_diversity(combined, news_list)
+        combined = self._enforce_source_diversity(combined, news_list, subtopics=subtopics)
 
         # --- STEP: Deterministic subtopic coverage guarantee ---
-        # After LLM selection, ensure at least 1 article per subtopic.
-        # If a subtopic is missing, find the best matching article from the full
-        # pool and swap it in (replacing the last non-subtopic-matched article).
+        # Garantiza ≥1 artículo por subtopic. Pasa la cache total como fallback
+        # para rescatar artículos eliminados por LLM filter o same-event dedup.
         if subtopics and len(subtopics) >= 2:
-            combined = self._ensure_subtopic_coverage(
-                combined, news_list, subtopics, max_count
+            combined = await self._ensure_subtopic_coverage(
+                combined, news_list, subtopics, max_count,
+                topic=topic,
+                fallback_pool=full_topic_cache,
             )
         return combined
 
@@ -884,11 +1296,13 @@ JSON only: {{"invalid_ids": [1, 3], "reasons": {{"1": "basketball, not football"
             return urlparse(sources[0]).netloc.lower().replace("www.", "")
         return ""
 
-    def _enforce_source_diversity(self, selected: List[Dict], full_pool: List[Dict]) -> List[Dict]:
+    def _enforce_source_diversity(self, selected: List[Dict], full_pool: List[Dict],
+                                   subtopics: list = None) -> List[Dict]:
         """Ensure no more than 2 articles from the same domain.
 
         If a domain appears 3+ times, swap excess articles for alternatives
-        from different domains in the full pool."""
+        from different domains in the full pool.
+        NEVER replace articles that match a user subtopic."""
         from collections import Counter
         domain_counts = Counter(self._get_article_domain(a) for a in selected)
         max_per_domain = 2
@@ -907,6 +1321,20 @@ JSON only: {{"invalid_ids": [1, 3], "reasons": {{"1": "basketball, not football"
             excess_indices = domain_indices[max_per_domain:]  # indices to replace
 
             for idx in excess_indices:
+                # NEVER replace articles matching a user subtopic
+                if subtopics:
+                    covers_subtopic = False
+                    for sub in subtopics:
+                        if self._article_matches_subtopic(selected[idx], sub):
+                            covers_subtopic = True
+                            break
+                    if covers_subtopic:
+                        self.logger.info(
+                            f"      🛡️ Diversidad: protegiendo '{selected[idx].get('titulo','')[:40]}' "
+                            f"(cubre subtopic)"
+                        )
+                        continue
+
                 # Find a replacement from a different domain
                 replacement = None
                 for art in full_pool:
@@ -933,34 +1361,55 @@ JSON only: {{"invalid_ids": [1, 3], "reasons": {{"1": "basketball, not football"
 
     @staticmethod
     def _article_matches_subtopic(article: Dict, subtopic: str) -> bool:
-        """Check if an article's title+summary mentions the subtopic."""
+        """Check if an article's title+summary+source URL mentions the subtopic.
+
+        Multi-signal match:
+          1. Title + resumen text (LLM redactor may have removed keyword)
+          2. Source URL domain (padel-magazine.es → "padel" subtopic)
+        Normaliza tildes para que "pádel" matchee "padel".
+        """
         sub_lower = subtopic.lower()
-        # Normalize: remove accents for matching
         sub_norm = ''.join(c for c in unicodedata.normalize('NFKD', sub_lower)
                           if not unicodedata.combining(c))
+        sub_compact = sub_norm.replace(" ", "")
+
+        # Texto principal: título + resumen
         text = (article.get("titulo", "") + " " + article.get("resumen", "")).lower()
+        # Source URL como fallback: el redactor puede haber omitido la keyword,
+        # pero la fuente específica (padel-magazine.es) revela el subtopic
+        for src in article.get("fuentes", []) or []:
+            if src:
+                text += " " + str(src).lower()
         text_norm = ''.join(c for c in unicodedata.normalize('NFKD', text)
                            if not unicodedata.combining(c))
-        # Word-boundary match for short subtopics (≤3 chars like "f1", "nba")
-        if len(sub_norm.replace(" ", "")) <= 3:
+
+        # Word-boundary match para subtopics cortos (≤3 chars: "f1", "nba")
+        if len(sub_compact) <= 3:
             return bool(re.search(r'\b' + re.escape(sub_norm) + r'\b', text_norm))
         return sub_norm in text_norm
 
-    def _ensure_subtopic_coverage(self, selected: List[Dict], full_pool: List[Dict],
-                                   subtopics: list, max_count: int) -> List[Dict]:
-        """Guarantee ≥1 article per subtopic in the selection.
+    async def _ensure_subtopic_coverage(self, selected: List[Dict], full_pool: List[Dict],
+                                         subtopics: list, max_count: int,
+                                         topic: str = "",
+                                         fallback_pool: List[Dict] = None) -> List[Dict]:
+        """Guarantee ≥1 article per subtopic. Usa CLASIFICACIÓN LLM semántica
+        (no keyword matching) para decidir si un artículo pertenece a un subtopic.
 
-        For each missing subtopic, find the best article from the full pool
-        and add it (or swap it in if already at max_count)."""
+        Pipeline:
+          1. Clasifica `selected` con LLM batch → ¿qué subtopics están cubiertos?
+          2. Para los faltantes:
+             a. Clasifica `full_pool` (curado) con LLM y busca match.
+             b. Si no encuentra, clasifica `fallback_pool` (cache total) con LLM.
+          3. Añade o reemplaza para cubrir el subtopic.
+        """
         selected_urls = {s.get("fuentes", [""])[0] for s in selected}
 
-        # Check which subtopics are already covered
+        # 1. Clasificar selección actual con LLM
+        sel_classif = await self._classify_articles_by_subtopic_llm(topic, selected, subtopics)
         covered = set()
-        for sub in subtopics:
-            for art in selected:
-                if self._article_matches_subtopic(art, sub):
-                    covered.add(sub)
-                    break
+        for i, sub in sel_classif.items():
+            if sub:
+                covered.add(sub)
 
         missing = [s for s in subtopics if s not in covered]
         if not missing:
@@ -968,39 +1417,76 @@ JSON only: {{"invalid_ids": [1, 3], "reasons": {{"1": "basketball, not football"
 
         self.logger.info(f"      📌 Subtopics sin cobertura: {missing}. Forzando inclusión.")
 
+        # 2a. Clasificar pool curado
+        pool_classif = await self._classify_articles_by_subtopic_llm(topic, full_pool, subtopics)
+        # 2b. Clasificar fallback pool (cache total) si lo hay
+        fb_classif = {}
+        if fallback_pool:
+            fb_classif = await self._classify_articles_by_subtopic_llm(topic, fallback_pool, subtopics)
+
         for sub in missing:
-            # Find best candidate from full pool (not already selected)
             candidate = None
-            for art in full_pool:
-                art_url = art.get("fuentes", [""])[0]
-                if art_url in selected_urls:
-                    continue
-                if self._article_matches_subtopic(art, sub):
+            origin = ""
+            # 1. Pool curado primero
+            for i, art in enumerate(full_pool):
+                if pool_classif.get(i) == sub:
+                    art_url = art.get("fuentes", [""])[0]
+                    if art_url in selected_urls:
+                        continue
                     candidate = art
-                    break  # pool is pre-sorted by score, first match is best
+                    origin = "pool curado"
+                    break
+            # 2. Fallback: cache total
+            if not candidate and fallback_pool:
+                for i, art in enumerate(fallback_pool):
+                    if fb_classif.get(i) == sub:
+                        art_url = art.get("fuentes", [""])[0]
+                        if art_url in selected_urls:
+                            continue
+                        candidate = art
+                        origin = "RESCATADO desde cache total"
+                        break
             if not candidate:
-                self.logger.info(f"      ⚠️ No hay artículos disponibles para subtopic '{sub}'")
+                self.logger.info(f"      ⚠️ No hay artículos LLM-clasificados como '{sub}' (pool={len(full_pool)} + cache={len(fallback_pool or [])})")
                 continue
+            self.logger.info(f"      ✅ Subtopic '{sub}' cubierto ({origin}): {candidate.get('titulo','')[:60]}")
 
             if len(selected) < max_count:
-                # Room to add
                 selected.append(candidate)
+                sel_classif[len(selected)-1] = sub
             else:
-                # At capacity: replace the last article that doesn't cover any subtopic
+                # At capacity: reemplazar respetando que cada subtopic conserva ≥1 artículo.
+                # Recalcular covers_count en cada iteración para evitar dejar a 0 un subtopic.
                 replaced = False
-                for i in range(len(selected) - 1, -1, -1):
-                    art_covers_sub = False
-                    for s in subtopics:
-                        if self._article_matches_subtopic(selected[i], s):
-                            art_covers_sub = True
-                            break
-                    if not art_covers_sub:
-                        self.logger.info(f"      🔄 Reemplazando '{selected[i].get('titulo','')[:40]}' por subtopic '{sub}'")
+                covers_count: Dict[str, int] = {}
+                for i in range(len(selected)):
+                    s = sel_classif.get(i, "")
+                    if s:
+                        covers_count[s] = covers_count.get(s, 0) + 1
+                # Pasada 1: artículos SIN subtopic ("none"). Reemplazar libremente.
+                # Pasada 2: artículos cuyo subtopic tenga covers_count >= 2. Solo si quitarlo
+                #           NO deja ningún subtopic a 0.
+                for prefer_unclassified in (True, False):
+                    for i in range(len(selected) - 1, -1, -1):
+                        sel_sub = sel_classif.get(i, "")
+                        if prefer_unclassified and sel_sub:
+                            continue
+                        if not prefer_unclassified:
+                            # No quitar el último de un subtopic
+                            if not sel_sub or covers_count.get(sel_sub, 0) <= 1:
+                                continue
+                        self.logger.info(f"      🔄 Reemplazando '{selected[i].get('titulo','')[:40]}' (sub={sel_sub or 'none'}) por subtopic '{sub}'")
+                        # Actualizar contadores: descontar el viejo, sumar el nuevo
+                        if sel_sub and covers_count.get(sel_sub, 0) > 0:
+                            covers_count[sel_sub] -= 1
+                        covers_count[sub] = covers_count.get(sub, 0) + 1
                         selected[i] = candidate
+                        sel_classif[i] = sub
                         replaced = True
                         break
+                    if replaced:
+                        break
                 if not replaced:
-                    # All current articles cover a subtopic; can't swap. Skip.
                     self.logger.info(f"      ⚠️ No se puede incluir subtopic '{sub}' sin desplazar otro subtopic")
                     continue
 
@@ -1110,6 +1596,18 @@ JSON only: {{"invalid_ids": [1, 3], "reasons": {{"1": "basketball, not football"
         # Se muta in-place en _format_cached_news_to_html y build_section_html.
         briefing_used_images: set = set()
 
+        # Pre-compute forbidden domains ONCE so _select_top_3_cached can filter early
+        _raw_forbidden = user_data.get('forbidden_sources', []) or []
+        if isinstance(_raw_forbidden, str):
+            _raw_forbidden = [f.strip() for f in _raw_forbidden.split(',') if f.strip()]
+        _forbidden_domains: set = set()
+        for f in _raw_forbidden:
+            f_clean = str(f).lower().strip()
+            if '.' in f_clean:
+                _forbidden_domains.add(f_clean.replace('www.', ''))
+        if _forbidden_domains:
+            self.logger.info(f"⛔ Fuentes prohibidas: {_forbidden_domains}")
+
         # --- FASE 1: RECOLECCIÓN & SELECCIÓN (CACHE ONLY) ---
         # Two-pass: first collect available news counts, then allocate proportionally
         topic_fresh_news: Dict[str, tuple] = {}  # topic -> (fresh_news_list, cached_data)
@@ -1172,9 +1670,16 @@ JSON only: {{"invalid_ids": [1, 3], "reasons": {{"1": "basketball, not football"
         current_time = datetime.now()
 
         # User topic contexts from Firestore (topic map: {"alias": "context description"})
-        _user_topic_map = user_data.get('topic', {}) or {}
-        if not isinstance(_user_topic_map, dict):
-            _user_topic_map = {}
+        # SANITIZACIÓN: el contexto va a múltiples LLMs y al email — defendemos contra
+        # prompt injection, HTML/JS injection y tamaño excesivo (cap 300 chars).
+        _user_topic_map_raw = user_data.get('topic') or user_data.get('topics', {}) or {}
+        if not isinstance(_user_topic_map_raw, dict):
+            _user_topic_map_raw = {}
+        from src.utils.text_utils import sanitize_user_context as _sanitize_ctx
+        _user_topic_map = {
+            k: _sanitize_ctx(v) for k, v in _user_topic_map_raw.items()
+            if isinstance(k, str)
+        }
 
         for idx, topic in enumerate(topics):
             print(f"\n--- [{idx+1}/{len(topics)}] Procesando alias: '{topic}' ---")
@@ -1377,14 +1882,16 @@ JSON only: {{"invalid_ids": [1, 3], "reasons": {{"1": "basketball, not football"
             topic_fresh_news[topic] = (fresh_news, cached_data)
 
         # --- FASE 1b: BALANCEO DE SECCIONES ---
-        # Pre-compute subtopics per topic (e.g. "Deportes": "tenis, futbol, F1 y NBA")
-        topic_subtopics: dict = {}
+        # Pre-compute subtopics per topic using LLM (structured with per-subtopic rules)
+        topic_subtopics: dict = {}       # {"Deporte": ["tenis", "fútbol"]} — name strings for matching
+        topic_subtopic_rules: dict = {}  # {"Deporte": [{"name":"tenis","rule":""},{"name":"fútbol","rule":"solo masculino"}]}
         for t in topics:
             ctx = _user_topic_map.get(t, "")
-            subs = _parse_subtopics(ctx)
-            if subs:
-                topic_subtopics[t] = subs
-                self.logger.info(f"🔀 Subtopics detectados para '{t}': {subs}")
+            subs_structured = await _parse_subtopics_llm(t, ctx, self.processor)
+            if subs_structured:
+                topic_subtopics[t] = [s["name"] for s in subs_structured]
+                topic_subtopic_rules[t] = subs_structured
+                self.logger.info(f"🔀 Subtopics para '{t}': {subs_structured}")
             elif ctx:
                 self.logger.info(f"ℹ️ Topic '{t}' tiene contexto pero no subtopics: '{ctx[:80]}'")
 
@@ -1420,7 +1927,7 @@ JSON only: {{"invalid_ids": [1, 3], "reasons": {{"1": "basketball, not football"
         def _base_slots(topic_name: str) -> int:
             subs = topic_subtopics.get(topic_name, [])
             if subs:
-                return min(5, len(subs))  # 1 slot per subtopic, hard cap 5
+                return min(6, len(subs))  # 1 slot per subtopic, hard cap 6
             t_lower = topic_name.lower()
             for kw in _niche_keywords:
                 if kw in t_lower:
@@ -1445,7 +1952,7 @@ JSON only: {{"invalid_ids": [1, 3], "reasons": {{"1": "basketball, not football"
                     topics_with_surplus_capacity.append(t)
 
         # Distribute surplus evenly among topics that have extra news (hard cap: 5 per topic)
-        MAX_SLOTS_PER_TOPIC = 5
+        MAX_SLOTS_PER_TOPIC = 6
         if surplus > 0 and topics_with_surplus_capacity:
             extra_per_topic = max(1, surplus // len(topics_with_surplus_capacity))
             for t in topics_with_surplus_capacity:
@@ -1507,13 +2014,35 @@ JSON only: {{"invalid_ids": [1, 3], "reasons": {{"1": "basketball, not football"
             fresh_news, cached_data = topic_fresh_news[topic]
             max_for_topic = topic_slots.get(topic, 3)
 
+            # Pre-filter forbidden sources BEFORE selection
+            if _forbidden_domains and fresh_news:
+                before_len = len(fresh_news)
+                fresh_news = [n for n in fresh_news if not any(
+                    urlparse(src).netloc.lower().replace('www.', '') in _forbidden_domains
+                    for src in n.get("fuentes", []) if src
+                )]
+                if len(fresh_news) < before_len:
+                    print(f"   ⛔ Filtradas {before_len - len(fresh_news)} noticias de fuentes prohibidas para '{topic}'")
+
             # SELECCION TOP N (balanced) - pass ONLY this user's context for the topic
             _this_user_ctx = _user_topic_map.get(topic, "")
             topic_user_contexts = [_this_user_ctx] if _this_user_ctx else []
             _topic_subs = topic_subtopics.get(topic, [])
+            _topic_sub_rules = topic_subtopic_rules.get(topic, [])
+            # Cache TOTAL del topic (sin filtros): usado como fallback en
+            # subtopic coverage si LLM filter o dedup eliminan los únicos
+            # artículos de un subtopic. Aplicar mismo filtro de fuentes prohibidas.
+            _all_news = cached_data.get("noticias", [])
+            if _forbidden_domains and _all_news:
+                _all_news = [n for n in _all_news if not any(
+                    urlparse(src).netloc.lower().replace('www.', '') in _forbidden_domains
+                    for src in n.get("fuentes", []) if src
+                )]
             selected_news = await self._select_top_3_cached(
                 topic, fresh_news, max_count=max_for_topic,
                 user_contexts=topic_user_contexts, subtopics=_topic_subs,
+                subtopic_rules=_topic_sub_rules,
+                full_topic_cache=_all_news,
             )
             print(f"   ✅ [{topic}] Seleccionadas Top {len(selected_news)} para el boletín.")
             
@@ -1610,33 +2139,41 @@ JSON only: {{"invalid_ids": [1, 3], "reasons": {{"1": "basketball, not football"
                      continue
                 
                 # --- RE-CLASIFICACIÓN SMART ---
+                # Lógica:
+                # 1. LLM reclasifica con título + resumen + lista oficial de categorías.
+                # 2. Si el LLM da una categoría específica y la original es GENÉRICA
+                #    (Internacional, General, Geopolítica), preferir la específica.
+                # 3. Si la nueva está en topic_expected, aceptarla.
+                # 4. Si la nueva NO está en topic_expected pero la original SÍ → mantener
+                #    original (evita F1 → Tecnología por error LLM).
                 final_cat = original_cat
                 summary = news.get("resumen", "")
-                
+                _GENERIC_CATS = {"internacional", "general", "geopolitica", "geopolítica"}
+
                 print(f"      🧠 Re-analizando categoría para: '{title[:30]}...'")
                 new_cat = await self.classifier.reclassify_article(title, summary, user_country)
-                
+
                 if new_cat:
-                    # Don't reclassify away from the topic's expected category
-                    # e.g. a MotoGP article should stay in "Deporte" even if LLM says "Tecnología"
-                    # Priority 1: hardcoded map for known topics (stability)
                     topic_expected = set()
                     t_norm = ''.join(ch for ch in unicodedata.normalize('NFD', topic.lower()) if unicodedata.category(ch) != 'Mn')
                     for key, cats in _topic_cat_map.items():
                         if key in t_norm:
                             topic_expected.update(cats)
-                    # Priority 2: LLM-assigned categories (covers all new topics not in map)
                     if not topic_expected:
                         topic_expected = set(cached_data.get("categories", []))
 
-                    # Normalize for accent-insensitive comparison
                     def _norm_cat(c):
                         return ''.join(ch for ch in unicodedata.normalize('NFD', c) if unicodedata.category(ch) != 'Mn').lower().strip()
                     norm_expected = {_norm_cat(c) for c in topic_expected}
                     norm_original = _norm_cat(original_cat)
                     norm_new = _norm_cat(new_cat)
 
-                    if norm_original in norm_expected and norm_new not in norm_expected:
+                    # Caso 1: original es genérica y nueva es específica → confiar en LLM
+                    if norm_original in _GENERIC_CATS and norm_new not in _GENERIC_CATS:
+                        print(f"         🔀 {original_cat} (genérica) → {new_cat} (específica, LLM)")
+                        final_cat = new_cat
+                    # Caso 2: nueva fuera de expected pero original dentro → mantener (estabilidad)
+                    elif norm_original in norm_expected and norm_new not in norm_expected:
                         print(f"         🛡️ Manteniendo {original_cat} (topic '{topic}' espera esta categoría, LLM sugería {new_cat})")
                         final_cat = original_cat
                     elif new_cat != original_cat:
@@ -1665,7 +2202,17 @@ JSON only: {{"invalid_ids": [1, 3], "reasons": {{"1": "basketball, not football"
                     "_news_ref": news,  # referencia para renderizar después
                 }
 
-        # --- FASE 1b: PRE-FETCH PEXELS IMAGES PARA ARTÍCULOS SIN FOTO ---
+        # --- FASE 1b: DEDUP SEMÁNTICA FINAL (LLM, cross-categoría) ---
+        # Captura duplicados que las capas anteriores (keyword similarity) no detectan
+        # cuando 2 artículos del mismo evento usan títulos muy distintos.
+        try:
+            removed = await self._dedup_briefing_llm(category_map)
+            if removed:
+                self.logger.info(f"🧹 Dedup briefing eliminó {removed} duplicados cross-categoría")
+        except Exception as e:
+            self.logger.warning(f"Dedup briefing falló: {e}")
+
+        # --- FASE 1c: PRE-FETCH PEXELS IMAGES PARA ARTÍCULOS SIN FOTO ---
         all_news_refs = [art["_news_ref"] for cat in category_map.values()
                          for art in cat.values() if "_news_ref" in art]
         await self._fetch_missing_images(all_news_refs)
@@ -1701,6 +2248,7 @@ JSON only: {{"invalid_ids": [1, 3], "reasons": {{"1": "basketball, not football"
 
         # Generación Secciones (Join HTML pre-renderizado)
         final_html_parts = []
+        toc_categories = []  # FEATURE: TOC — track section display names in order
 
         # Select language-aware category display names
         lang_key = "en" if user_lang.lower() in ("en", "english") else "es"
@@ -1894,6 +2442,7 @@ JSON only: {{"invalid_ids": [1, 3], "reasons": {{"1": "basketball, not football"
                 section_box = build_section_html(display_title, section_body,
                                                  used_images=briefing_used_images)
                 final_html_parts.append(section_box)
+                toc_categories.append(display_title)  # FEATURE: TOC
                 print(f"   ✅ Sección '{cat}' generada ({len(items_html)} noticias)")
 
                 mid_point = max(1, len(sorted_cats) // 2)
@@ -2053,7 +2602,7 @@ JSON only: {{"invalid_ids": [1, 3], "reasons": {{"1": "basketball, not football"
             except Exception as e:
                 print(f"   ⚠️ GIF generation skipped: {e}")
 
-            final_html = build_newsletter_html(full_body_html, front_page_html, lang=user_lang, market_ticker_html=market_html, header_gif_url=header_gif_url, ticker_gif_url=ticker_gif_url)
+            final_html = build_newsletter_html(full_body_html, front_page_html, lang=user_lang, market_ticker_html=market_html, header_gif_url=header_gif_url, ticker_gif_url=ticker_gif_url, categories=toc_categories)
 
             if user_lang.lower() in ("en", "english"):
                 subject = f"📰 Daily Briefing - {datetime.now().strftime('%m/%d/%Y')}"

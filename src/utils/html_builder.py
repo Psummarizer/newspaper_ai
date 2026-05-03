@@ -351,6 +351,94 @@ CATEGORY_EMOJIS = {
 WEB_APP_URL = "https://podsummarizer.xyz/"
 
 
+# ---------------------------------------------------------------------------
+# FEATURE: Table of Contents (TOC)
+# Generates a clickable mini-index of categories at the top of the newsletter.
+# To remove: delete this function and its call in build_newsletter_html.
+# ---------------------------------------------------------------------------
+def build_toc(categories: list, lang: str = "es") -> str:
+    """Genera un índice de navegación con las categorías del briefing.
+    `categories` = lista de nombres de categoría en orden de aparición."""
+    if not categories or len(categories) < 2:
+        return ""
+    is_en = lang.lower() in ("en", "english")
+    label = "Today" if is_en else "Hoy"
+    # Limpiar emojis del nombre de categoría para el anchor ID
+    import re as _toc_re
+    links = []
+    for cat in categories:
+        clean = _toc_re.sub(r'[^\w\s]', '', cat).strip()
+        anchor_id = clean.lower().replace(" ", "-").replace("á", "a").replace("é", "e").replace("í", "i").replace("ó", "o").replace("ú", "u").replace("ñ", "n")
+        # Display: solo el nombre sin emoji, compacto
+        display = clean.upper() if len(clean) <= 15 else clean.split()[0].upper()
+        links.append(f'<a href="#{anchor_id}" style="color: {ACCENT}; text-decoration: none; font-weight: 600;">{display}</a>')
+    separator = f' <span style="color: {TEXT_SECONDARY};">·</span> '
+    return f'''
+    <table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="max-width: 600px; width: 100%;">
+        <tr>
+            <td style="padding: 12px 20px; text-align: center; background-color: {BG_CARD}; border-bottom: 1px solid {BORDER};">
+                <p style="margin: 0; font-size: 12px; color: {TEXT_SECONDARY}; letter-spacing: 0.5px;">
+                    {label}: {separator.join(links)}
+                </p>
+            </td>
+        </tr>
+    </table>'''
+
+
+# ---------------------------------------------------------------------------
+# FEATURE: Reading Time
+# Shows estimated reading time in the header.
+# To remove: delete this function and its call in build_newsletter_html.
+# ---------------------------------------------------------------------------
+def estimate_reading_time(content_body: str, lang: str = "es") -> str:
+    """Estima el tiempo de lectura del newsletter (200 wpm)."""
+    import re as _rt_re
+    text = _rt_re.sub(r'<[^>]+>', '', content_body)
+    words = len(text.split())
+    minutes = max(1, round(words / 200))
+    is_en = lang.lower() in ("en", "english")
+    label = f"{minutes} min read" if is_en else f"{minutes} min de lectura"
+    return f'<span style="color: {TEXT_SECONDARY}; font-size: 11px;">⏱️ {label}</span>'
+
+
+# ---------------------------------------------------------------------------
+# FEATURE: 1-Click Survey
+# Adds thumbs up/down feedback links at the bottom of the newsletter.
+# To remove: delete this function and its call in build_newsletter_html.
+# ---------------------------------------------------------------------------
+def build_feedback_section(lang: str = "es") -> str:
+    """Genera una mini-encuesta de satisfacción con 1 click."""
+    is_en = lang.lower() in ("en", "english")
+    question = "Did you enjoy today's briefing?" if is_en else "¿Te ha gustado el briefing de hoy?"
+    # Links simples — no necesitan backend, solo registran el click via redirect
+    # Se puede conectar a un endpoint /feedback?vote=up&date=YYYY-MM-DD en el futuro
+    today = datetime.now().strftime("%Y-%m-%d")
+    base_url = f"{WEB_APP_URL}feedback"
+    up_url = f"{base_url}?vote=up&date={today}"
+    down_url = f"{base_url}?vote=down&date={today}"
+
+    return f'''
+    <table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="max-width: 600px; width: 100%;">
+        <tr>
+            <td style="padding: 20px; text-align: center; background-color: {BG_CARD}; border-top: 1px solid {BORDER}; border-bottom: 1px solid {BORDER};">
+                <p style="margin: 0 0 12px 0; font-size: 14px; color: {TEXT_PRIMARY}; font-weight: 600;">
+                    {question}
+                </p>
+                <table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center">
+                    <tr>
+                        <td style="padding: 0 15px;">
+                            <a href="{up_url}" style="text-decoration: none; font-size: 28px;">👍</a>
+                        </td>
+                        <td style="padding: 0 15px;">
+                            <a href="{down_url}" style="text-decoration: none; font-size: 28px;">👎</a>
+                        </td>
+                    </tr>
+                </table>
+            </td>
+        </tr>
+    </table>'''
+
+
 def build_mid_banner(web_url: str = WEB_APP_URL, lang: str = "es", banner_gif_url: str = "") -> str:
     """
     Banner promocional para el centro del email.
@@ -518,8 +606,9 @@ def build_front_page(headlines: list, lang: str = "es") -> str:
     '''
 
     
-    # Resto de noticias agrupadas por categoría
-    remaining = headlines[1:]
+    # Resto de noticias agrupadas por categoría — exclude any duplicate of the featured article
+    featured_url = featured.get('original_url', '')
+    remaining = [h for h in headlines[1:] if h.get('original_url') != featured_url or not featured_url]
     if not remaining:
         return f'''
         <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width: 600px;">
@@ -657,7 +746,7 @@ def build_market_ticker(prices: list, lang: str = "es") -> str:
     '''
 
 
-def build_newsletter_html(content_body: str, front_page_html: str = "", lang: str = "es", market_ticker_html: str = "", header_gif_url: str = "", ticker_gif_url: str = "") -> str:
+def build_newsletter_html(content_body: str, front_page_html: str = "", lang: str = "es", market_ticker_html: str = "", header_gif_url: str = "", ticker_gif_url: str = "", categories: list = None) -> str:
     """
     Genera el HTML completo del newsletter. 100% Email Compatible.
     """
@@ -671,8 +760,11 @@ def build_newsletter_html(content_body: str, front_page_html: str = "", lang: st
     news_label = "News" if is_en else "Noticias"
     footer_text = "Automatically generated." if is_en else "Generado automáticamente."
 
+    # FEATURE: Reading Time — estimated reading time in header
+    reading_time_html = estimate_reading_time(content_body, lang=lang)
+
     # Build header HTML (always static text — GIF moved to CTA banner)
-    header_inner = f'<div style="padding: 20px;"><h1 style="margin: 0; font-size: 24px; font-weight: bold; color: {TEXT_PRIMARY}; letter-spacing: -0.5px;">Briefing <span style="color: {ACCENT};">{title_word}</span></h1><p style="margin: 5px 0 0 0; font-size: 11px; color: {TEXT_SECONDARY}; font-weight: 500;">{today_date} | AI Curated</p></div>'
+    header_inner = f'<div style="padding: 20px;"><h1 style="margin: 0; font-size: 24px; font-weight: bold; color: {TEXT_PRIMARY}; letter-spacing: -0.5px;">Briefing <span style="color: {ACCENT};">{title_word}</span></h1><p style="margin: 5px 0 0 0; font-size: 11px; color: {TEXT_SECONDARY}; font-weight: 500;">{today_date} | AI Curated &nbsp;&nbsp; {reading_time_html}</p></div>'
 
     # Build ticker HTML (animated GIF or static fallback)
     if ticker_gif_url:
@@ -723,6 +815,9 @@ def build_newsletter_html(content_body: str, front_page_html: str = "", lang: st
 
                 {ticker_section}
 
+                <!-- FEATURE: Table of Contents -->
+                {build_toc(categories or [], lang=lang)}
+
                 <!-- DIVIDER -->
                 <table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="max-width: 600px; width: 100%;">
                     <tr>
@@ -747,6 +842,9 @@ def build_newsletter_html(content_body: str, front_page_html: str = "", lang: st
                         </td>
                     </tr>
                 </table>
+
+                <!-- FEATURE: 1-Click Feedback Survey -->
+                {build_feedback_section(lang=lang)}
 
                 <!-- FOOTER -->
                 <table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="max-width: 600px; width: 100%;">
@@ -822,9 +920,15 @@ def build_section_html(title: str, content: str, used_images: set = None) -> str
     # Obtener posición de fondo personalizada (ahora no se usa, pero lo dejamos por si acaso)
     bg_position = CATEGORY_BG_POSITIONS.get(detected_category, "center")
     
+    # FEATURE: TOC anchor — generate ID from section title for in-email navigation
+    import re as _sec_re
+    _anchor_clean = _sec_re.sub(r'[^\w\s]', '', normalize(title)).strip()
+    _anchor_id = _anchor_clean.lower().replace(" ", "-")
+
     # Banner EMAIL COMPATIBLE - Usa <img> real en vez de background-image
     # Estructura: Imagen + texto superpuesto con tabla
     section_html = f"""
+    <a id="{_anchor_id}" name="{_anchor_id}"></a>
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color: {BG_CARD}; border: 1px solid {BORDER}; border-radius: 8px; margin-bottom: 25px;">
         <!-- BANNER CON IMAGEN REAL -->
         <tr>

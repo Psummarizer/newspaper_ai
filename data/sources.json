@@ -4038,7 +4038,8 @@
     "rss_url": "https://www.nba.com/rss/espanol-news.xml",
     "base_url": "https://es.nba.com",
     "language": "es",
-    "country": "US"
+    "country": "US",
+    "is_active": false
   },
   {
     "category": "Deporte",
@@ -4047,7 +4048,8 @@
     "rss_url": "https://www.atptour.com/en/media/news-feed",
     "base_url": "https://www.atptour.com",
     "language": "en",
-    "country": "INT"
+    "country": "INT",
+    "is_active": false
   },
   {
     "category": "Deporte",
@@ -4353,7 +4355,8 @@
     "bias": "centro-izquierda",
     "bias_tag": "izquierda",
     "region": "Europa",
-    "reliability": "high"
+    "reliability": "high",
+    "is_active": false
   },
   {
     "category": "Deporte",
@@ -7313,7 +7316,8 @@
     "name": "AS – Pádel",
     "domain": "as.com",
     "rss_url": "https://feeds.as.com/mrss-s/pages/as/site/as.com/section/padel/portada/",
-    "base_url": "https://as.com/padel/"
+    "base_url": "https://as.com/padel/",
+    "is_active": false
   },
   {
     "category": "Deporte",
@@ -7350,6 +7354,150 @@
     "name": "El Espanol - Nutricion",
     "rss_url": "https://www.elespanol.com/rss/ciencia/nutricion/",
     "category": "Salud y Bienestar",
+    "is_active": true
+  },
+  {
+    "name": "Google News Premier Padel",
+    "rss_url": "https://news.google.com/rss/search?q=premier+padel+2026&hl=es&gl=ES",
+    "url": "https://news.google.com",
+    "category": "Deporte",
+    "country": "ES",
+    "language": "es",
+    "is_active": true
+  },
+  {
+    "name": "Punto de Break - Tenis",
+    "rss_url": "https://www.puntodebreak.com/feed",
+    "url": "https://www.puntodebreak.com",
+    "category": "Deporte",
+    "country": "ES",
+    "language": "es",
+    "is_active": false
+  },
+  {
+    "name": "Google News Alcaraz Tenis",
+    "rss_url": "https://news.google.com/rss/search?q=Carlos+Alcaraz+tenis&hl=es&gl=ES",
+    "url": "https://news.google.com",
+    "category": "Deporte",
+    "country": "ES",
+    "language": "es",
+    "is_active": true
+  },
+  {
+    "name": "Mundo Deportivo - Padel",
+    "rss_url": "https://www.mundodeportivo.com/feed/rss/padel",
+    "url": "https://www.mundodeportivo.com",
+    "category": "Deporte",
+    "country": "ES",
+    "language": "es",
+    "is_active": true
+  },
+  {
+    "name": "Google News Lakers NBA",
+    "rss_url": "https://news.google.com/rss/search?q=Lakers+NBA&hl=es&gl=ES",
+    "url": "https://news.google.com",
+    "category": "Deporte",
+    "country": "US",
+    "language": "es",
+    "is_active": true
+  },
+  {
+    "name": "Google News NBA baloncesto",
+    "rss_url": "https://news.google.com/rss/search?q=NBA+baloncesto&hl=es&gl=ES",
+    "url": "https://news.google.com",
+    "category": "Deporte",
+    "country": "ES",
+    "language": "es",
+    "is_active": true
+  },
+  {
+    "name": "Google News Real Madrid futbol",
+    "rss_url": "https://news.google.com/rss/search?q=Real+Madrid+f%C3%BAtbol&hl=es&gl=ES",
+    "url": "https://news.google.com",
+    "category": "Deporte",
+    "country": "ES",
+    "language": "es",
+    "is_active": true
+  },
+  {
+    "name": "Google News Padel WPT",
+    "rss_url": "https://news.google.com/rss/search?q=padel+WPT+OR+%22premier+padel%22&hl=es&gl=ES",
+    "url": "https://news.google.com",
+    "category": "Deporte",
+    "country": "ES",
+    "language": "es",
+    "is_active": true
+  },
+  {
+    "name": "Marca - NBA",
+    "rss_url": "https://e00-marca.uecdn.es/rss/baloncesto/nba.xml",
+    "url": "https://www.marca.com/baloncesto/nba.html",
+    "category": "Deporte",
+    "country": "ES",
+    "language": "es",
+    "is_active": true
+  },
+  {
+    "name": "Padel Magazine ES",
+    "rss_url": "https://padel-magazine.es/feed/",
+    "url": "https://padel-magazine.es",
+    "category": "Deporte",
+    "country": "ES",
+    "language": "es",
+    "is_active": true
+  },
+  {
+    "name": "Padel Addict",
+    "rss_url": "https://padeladdict.com/feed/",
+    "url": "https://www.padeladdict.com",
+    "category": "Deporte",
+    "country": "ES",
+    "language": "es",
+    "is_active": true
+  },
+  {
+    "name": "ECB Press Releases",
+    "rss_url": "https://www.ecb.europa.eu/rss/press.html",
+    "url": "https://www.ecb.europa.eu",
+    "category": "Economía y Finanzas",
+    "country": "EU",
+    "language": "en",
+    "is_active": true
+  },
+  {
+    "name": "Federal Reserve Press",
+    "rss_url": "https://www.federalreserve.gov/feeds/press_all.xml",
+    "url": "https://www.federalreserve.gov",
+    "category": "Economía y Finanzas",
+    "country": "US",
+    "language": "en",
+    "is_active": true
+  },
+  {
+    "name": "Google News Política Monetaria ES",
+    "rss_url": "https://news.google.com/rss/search?q=%22pol%C3%ADtica+monetaria%22+OR+BCE+OR+%22tipos+de+inter%C3%A9s%22&hl=es&gl=ES&ceid=ES:es",
+    "url": "https://news.google.com",
+    "category": "Economía y Finanzas",
+    "country": "ES",
+    "language": "es",
+    "is_active": true
+  },
+  {
+    "name": "Google News Monetary Plumbing",
+    "rss_url": "https://news.google.com/rss/search?q=%22monetary+plumbing%22+OR+%22repo+market%22+OR+%22central+bank+liquidity%22&hl=en&gl=US&ceid=US:en",
+    "url": "https://news.google.com",
+    "category": "Economía y Finanzas",
+    "country": "INT",
+    "language": "en",
+    "is_active": true
+  },
+  {
+    "name": "Google News Fontanería Monetaria",
+    "rss_url": "https://news.google.com/rss/search?q=%22fontaner%C3%ADa+monetaria%22+OR+%22liquidez+monetaria%22+OR+%22mercado+repo%22&hl=es&gl=ES&ceid=ES:es",
+    "url": "https://news.google.com",
+    "category": "Economía y Finanzas",
+    "country": "ES",
+    "language": "es",
     "is_active": true
   }
 ]

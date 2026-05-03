@@ -71,6 +71,193 @@ MAX_CONCURRENT_TOPICS = 2  # Reduced from 5 to avoid Mistral rate limits
 BATCH_REDACTION_SIZE = 3  # Articles per LLM redaction call
 
 
+# Subtopics conocidos por topic genérico — usado para diversificar la
+# selección de artículos a redactar. Si el topic está aquí, garantizamos
+# cobertura mínima de cada subtopic antes de rellenar slots libres.
+# Sin esto, "deporte" puede acabar con 15 noticias de fútbol y 0 de Lakers/padel.
+TOPIC_SUBTOPIC_HINTS: dict = {
+    "deporte": [
+        ("F1", ["formula 1", "f1", "verstappen", "alonso", "sainz", "ferrari",
+                "red bull", "mercedes", "leclerc", "norris", "gp ", "grand prix"]),
+        ("MotoGP", ["motogp", "marquez", "márquez", "quartararo", "bagnaia"]),
+        ("Tenis", ["tenis", "tennis", "alcaraz", "nadal", "djokovic", "sinner",
+                   "atp", "wta", "roland garros", "wimbledon", "us open",
+                   "australian open", "jodar", "jódar"]),
+        ("Padel", ["padel", "pádel", "premier padel", "world padel tour", "wpt"]),
+        ("NBA", ["nba", "lakers", "warriors", "celtics", "knicks", "draft combine",
+                 "lebron", "curry", "doncic", "jokic"]),
+        ("Real Madrid", ["real madrid", "madridista", "bernabéu", "bernabeu",
+                         "ancelotti", "vinicius", "bellingham", "modric"]),
+        ("Fútbol Liga", ["barcelona", "atlético", "atletico", "sevilla",
+                          "valencia", "espanyol", "osasuna", "athletic",
+                          "real sociedad", "betis", "villarreal", "celta"]),
+        ("Champions/UEFA", ["champions", "uefa", "europa league"]),
+        ("Selección", ["selección", "seleccion", "rfef", "luis de la fuente"]),
+        ("Baloncesto ACB", ["acb", "euroliga", "campazzo", "scariolo"]),
+    ],
+    "futbol": [
+        ("Real Madrid", ["real madrid", "madridista", "bernabéu"]),
+        ("Barcelona", ["barcelona", "barça", "barca", "camp nou"]),
+        ("La Liga", ["la liga", "atlético", "sevilla", "valencia", "betis"]),
+        ("Champions", ["champions", "uefa"]),
+        ("Selección", ["selección", "seleccion", "rfef"]),
+    ],
+    "fontaneria monetaria": [
+        ("BCE", ["bce", "ecb", "lagarde", "european central bank", "guindos"]),
+        ("Fed", ["fed", "powell", "federal reserve", "fomc"]),
+        ("Repo/Liquidez", ["repo", "liquidez", "swap", "balance sheet", "qe", "qt"]),
+        ("Tipos", ["tipos de interés", "interest rate", "tipo principal"]),
+        ("Inflación", ["inflación", "inflation", "ipc", "cpi", "deflación"]),
+        ("Otros bancos", ["boe", "banco de inglaterra", "boj", "boc", "snb"]),
+    ],
+    "macroeconomia": [
+        ("PIB", ["pib", "gdp", "crecimiento"]),
+        ("Inflación", ["inflación", "inflation", "ipc"]),
+        ("Bancos centrales", ["bce", "fed", "ecb", "powell", "lagarde"]),
+        ("Aranceles", ["arancel", "tariff", "trade war", "comercio"]),
+        ("Mercados", ["mercado", "bolsa", "wall street", "ibex", "stoxx"]),
+        ("Política fiscal", ["déficit", "deficit", "deuda pública"]),
+    ],
+    "startups": [
+        ("Funding", ["raises", "funding", "round", "series a", "series b", "series c", "series d"]),
+        ("M&A", ["adquiere", "acquisition", "buys", "compra"]),
+        ("Unicornios", ["unicornio", "unicorn", "valoración", "valuation"]),
+        ("IA", ["ai", "ia", "openai", "anthropic", "claude", "gpt"]),
+        ("Fintech", ["fintech", "neobanco", "neobank", "stripe"]),
+    ],
+}
+
+
+def _sanitize_redacted_text(text) -> str:
+    """Sanea output del LLM redactor: strippea garbage repetitivo, JSON corrupto,
+    caracteres invisibles BOM/zero-width, y tokens repetidos al final.
+
+    El LLM a veces devuelve cosas como `}]}﬿}﬿}﬿}﬿...` por bug de generación.
+    Aquí los limpiamos para que no acaben en el email.
+    """
+    if not text or not isinstance(text, str):
+        return text or ""
+    import re as _re
+    s = text
+    # 1. Strip BOM y zero-width characters (FEFF, FFFE, 200B-200F, 202A-202E, FFF0-FFFF)
+    s = _re.sub(r'[﻿￾​-‏‪-‮￰-￿︀-️]', '', s)
+    # 2. Strip null bytes y control chars (excepto \n \t \r)
+    s = _re.sub(r'[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]', '', s)
+    # 3. Strip JSON garbage al final: }]}, }]],  }} etc. repetidos
+    s = _re.sub(r'(?:[\}\]\)]+\s*)+\s*$', '', s)
+    # 4. Strip secuencias de 1 char (símbolo) repetido más de 5 veces
+    s = _re.sub(r'(.)\1{5,}', r'\1\1\1', s)
+    # 5. Strip patrones cortos (1-4 chars) repetidos ≥3 veces (ej: "}﬿}﬿}﬿"
+    #    el LLM a veces produce loops alternados. Cortamos desde donde empieza
+    #    el primer loop sospechoso (>2 repeticiones de pattern no alfanumérico).
+    m = _re.search(r'([^\w\s]{1,4})\1{2,}', s)
+    if m:
+        s = s[:m.start()].rstrip()
+    return s.strip()
+
+
+def _sanitize_redacted_html(html) -> str:
+    """Igual que _sanitize_redacted_text pero preserva <p>, <b>, <a>, <em> y demás
+    tags HTML legítimos. Aplica saneamiento a cada nodo de texto."""
+    if not html or not isinstance(html, str):
+        return html or ""
+    import re as _re
+    s = html
+    # Strip caracteres invisibles
+    s = _re.sub(r'[﻿￾​-‏‪-‮￰-￿︀-️]', '', s)
+    s = _re.sub(r'[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]', '', s)
+    # Strip JSON garbage si aparece después del último tag de cierre
+    s = _re.sub(r'(?:[\}\]\)]+\s*)+\s*$', '', s)
+    # Tokens repetidos > 5 veces
+    s = _re.sub(r'(.)\1{5,}', r'\1\1\1', s)
+    # Patrones cortos repetidos (alternancia simbólica)
+    m = _re.search(r'([^\w\s<>/]{1,4})\1{2,}', s)
+    if m:
+        s = s[:m.start()].rstrip()
+    return s.strip()
+
+
+def _detect_subtopic(article: dict, subtopic_specs: list) -> str:
+    """Detecta el subtopic de un artículo según keywords. Devuelve el nombre
+    del subtopic o '' si no matchea ninguno."""
+    text = (article.get("title", "") + " " + (article.get("description") or "")).lower()
+    for sub_name, keywords in subtopic_specs:
+        for kw in keywords:
+            if kw in text:
+                return sub_name
+    return ""
+
+
+def _diversify_by_subtopic_and_source(articles: list, topic: str, max_count: int) -> list:
+    """Diversifica una lista de artículos para cubrir múltiples subtopics y fuentes.
+
+    Si el topic tiene subtopics conocidos (TOPIC_SUBTOPIC_HINTS):
+      1. Asigna cada artículo a su subtopic (o "_other" si no matchea).
+      2. Round-robin entre subtopics — coge 1 de cada subtopic disponible,
+         luego itera. Esto garantiza cobertura ≥1 por subtopic antes de
+         repetir.
+      3. Dentro de cada subtopic, prioriza fuentes distintas.
+
+    Si NO tiene subtopics conocidos: round-robin por fuente (comportamiento legacy).
+    """
+    topic_norm = topic.lower().strip()
+    specs = TOPIC_SUBTOPIC_HINTS.get(topic_norm) or TOPIC_SUBTOPIC_HINTS.get(topic_norm.replace(" ", "_"))
+
+    # Sin subtopics conocidos → round-robin por fuente
+    if not specs:
+        by_source: dict = {}
+        for art in articles:
+            src = art.get("source_name", "unknown")
+            by_source.setdefault(src, []).append(art)
+        out = []
+        queues = list(by_source.values())
+        i = 0
+        while len(out) < max_count and queues:
+            q = queues[i % len(queues)]
+            if q:
+                out.append(q.pop(0))
+            else:
+                queues.pop(i % len(queues))
+                if not queues: break
+                continue
+            i += 1
+        return out
+
+    # Con subtopics: agrupar por subtopic, luego por fuente dentro de cada uno
+    by_subtopic: dict = {}
+    for art in articles:
+        sub = _detect_subtopic(art, specs) or "_other"
+        by_subtopic.setdefault(sub, []).append(art)
+
+    # Dentro de cada subtopic, ordenar para diversidad de fuentes
+    for sub, arts in by_subtopic.items():
+        seen_src = set()
+        diverse, leftover = [], []
+        for a in arts:
+            src = a.get("source_name", "unknown")
+            if src not in seen_src:
+                diverse.append(a); seen_src.add(src)
+            else:
+                leftover.append(a)
+        by_subtopic[sub] = diverse + leftover
+
+    # Round-robin entre subtopics priorizando los que NO son "_other"
+    sub_names = [s for s in by_subtopic.keys() if s != "_other"]
+    if "_other" in by_subtopic:
+        sub_names.append("_other")
+    out = []
+    i = 0
+    while len(out) < max_count and any(by_subtopic.get(s) for s in sub_names):
+        sub = sub_names[i % len(sub_names)]
+        queue = by_subtopic.get(sub, [])
+        if queue:
+            out.append(queue.pop(0))
+        i += 1
+    coverage = sorted({_detect_subtopic(a, specs) or "_other" for a in out})
+    logger.info(f"   🎯 {topic}: subtopics cubiertos = {coverage}")
+    return out
+
+
 class HourlyProcessor:
     def __init__(self):
         # Use LLMFactory for provider-agnostic client (supports Gemini, Groq, Mistral, etc.)
@@ -287,7 +474,9 @@ class HourlyProcessor:
         logger.info(f"✅ {topic_name}: {len(relevant)} relevantes")
         
         # Solo redactar los que no están en cache, con cap para ahorrar LLM calls
-        MAX_REDACTIONS_PER_TOPIC = 10  # Max 10 new articles redacted per topic per run
+        # Subido a 25 para topics amplios con subtopics múltiples (ej "deporte"
+        # cubre F1+tenis+padel+Lakers+Real Madrid → necesita ≥3 por subtopic).
+        MAX_REDACTIONS_PER_TOPIC = 25
         new_to_redact = []
         for art in relevant:
             url = art.get("url", "")
@@ -318,7 +507,13 @@ class HourlyProcessor:
 
         if len(new_to_redact) > MAX_REDACTIONS_PER_TOPIC:
             logger.info(f"✂️ {topic_name}: Limitando redacciones de {len(new_to_redact)} a {MAX_REDACTIONS_PER_TOPIC}")
-            new_to_redact = new_to_redact[:MAX_REDACTIONS_PER_TOPIC]
+            # Diversificación: round-robin por (subtopic × fuente).
+            # Si el topic tiene subtopics conocidos (ej "deporte" → F1, NBA, padel, tenis...),
+            # garantiza cobertura mínima de cada uno antes de rellenar slots libres.
+            new_to_redact = _diversify_by_subtopic_and_source(
+                new_to_redact, topic_name, MAX_REDACTIONS_PER_TOPIC
+            )
+            logger.info(f"   📊 Diversificado a {len(new_to_redact)} artículos")
 
         if new_to_redact:
             # Prepare all articles first (fetch content/images in parallel)
@@ -876,7 +1071,28 @@ class HourlyProcessor:
         # No pre-filter by published_at: get_articles_by_category ya filtró por fecha_ingesta
         max_candidates = 150
         batch_size = 50
-        articles = articles[:max_candidates]
+        if len(articles) > max_candidates:
+            # Diversify: round-robin across sources so minority sports get evaluated
+            by_src = {}
+            for art in articles:
+                src = art.get("source_name", "unknown")
+                by_src.setdefault(src, []).append(art)
+            diverse = []
+            queues = list(by_src.values())
+            ri = 0
+            while len(diverse) < max_candidates and queues:
+                q = queues[ri % len(queues)]
+                if q:
+                    diverse.append(q.pop(0))
+                else:
+                    queues.pop(ri % len(queues))
+                    if not queues:
+                        break
+                    continue
+                ri += 1
+            articles = diverse
+        else:
+            articles = articles[:max_candidates]
         logger.info(f"🔍 {topic}: {len(articles)} candidatos en lotes de {batch_size}")
 
         # Build User Context String for Optimized Filtering
@@ -935,6 +1151,23 @@ class HourlyProcessor:
             ENFOQUE PARA TOPICS DE VIAJES/OCIO (ej: Viajes de ocio, turismo):
             - SOLO aceptar: destinos turísticos, experiencias de viaje, rutas, gastronomía local, hoteles, spas, escapadas, guías de viaje, turismo cultural
             - RECHAZAR: noticias de aviación comercial (aerolíneas, rutas aéreas, precios combustible), transporte público, logística, carburantes, coches, normativa de tráfico, eventos artísticos/culturales sin relación directa con turismo
+
+            ENFOQUE PARA TOPICS DE ECONOMÍA/MACRO/POLÍTICA MONETARIA (ej: macro, fontanería monetaria, macroeconomia, M&A, tariffs, freight, gold):
+            - SÉ INCLUSIVO con todo el universo financiero/macro:
+              * "fontanería monetaria"/"monetary plumbing": política monetaria, tipos
+                de interés, BCE, Fed, BoE, bancos centrales, mercado repo, liquidez,
+                balances de bancos centrales, QE/QT, swap lines, treasuries.
+              * "macroeconomia"/"macro": PIB, inflación, IPC, paro, deuda pública,
+                déficits, política fiscal, decisiones BCE/Fed, mercados de bonos.
+              * "M&A": fusiones, adquisiciones, OPAs, takeovers, due diligence.
+              * "tariffs"/"trade flows": aranceles, comercio internacional, OMC,
+                disputas comerciales, sanciones económicas.
+              * "freight"/"shipping": fletes marítimos, Baltic Dry Index, congestión
+                portuaria, cadena de suministro.
+              * "gold"/"silver"/"bitcoin": metales preciosos, criptos, refugio valor.
+            - Acepta declaraciones de Lagarde, Powell, Yellen, gobernadores BCE/Fed.
+            - Acepta análisis de Reuters, Bloomberg, FT, WSJ, ECB, Fed, BIS.
+            - RECHAZAR: notas promocionales de brokers, "10 acciones para comprar".
 
             RECHAZAR SIEMPRE:
             - Contenido publicitario/promocional/patrocinado
@@ -1120,14 +1353,28 @@ class HourlyProcessor:
         1. 🚫 SOLO EL TEXTO PROPORCIONADO: Trabaja EXCLUSIVAMENTE con la información del
            contenido de cada artículo. NO añadas NADA de tu conocimiento general.
            Si el contenido es escaso, la redacción será corta. NUNCA "completes" con datos externos.
-        2. 🚫 LIMPIEZA: ELIMINA prefijos como "EN DIRECTO", "Última Hora". Crea títulos NUEVOS y atractivos.
+        2. 🚫 LIMPIEZA: ELIMINA prefijos como "EN DIRECTO", "Última Hora".
            Redacta solo los HECHOS, sin meta-referencias a cómo se obtuvo la noticia.
-        3. FORMATO E IDIOMA:
+        3. 🔒 FIDELIDAD TEMPORAL Y FACTUAL DEL TÍTULO (CRÍTICO):
+           - REFORMULA el título original con otras palabras, pero CONSERVA EL
+             SENTIDO TEMPORAL Y EL HECHO CENTRAL.
+           - Si el original dice "X analiza las consecuencias de Y", NO escribas
+             "Y acaba de ocurrir". Si el original es un análisis post-evento,
+             tu título refleja análisis, NO el hecho original.
+           - MANTÉN EL TIEMPO VERBAL del original: si dice "ha ganado", no pongas
+             "gana ahora". Si dice "podría", no pongas "ganará".
+           - NO conviertas especulación/rumor/análisis en hecho consumado.
+           - NO conviertas un hecho pasado en presente si han pasado días/semanas.
+           - El título puede ser atractivo, pero NUNCA a costa de cambiar el sentido.
+        4. FORMATO E IDIOMA:
            - IDIOMA: Español peninsular. Traduce todo lo que no esté en español.
            - TÍTULO: Descriptivo y claro (sujeto + acción). Emoji al principio.
            - RESUMEN: 10-25 palabras.
            - NOTICIA: 150-250 palabras con etiquetas <p>. Usa <b>negrita</b> para 3 frases clave.
-        4. 🚫 FIDELIDAD AL ORIGINAL (CRÍTICO — rol de RESUMIDOR, NO de editorialista):
+           - POR QUÉ IMPORTA: Al final de la noticia, añade un párrafo corto (1-2 frases)
+             con la etiqueta: <p><b>Por qué importa:</b> [contexto breve de por qué esta
+             noticia es relevante para el lector]. SOLO usa información del artículo.
+        5. 🚫 FIDELIDAD AL ORIGINAL (CRÍTICO — rol de RESUMIDOR, NO de editorialista):
            - NO inventes citas textuales. Si usas comillas «...» o "..." deben ser
              PALABRAS EXACTAS del contenido original. Si no hay cita textual, NO
              pongas comillas — reformula sin comillas.
@@ -1143,7 +1390,7 @@ class HourlyProcessor:
              enfrenta. NO añadas dramatismo que no esté.
            - Tu trabajo es REFORMULAR con otras palabras (evitar copia textual),
              NO reinterpretar ni completar con información externa.
-        5. 🛡️ FILTRO — DESCARTAR (responder null) si la noticia es:
+        6. 🛡️ FILTRO — DESCARTAR (responder null) si la noticia es:
            - Ambigua (no nombra sujetos concretos) o depende de contexto externo
            - Contenido promocional, publirreportaje o patrocinado
            - Gossip de famosos/celebridades sin relevancia informativa
@@ -1181,9 +1428,9 @@ class HourlyProcessor:
                 results.append({
                     "fecha_inventariado": datetime.now().isoformat(),
                     "published_at": prep.get("published_at", ""),
-                    "titulo": art_data.get("titulo"),
-                    "resumen": art_data.get("resumen", ""),
-                    "noticia": art_data.get("noticia", ""),
+                    "titulo": _sanitize_redacted_text(art_data.get("titulo")),
+                    "resumen": _sanitize_redacted_text(art_data.get("resumen", "")),
+                    "noticia": _sanitize_redacted_html(art_data.get("noticia", "")),
                     "imagen_url": prep["image"],
                     "fuentes": prep["sources"]
                 })

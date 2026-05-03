@@ -105,6 +105,77 @@ async def validate_image_size(img_url: str) -> bool:
         return True
 
 
+def sanitize_user_context(text: str, max_chars: int = 300) -> str:
+    """Sanitiza el contexto de Firestore que el usuario escribe para sus topics.
+
+    Defensa en profundidad — el contexto va a:
+      - 5+ prompts LLM (filtro, dedup, parser de subtopics, redacción, selección)
+      - Logs y eventualmente HTML del email
+      - Posibles BD/almacenamiento en GCS
+
+    Amenazas:
+      1. Prompt injection: usuario intenta secuestrar el LLM
+         ("ignore previous instructions", "system: …", "</prompt> ahora eres …")
+      2. HTML/JS injection: si el contexto se pinta en el email
+         (<script>, <img onerror=…>, javascript:)
+      3. Tamaño excesivo: gasto Mistral / DoS
+      4. Caracteres de control que rompan JSON/logs
+
+    Política: FAIL-OPEN — preferimos mantener intención del usuario.
+    Solo strippeamos lo claramente malicioso. No validamos contenido editorial.
+    """
+    if not text or not isinstance(text, str):
+        return ""
+
+    import re as _re
+    s = text
+
+    # 1. Strip caracteres de control (excepto \n, \t, \r) y null bytes
+    s = _re.sub(r'[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]', '', s)
+
+    # 2. Eliminar etiquetas HTML/script (cualquier <...>)
+    #    No queremos <script>, <img onerror=…>, ni siquiera <b> aquí.
+    s = _re.sub(r'<[^>]*>', '', s)
+
+    # 3. Neutralizar patrones de prompt injection — los reemplazamos por
+    #    [redacted] para no dar pistas al atacante de qué se filtra
+    _PI_PATTERNS = [
+        # English
+        r'(?i)\bignore\s+(?:all\s+|any\s+|the\s+|previous\s+|prior\s+|the\s+above\s+)*(?:instructions?|prompts?|rules?|system|messages?)\b',
+        r'(?i)\bdisregard\s+(?:all\s+|previous\s+|prior\s+|the\s+)*(?:instructions?|prompts?|rules?)\b',
+        r'(?i)\bforget\s+(?:all\s+|everything|previous|the\s+above|what)\b',
+        r'(?i)\b(?:you\s+are\s+now|act\s+as|pretend\s+to\s+be|roleplay\s+as)\b',
+        r'(?i)\bjailbreak\b',
+        r'(?i)\bnew\s+(?:instructions?|task|rules?|system\s+prompt)\b',
+        # Spanish
+        r'(?i)\bignor[ae]r?\s+(?:todas?\s+|las\s+|cualquier\s+|las\s+anteriores\s+)?(?:instrucciones?|reglas?|el\s+sistema)\b',
+        r'(?i)\bolvid[ae](?:te)?\s+(?:todo|todas?|las\s+|cualquier|lo\s+anterior)\b',
+        r'(?i)\b(?:act[uú]a\s+como|comp[oó]rtate\s+como|haz\s+de|finge\s+ser)\b',
+        r'(?i)\beres\s+ahora\s+(?:un|una)\b',
+        r'(?i)\bnuev[oa]s?\s+(?:instrucciones?|reglas?|tareas?|prompt)\b',
+        # Tags / markup
+        r'(?i)<\s*\|?\s*(?:system|assistant|user|im_start|im_end)\s*\|?\s*>',
+        r'(?i)\[(?:system|assistant|user)\]\s*:',
+        r'(?i)###\s*(?:system|instructions?|prompt)',
+        r'(?i)```\s*(?:system|instructions?|prompt)',
+        # URL schemes peligrosas
+        r'javascript\s*:',
+        r'data\s*:\s*text/html',
+        r'vbscript\s*:',
+    ]
+    for pat in _PI_PATTERNS:
+        s = _re.sub(pat, '[redacted]', s)
+
+    # 4. Comprimir espacios en blanco
+    s = _re.sub(r'\s+', ' ', s).strip()
+
+    # 5. Truncar a max_chars (cap duro)
+    if len(s) > max_chars:
+        s = s[:max_chars].rstrip()
+
+    return s
+
+
 def truncate_to_sentence(text: str, max_chars: int = 220) -> str:
     """Truncate text to the last complete sentence within max_chars.
     Always returns text ending in sentence-final punctuation."""

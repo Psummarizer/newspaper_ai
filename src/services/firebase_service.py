@@ -99,23 +99,36 @@ class FirebaseService:
             return []
 
     def get_all_distinct_user_topics(self) -> set:
-        """Recupera todos los tópicos únicos definidos por los usuarios."""
+        """Recupera todos los tópicos únicos definidos por los usuarios.
+
+        Soporta los 3 schemas históricos:
+          - 'topic' (NEW, map): {"fontaneria monetaria": "ctx", "deporte": "ctx"}
+          - 'topics' (legacy, list o map o str): ["F1", "Real Madrid"] o {"F1": ""}
+          - 'Topics' (legacy, str CSV): "F1, Real Madrid, Vinos"
+
+        Antes de este fix solo soportaba list/str, así que usuarios con dict
+        (alex.colmenarejo, amartin) eran ignorados — sus topics nunca se ingerían.
+        """
         if not self.db: return set()
         unique_topics = set()
         try:
             docs = self.db.collection("AINewspaper").stream()
             for doc in docs:
                 data = doc.to_dict()
-                
-                raw_topics = data.get("Topics") or data.get("topics")
-                if isinstance(raw_topics, str):
-                    # Split by comma ONLY (User request)
-                    parts = [t.strip() for t in raw_topics.split(',') if t.strip()]
-                    unique_topics.update(parts)
+                raw_topics = data.get("topic") or data.get("topics") or data.get("Topics")
+                if not raw_topics:
+                    continue
+                if isinstance(raw_topics, dict):
+                    for k in raw_topics.keys():
+                        if k and isinstance(k, str):
+                            unique_topics.add(k.strip())
                 elif isinstance(raw_topics, list):
                     for t in raw_topics:
-                        if t: unique_topics.add(str(t).strip())
-                        
+                        if t:
+                            unique_topics.add(str(t).strip())
+                elif isinstance(raw_topics, str):
+                    parts = [t.strip() for t in raw_topics.split(',') if t.strip()]
+                    unique_topics.update(parts)
             return unique_topics
         except Exception as e:
             self.logger.error(f"Error fetching user topics: {e}")
