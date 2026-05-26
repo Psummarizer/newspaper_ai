@@ -43,15 +43,26 @@ async def trigger_batch_run():
     return {"status": "Batch completed (Ingest)"}
 
 @app.post("/send-user-test")
-async def trigger_user_test_newsletter(email: str):
+async def trigger_user_test_newsletter(
+    email: str, deliver_to: str = "", relax_freshness: int = 0
+):
     """Envía un briefing de prueba SIN ingesta, usando los topics reales
     de Firestore del usuario indicado. Útil para validar fixes contra
     las preferencias reales de un usuario concreto.
 
-    Uso: POST /send-user-test?email=foo@bar.com
+    Uso:
+      POST /send-user-test?email=foo@bar.com
+      POST /send-user-test?email=foo@bar.com&relax_freshness=1
+        → amplía ventana freshness a 30h (vs 20h estándar) para tests
+          fuera del horario del cron 6:45.
+      POST /send-user-test?email=foo@bar.com&deliver_to=admin@bar.com
+        → ejecuta el briefing con los topics de foo@bar.com pero envía
+          el email a admin@bar.com (útil para validar como admin sin
+          molestar al usuario real).
     """
     from src.services.firebase_service import FirebaseService
-    print(f"🧪 Triggering USER TEST Newsletter para {email} (sin ingesta)...")
+    print(f"🧪 Triggering USER TEST Newsletter para {email} → entrega a "
+          f"{deliver_to or email} (sin ingesta)...")
     fb = FirebaseService()
     if not fb.db:
         return {"status": "error", "message": "Firebase no disponible"}
@@ -75,8 +86,18 @@ async def trigger_user_test_newsletter(email: str):
         return {"status": "error", "message": f"Usuario {email} sin topics definidos"}
 
     raw_topic_map = sub_data.get("topic") or sub_data.get("topics", {})
+    # Si deliver_to está definido, el email final va ahí (override admin).
+    target_email = (deliver_to or email).strip()
+    # relax_freshness=1 → amplía ventana 20h → 30h SOLO en este test.
+    # Útil cuando se prueba a media tarde (lejos del cron) y la cache tiene
+    # noticias del cron anterior que han caído fuera de los 20h.
+    if relax_freshness:
+        import os as _os
+        _os.environ["FRESHNESS_RELAX_HOURS"] = "30"
+        print(f"   🔓 relax_freshness=1 → ventana ampliada a 30h para este test")
     user_input = {
-        "email": email,
+        "email": target_email,
+        "_source_user": email,  # debug: dueño de los topics
         "Topics": user_topics_list,
         "Language": sub_data.get("Language") or sub_data.get("language", "es"),
         "country": sub_data.get("country") or sub_data.get("Country", ""),
@@ -87,7 +108,8 @@ async def trigger_user_test_newsletter(email: str):
     }
     orchestrator = Orchestrator(mock_mode=False)
     result = await orchestrator.run_for_user(user_input)
-    return {"status": "Test sent" if result else "No content generated", "email": email,
+    return {"status": "Test sent" if result else "No content generated",
+            "source_email": email, "delivered_to": target_email,
             "topics": user_topics_list}
 
 @app.post("/send-test")

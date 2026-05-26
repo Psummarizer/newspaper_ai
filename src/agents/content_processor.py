@@ -73,7 +73,7 @@ class ContentProcessorAgent:
             "selected_stories": [
                 {{
                     "original_id": 0,
-                    "headline": "Impactful headline in {lang_name} (Max 5 words).",
+                    "headline": "Headline in {lang_name}: 6-9 palabras CON conectores naturales (artículos, preposiciones, verbos completos). NO estilo telegrama. Ej OK: 'Putin asegura que la guerra acaba pronto'. Ej MAL: 'Putin guerra cerca fin'.",
                     "summary": "Direct summary text in {lang_name}.",
                     "category": "Category name in {lang_name}",
                     "emoji": "🏛️"

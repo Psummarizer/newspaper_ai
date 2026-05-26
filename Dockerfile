@@ -35,8 +35,11 @@ COPY scripts/ scripts/
 COPY data/ data/
 COPY assets/ assets/
 
-# Exponer puerto
+# Exponer puerto (solo usado en modo Service)
 EXPOSE 8080
 
-# Comando de inicio
-CMD ["python", "src/main.py"]
+# Entrypoint dual: ver src/entrypoint.py. El modo lo decide JOB_MODE:
+#   - sin JOB_MODE / JOB_MODE=service → arranca FastAPI/uvicorn (Cloud Run Service)
+#   - JOB_MODE=ingest                 → ejecuta pipeline de ingesta (Cloud Run Job)
+#   - JOB_MODE=send                   → ejecuta generación de briefings (Cloud Run Job)
+CMD ["python", "-m", "src.entrypoint"]

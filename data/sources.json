@@ -3641,7 +3641,8 @@
     "rss_url": "https://blockchain.news/RSS/",
     "base_url": "https://blockchain.news",
     "language": "en",
-    "country": "US"
+    "country": "US",
+    "is_active": false
   },
   {
     "category": "Economía y Finanzas",
@@ -3650,7 +3651,8 @@
     "rss_url": "https://bitcoinmagazine.com/.rss/full/",
     "base_url": "https://bitcoinmagazine.com",
     "language": "en",
-    "country": "US"
+    "country": "US",
+    "is_active": false
   },
   {
     "category": "Geopolítica",
@@ -4792,7 +4794,8 @@
     "bias": "centro-derecha",
     "bias_tag": "derecha",
     "region": "Norteamérica",
-    "reliability": "medium"
+    "reliability": "medium",
+    "is_active": false
   },
   {
     "category": "Economía y Finanzas",
@@ -6861,7 +6864,8 @@
     "rss_url": "https://www.alimente.elconfidencial.com/rss/",
     "base_url": "https://www.alimente.elconfidencial.com",
     "language": "es",
-    "country": "ES"
+    "country": "ES",
+    "is_active": false
   },
   {
     "category": "Salud y Bienestar",
@@ -6888,7 +6892,8 @@
     "rss_url": "https://cuidateplus.marca.com/alimentacion/rss",
     "base_url": "https://cuidateplus.marca.com",
     "language": "es",
-    "country": "ES"
+    "country": "ES",
+    "is_active": false
   },
   {
     "category": "Salud y Bienestar",
@@ -6897,7 +6902,8 @@
     "rss_url": "https://www.consumer.es/alimentacion/rss",
     "base_url": "https://www.consumer.es",
     "language": "es",
-    "country": "ES"
+    "country": "ES",
+    "is_active": false
   },
   {
     "category": "Salud y Bienestar",
@@ -6906,7 +6912,8 @@
     "rss_url": "https://www.nutricionsinmas.com/feed/",
     "base_url": "https://www.nutricionsinmas.com",
     "language": "es",
-    "country": "ES"
+    "country": "ES",
+    "is_active": false
   },
   {
     "category": "Salud y Bienestar",
@@ -6915,7 +6922,8 @@
     "rss_url": "https://www.healthline.com/rss/nutrition",
     "base_url": "https://www.healthline.com",
     "language": "en",
-    "country": "US"
+    "country": "US",
+    "is_active": false
   },
   {
     "category": "Salud y Bienestar",
@@ -7336,7 +7344,7 @@
     "name": "ABC - Nutricion",
     "rss_url": "https://www.abc.es/bienestar/alimentacion/rss/",
     "category": "Salud y Bienestar",
-    "is_active": true
+    "is_active": false
   },
   {
     "name": "La Vanguardia - Comer",
@@ -7498,6 +7506,216 @@
     "category": "Economía y Finanzas",
     "country": "ES",
     "language": "es",
+    "is_active": true
+  },
+  {
+    "name": "Silver Screen and Roll (Lakers)",
+    "rss_url": "https://www.silverscreenandroll.com/rss/index.xml",
+    "url": "https://www.silverscreenandroll.com",
+    "category": "Deporte",
+    "country": "US",
+    "language": "en",
+    "is_active": true
+  },
+  {
+    "name": "Lakers Nation",
+    "rss_url": "https://lakersnation.com/feed/",
+    "url": "https://lakersnation.com",
+    "category": "Deporte",
+    "country": "US",
+    "language": "en",
+    "is_active": true
+  },
+  {
+    "name": "Google News Lakers/LeBron/Doncic",
+    "rss_url": "https://news.google.com/rss/search?q=Lakers+OR+LeBron+OR+Doncic+NBA&hl=en&gl=US&ceid=US:en",
+    "url": "https://news.google.com",
+    "category": "Deporte",
+    "country": "US",
+    "language": "en",
+    "is_active": true
+  },
+  {
+    "name": "Google News Real Madrid Jugadores",
+    "rss_url": "https://news.google.com/rss/search?q=Vinicius+OR+Bellingham+OR+Mbappe+OR+Modric+%22Real+Madrid%22&hl=es&gl=ES&ceid=ES:es",
+    "url": "https://news.google.com",
+    "category": "Deporte",
+    "country": "ES",
+    "language": "es",
+    "is_active": true
+  },
+  {
+    "name": "Google News F1 Pilotos",
+    "rss_url": "https://news.google.com/rss/search?q=Verstappen+OR+Sainz+OR+Alonso+OR+Leclerc+OR+Norris+F1&hl=es&gl=ES&ceid=ES:es",
+    "url": "https://news.google.com",
+    "category": "Deporte",
+    "country": "ES",
+    "language": "es",
+    "is_active": true
+  },
+  {
+    "name": "Google News Fed/Powell tipos",
+    "rss_url": "https://news.google.com/rss/search?q=%22Federal+Reserve%22+OR+%22FOMC%22+OR+%22Powell%22+rate&hl=en&gl=US&ceid=US:en",
+    "url": "https://news.google.com",
+    "category": "Economía y Finanzas",
+    "country": "US",
+    "language": "en",
+    "is_active": true
+  },
+  {
+    "name": "Google News BCE/Lagarde tipos",
+    "rss_url": "https://news.google.com/rss/search?q=%22BCE%22+OR+%22ECB%22+OR+%22Lagarde%22+tipos&hl=es&gl=ES&ceid=ES:es",
+    "url": "https://news.google.com",
+    "category": "Economía y Finanzas",
+    "country": "ES",
+    "language": "es",
+    "is_active": true
+  },
+  {
+    "name": "Padel World Press",
+    "rss_url": "https://www.padelworldpress.es/feed/",
+    "url": "https://www.padelworldpress.es",
+    "category": "Deporte",
+    "country": "ES",
+    "language": "es",
+    "is_active": true
+  },
+  {
+    "name": "Google News Padel jugadores",
+    "rss_url": "https://news.google.com/rss/search?q=padel+OR+pádel+jugadores+ranking&hl=es&gl=ES&ceid=ES:es",
+    "url": "https://news.google.com",
+    "category": "Deporte",
+    "country": "ES",
+    "language": "es",
+    "is_active": true
+  },
+  {
+    "name": "Google News Padel torneos",
+    "rss_url": "https://news.google.com/rss/search?q=padel+OR+%22premier+padel%22+OR+WPT+torneo&hl=es&gl=ES&ceid=ES:es",
+    "url": "https://news.google.com",
+    "category": "Deporte",
+    "country": "ES",
+    "language": "es",
+    "is_active": true
+  },
+  {
+    "category": "Economía y Finanzas",
+    "name": "Ledger Insights",
+    "domain": "ledgerinsights.com",
+    "rss_url": "https://www.ledgerinsights.com/feed/",
+    "base_url": "https://www.ledgerinsights.com",
+    "language": "en",
+    "country": "GB",
+    "is_active": true
+  },
+  {
+    "category": "Economía y Finanzas",
+    "name": "DL News",
+    "domain": "dlnews.com",
+    "rss_url": "https://www.dlnews.com/arc/outboundfeeds/rss/?outputType=xml",
+    "base_url": "https://www.dlnews.com",
+    "language": "en",
+    "country": "GB",
+    "is_active": true
+  },
+  {
+    "category": "Economía y Finanzas",
+    "name": "The Defiant",
+    "domain": "thedefiant.io",
+    "rss_url": "https://thedefiant.io/feed",
+    "base_url": "https://thedefiant.io",
+    "language": "en",
+    "country": "US",
+    "is_active": true
+  },
+  {
+    "category": "Tecnología y Digital",
+    "name": "Google News - Tokenization RWA",
+    "domain": "news.google.com",
+    "rss_url": "https://news.google.com/rss/search?q=%22tokenization%22+OR+%22tokenized+assets%22+OR+%22RWA%22+OR+%22real+world+assets%22&hl=en",
+    "base_url": "https://news.google.com",
+    "language": "en",
+    "country": "US",
+    "is_active": true
+  },
+  {
+    "category": "Economía y Finanzas",
+    "name": "Google News - Tokenización Activos ES",
+    "domain": "news.google.com",
+    "rss_url": "https://news.google.com/rss/search?q=%22tokenizaci%C3%B3n%22+activos+OR+%22tokenizados%22&hl=es&gl=ES&ceid=ES:es",
+    "base_url": "https://news.google.com",
+    "language": "es",
+    "country": "ES",
+    "is_active": true
+  },
+  {
+    "category": "Tecnología y Digital",
+    "name": "Google News - Hyperledger / Corda / Enterprise Blockchain",
+    "domain": "news.google.com",
+    "rss_url": "https://news.google.com/rss/search?q=%22Hyperledger%22+OR+%22R3+Corda%22+OR+%22enterprise+blockchain%22&hl=en",
+    "base_url": "https://news.google.com",
+    "language": "en",
+    "country": "US",
+    "is_active": true
+  },
+  {
+    "category": "Economía y Finanzas",
+    "name": "Google News - JPM Coin / Onyx / Partior / Fnality",
+    "domain": "news.google.com",
+    "rss_url": "https://news.google.com/rss/search?q=%22JPM+Coin%22+OR+%22Onyx+by+JPMorgan%22+OR+%22Partior%22+OR+%22Fnality%22&hl=en",
+    "base_url": "https://news.google.com",
+    "language": "en",
+    "country": "US",
+    "is_active": true
+  },
+  {
+    "category": "Economía y Finanzas",
+    "name": "FRED Blog (St. Louis Fed)",
+    "domain": "fredblog.stlouisfed.org",
+    "rss_url": "https://fredblog.stlouisfed.org/feed/",
+    "base_url": "https://fredblog.stlouisfed.org",
+    "language": "en",
+    "country": "US",
+    "is_active": true
+  },
+  {
+    "category": "Economía y Finanzas",
+    "name": "FT Alphaville",
+    "domain": "ft.com",
+    "rss_url": "https://www.ft.com/alphaville?format=rss",
+    "base_url": "https://www.ft.com",
+    "language": "en",
+    "country": "GB",
+    "is_active": true
+  },
+  {
+    "category": "Economía y Finanzas",
+    "name": "Bank of England News",
+    "domain": "bankofengland.co.uk",
+    "rss_url": "https://www.bankofengland.co.uk/rss/news",
+    "base_url": "https://www.bankofengland.co.uk",
+    "language": "en",
+    "country": "GB",
+    "is_active": true
+  },
+  {
+    "category": "Salud y Bienestar",
+    "name": "NutritionFacts.org",
+    "domain": "nutritionfacts.org",
+    "rss_url": "https://nutritionfacts.org/feed/",
+    "base_url": "https://nutritionfacts.org",
+    "language": "en",
+    "country": "US",
+    "is_active": true
+  },
+  {
+    "category": "Salud y Bienestar",
+    "name": "OkSalud - Nutrición",
+    "domain": "okdiario.com",
+    "rss_url": "https://okdiario.com/oksalud/nutricion/feed",
+    "base_url": "https://okdiario.com",
+    "language": "es",
+    "country": "ES",
     "is_active": true
   }
 ]

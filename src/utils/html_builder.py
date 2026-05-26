@@ -77,10 +77,12 @@ CATEGORY_IMAGES = {
         f"{_GCS}ciencia_3.jpg",
     ],
     "Deporte": [
+        # Banner de cabecera = atletismo en pista (hash MD5("Deporte") % 5 = índice 3).
+        # Las demás imágenes rotan en artículos individuales y category fallback.
         f"{_GCS}deporte_1.jpg",
         f"{_GCS}deporte_3.jpg",
         f"{_GCS}deporte_4.jpg",
-        f"{_GCS}f1_1.jpg",
+        "https://images.pexels.com/photos/8454936/pexels-photo-8454936.jpeg?auto=compress&cs=tinysrgb&h=650&w=940",
         f"{_GCS}motogp_1.jpg",
     ],
     "Salud y Bienestar": [
@@ -348,7 +350,7 @@ CATEGORY_EMOJIS = {
 }
 
 # Web dashboard URL (used in the mid-newsletter promo banner)
-WEB_APP_URL = "https://podsummarizer.xyz/"
+WEB_APP_URL = "https://dashboard.savetimelab.com/"
 
 
 # ---------------------------------------------------------------------------

@@ -128,6 +128,73 @@ TOPIC_SUBTOPIC_HINTS: dict = {
 }
 
 
+# Stop-words ES + EN para overlap de tokens significativos en validación de título
+_TITLE_STOPWORDS = frozenset({
+    "el", "la", "los", "las", "un", "una", "y", "o", "u", "de", "del",
+    "al", "a", "en", "con", "por", "para", "sin", "sobre", "como", "que",
+    "es", "son", "ser", "se", "lo", "le", "su", "sus", "este", "esta", "estos",
+    "estas", "ese", "esa", "esos", "esas", "ya", "no", "ni", "más", "mas",
+    "muy", "todo", "todos", "toda", "todas", "ante", "tras", "entre", "hasta",
+    "the", "and", "of", "in", "on", "at", "to", "for", "by", "with", "from",
+    "is", "are", "was", "were", "be", "been", "as", "an", "or", "but", "if",
+    "this", "that", "these", "those", "it", "its", "his", "her", "their",
+})
+
+
+def _title_token_overlap(original: str, redacted: str) -> float:
+    """Calcula Jaccard overlap entre tokens significativos del título original y el redactado.
+
+    - Lowercase + strip de emojis al inicio y prefijos comunes ("EN DIRECTO:", etc.).
+    - Filtra stop-words y tokens muy cortos (<3 chars).
+    - Devuelve 0.0–1.0. 1.0 = idénticos, 0.0 = sin tokens en común.
+    """
+    if not original or not redacted:
+        return 0.0
+    import re as _re
+    _PREFIXES = (
+        r'^EN\s+DIRECTO\s*:?\s*', r'^\xdaltima\s+hora\s*:?\s*',
+        r'^[uú]ltima\s+hora\s*:?\s*', r'^V[ií]deo\s*:?\s*',
+        r'^EN\s+VIVO\s*:?\s*', r'^Directo\s*:?\s*', r'^Cr[oó]nica\s*:?\s*',
+        r'^Breaking\s*:?\s*', r'^Live\s*:?\s*',
+    )
+
+    def _norm(s: str) -> set:
+        # Strip emojis comunes al inicio
+        s = _re.sub(r'^[^\w\s]+\s*', '', s)
+        # Strip prefijos
+        for p in _PREFIXES:
+            s = _re.sub(p, '', s, flags=_re.IGNORECASE)
+        # Lowercase + split
+        toks = _re.findall(r'\b[\w\xc0-\xff]+\b', s.lower())
+        return {t for t in toks if len(t) >= 3 and t not in _TITLE_STOPWORDS}
+
+    a, b = _norm(original), _norm(redacted)
+    if not a or not b:
+        return 0.0
+    inter = len(a & b)
+    union = len(a | b)
+    return inter / union if union else 0.0
+
+
+def _clean_original_title(title: str) -> str:
+    """Limpia el título original quitando prefijos basura. Fallback cuando
+    la redacción del LLM no es fiel."""
+    if not title:
+        return title or ""
+    import re as _re
+    cleaned = title.strip()
+    _PREFIX_PATTERNS = (
+        r'^EN\s+DIRECTO\s*:?\s*', r'^[uú]ltima\s+hora\s*:?\s*',
+        r'^V[ií]deo\s*:?\s*', r'^EN\s+VIVO\s*:?\s*',
+        r'^Directo\s*:?\s*', r'^Cr[oó]nica\s*:?\s*',
+        r'^Breaking\s*:?\s*', r'^Live\s*:?\s*',
+        r'^Entrevista\s*:?\s*', r'^An[aá]lisis\s*:?\s*',
+    )
+    for p in _PREFIX_PATTERNS:
+        cleaned = _re.sub(p, '', cleaned, flags=_re.IGNORECASE)
+    return cleaned.strip()
+
+
 def _sanitize_redacted_text(text) -> str:
     """Sanea output del LLM redactor: strippea garbage repetitivo, JSON corrupto,
     caracteres invisibles BOM/zero-width, y tokens repetidos al final.
@@ -262,6 +329,9 @@ class HourlyProcessor:
     def __init__(self):
         # Use LLMFactory for provider-agnostic client (supports Gemini, Groq, Mistral, etc.)
         self.client, self.model = LLMFactory.get_client("fast")
+        # Quality client (Gemini) para redacción — más estricto con "no inventar entidades"
+        # que Mistral. Si Gemini falla por cuota, fallback automático a Mistral.
+        self.client_quality, self.model_quality = LLMFactory.get_client("quality")
         self.gcs = GCSService()
         self.fb = FirebaseService()
         
@@ -286,17 +356,21 @@ class HourlyProcessor:
             except Exception as e:
                 logger.warning(f"Error parseando last_run_time: {e}")
         
-        # 0. INGESTA RSS
-        await self._ingest_all_rss()
-        
-        # 0.1 LIMPIEZA DE DATOS ANTIGUOS
-        removed_articles = self.gcs.cleanup_old_articles(hours=ARTICLES_RETENTION_HOURS)
+        # 0. INGESTA RSS — devuelve la lista TOTAL en memoria (existentes + nuevos).
+        #    Evitamos releer GCS para sortear race read-after-write.
+        articles_in_memory = await self._ingest_all_rss()
+
+        # 0.1 LIMPIEZA DE DATOS ANTIGUOS — opera sobre la lista en memoria.
+        #     Mantiene topic-pipeline libre de obsoletas SIN releer GCS.
+        removed_articles, articles_in_memory = self.gcs.cleanup_old_articles(
+            hours=ARTICLES_RETENTION_HOURS, articles=articles_in_memory
+        )
         if removed_articles > 0:
             logger.info(f"🧹 Eliminados {removed_articles} artículos de articles.json (>{ARTICLES_RETENTION_HOURS}h)")
 
-        # 0.2 PRE-CARGAR articles.json tras ingest+cleanup (garantiza que los topics ven
-        #     los artículos frescos y evita N lecturas GCS durante el procesado de topics)
-        self._articles_run_cache = self.gcs.get_articles()
+        # 0.2 PRE-CARGAR run-cache: usa la lista en memoria post-merge+cleanup.
+        #     Garantiza que los topics ven los artículos frescos sin race GCS.
+        self._articles_run_cache = articles_in_memory
         logger.info(f"📦 Articles run-cache: {len(self._articles_run_cache)} artículos disponibles para topics")
 
         # 1. Obtener todos los aliases únicos de Firebase
@@ -545,6 +619,12 @@ class HourlyProcessor:
                         if dedup.get("status") == "duplicate":
                             self.redacted_cache[url] = None
                             continue
+                        # Propagar la categoría REAL del feed RSS al resultado.
+                        # Sin esto el orchestrator usa la primera categoría del topic
+                        # como fallback (bug: noticias de fontanería monetaria caían
+                        # en Tecnología cuando el topic tenía Tech como cat[0]).
+                        if art.get("category"):
+                            result["category_feed"] = art["category"]
                         topic_info["noticias"].append(result)
                         self.redacted_cache[url] = result
                         # Register in existing_news so within-session duplicates are caught
@@ -1038,6 +1118,99 @@ class HourlyProcessor:
         if not articles:
             return []
 
+        # --- Pre-filtro por dominios de content marketing tech ---
+        # Estos blogs publican challenges/hackathons/anuncios de producto disfrazados
+        # de noticia. Solo aceptamos artículos cuyo TÍTULO indica un lanzamiento
+        # real de modelo/producto (ej: "GPT-5", "Gemini 2.5", "Claude Opus").
+        # Cualquier otro contenido (concursos, ganadores, casos de estudio) → descartar.
+        _content_marketing_domains = (
+            "cloud.google.com", "developers.google.com",
+            "openai.com", "anthropic.com", "aws.amazon.com",
+            "azure.microsoft.com", "blogs.microsoft.com", "blog.google",
+            "engineering.fb.com", "meta.ai",
+        )
+        _real_launch_keywords = (
+            "lanza", "launches", "released", "release", "announces", "anuncia",
+            "presenta", "unveils", "available now", "ya disponible",
+            # Nombres de productos en lanzamiento (heurística)
+            "gpt-", "gemini ", "claude ", "llama ", "mistral ", "grok ", "qwen ",
+            "imagen ", "sora ", "veo ", "midjourney",
+        )
+        pre_count_cm = len(articles)
+        articles_filtered = []
+        for a in articles:
+            url_lower = (a.get("url", "") or a.get("link", "")).lower()
+            domain_match = any(d in url_lower for d in _content_marketing_domains)
+            if not domain_match:
+                articles_filtered.append(a)
+                continue
+            # Es un dominio de content marketing — solo pasa si título indica
+            # un lanzamiento real de producto/modelo importante
+            title_lower = (a.get("title", "") or "").lower()
+            is_real_launch = any(kw in title_lower for kw in _real_launch_keywords)
+            if is_real_launch:
+                articles_filtered.append(a)
+            # else: descartado silenciosamente
+        if len(articles_filtered) < pre_count_cm:
+            logger.info(f"🚫 {topic}: Content-marketing filter descartó {pre_count_cm - len(articles_filtered)} blogs corporativos sin lanzamiento real")
+        articles = articles_filtered
+
+        # --- Pre-filtro por URL para topics de clubs específicos ---
+        # Si el topic es un club concreto (Real Madrid, Barça...), descarta
+        # artículos cuya URL indica que se trata de selecciones nacionales o
+        # secciones internacionales no relacionadas con el club. Evita el bug
+        # tipo "Ancelotti renueva 2030" donde el LLM puede asumir Real Madrid
+        # cuando en realidad es la selección de Brasil.
+        #
+        # CRÍTICO: solo descartar si la URL NO menciona también el club.
+        # Ejemplo: `as.com/futbol/internacional/champions/real-madrid-xxx` SÍ es
+        # de Real Madrid (Champions). Solo descartar URLs donde la sección
+        # internacional NO está acompañada del slug del club.
+        topic_lower = topic.lower()
+        # club_slug_map: nombre topic → fragmentos URL que confirman pertenencia al club
+        club_slug_map = {
+            "real madrid": ("real-madrid", "real_madrid", "realmadrid", "rmadrid", "/rmcf/"),
+            "barça": ("barcelona", "fcbarcelona", "fc-barcelona", "barca", "fcb"),
+            "barcelona": ("barcelona", "fcbarcelona", "fc-barcelona", "barca", "fcb"),
+            "atlético": ("atletico-madrid", "atletico_madrid", "atleti", "atm-"),
+            "atletico": ("atletico-madrid", "atletico_madrid", "atleti", "atm-"),
+            "athletic": ("athletic-club", "athletic_club", "athletic-bilbao"),
+            "valencia": ("valencia-cf", "valenciacf", "valencia_cf"),
+            "sevilla": ("sevilla-fc", "sevillafc", "sevilla_fc"),
+            "betis": ("real-betis", "realbetis", "real_betis"),
+            "villarreal": ("villarreal-cf", "villarrealcf"),
+        }
+        matched_slugs = ()
+        for club, slugs in club_slug_map.items():
+            if club in topic_lower:
+                matched_slugs = slugs
+                break
+
+        if matched_slugs:
+            # Solo descartamos URL si tiene patrón "no-club" Y no menciona el club explícito
+            club_unrelated_url_patterns = (
+                "/seleccion/", "/selecciones/", "/seleccion-espanola/",
+                "/seleccion-brasilena/", "/brasil-seleccion/",
+                "/copa-america/", "/nations-league/", "/eurocopa/",
+                # NOTA: NO incluyo /internacional/ ni /mundial/ porque suelen
+                # combinarse con el slug del club (Champions, Mundialito).
+            )
+            pre_count = len(articles)
+            kept = []
+            for a in articles:
+                url_l = (a.get("url", "") or a.get("link", "")).lower()
+                # Si menciona el club explícitamente, es del club → mantener.
+                if any(slug in url_l for slug in matched_slugs):
+                    kept.append(a)
+                    continue
+                # Si la URL trae patrón "selección nacional", descartar.
+                if any(p in url_l for p in club_unrelated_url_patterns):
+                    continue
+                kept.append(a)
+            articles = kept
+            if len(articles) < pre_count:
+                logger.info(f"🚫 {topic}: URL guard descartó {pre_count - len(articles)} artículos de selecciones nacionales sin mención al club")
+
         # --- Pre-filtro por exclusiones de contexto de usuario (sin LLM) ---
         contexts_joined = " ".join(str(c) for c in (user_contexts or []) if c).lower()
         exclude_keywords = []
@@ -1066,6 +1239,43 @@ class HourlyProcessor:
 
         if not articles:
             return []
+
+        # --- Fast-pass por fuentes preferidas del usuario ---
+        # Si el contexto del topic menciona medios concretos (ej: "El Debate,
+        # Libertad Digital"), los artículos de esos dominios pasan SIN LLM filter.
+        # Razón: el filtro LLM a veces descarta artículos legítimos de la fuente
+        # preferida por títulos ambiguos. Mejor aceptar todos los de esas fuentes
+        # y que el orchestrator decida luego en la selección top-N.
+        preferred_pass = []
+        if contexts_joined:
+            # Mapa simple de nombre→dominio (subset crítico, no requiere import)
+            _preferred_map = {
+                "el debate": "eldebate.com", "eldebate": "eldebate.com",
+                "el confidencial": "elconfidencial.com", "elconfidencial": "elconfidencial.com",
+                "libertad digital": "libertaddigital.com", "libertaddigital": "libertaddigital.com",
+                "the objective": "theobjective.com", "theobjective": "theobjective.com",
+                "voz pópuli": "vozpopuli.com", "voz populi": "vozpopuli.com", "vozpopuli": "vozpopuli.com",
+                "okdiario": "okdiario.com", "abc": "abc.es", "la razón": "larazon.es",
+                "el español": "elespanol.com", "marca": "marca.com", "as": "as.com",
+                "expansión": "expansion.com", "el economista": "eleconomista.es",
+                "el mundo": "elmundo.es", "el país": "elpais.com",
+                "mundo deportivo": "mundodeportivo.com", "sport": "sport.es",
+                "relevo": "relevo.com", "motorsport": "motorsport.com",
+            }
+            preferred_domains = {dom for name, dom in _preferred_map.items() if name in contexts_joined}
+            if preferred_domains:
+                pass_set = set()
+                for a in articles:
+                    src_url = (a.get("url", "") or a.get("link", "")).lower()
+                    for dom in preferred_domains:
+                        if dom in src_url:
+                            preferred_pass.append(a)
+                            pass_set.add(id(a))
+                            break
+                if preferred_pass:
+                    # Quita los preferidos del flujo LLM (ya pasaron)
+                    articles = [a for a in articles if id(a) not in pass_set]
+                    logger.info(f"⭐ {topic}: Fast-pass {len(preferred_pass)} artículos de fuentes preferidas {preferred_domains}")
 
         # Process up to 150 candidates in batches of 50
         # No pre-filter by published_at: get_articles_by_category ya filtró por fecha_ingesta
@@ -1121,10 +1331,37 @@ class HourlyProcessor:
                 source = a.get("source_name", "Desconocido")
                 articles_text += f"ID {i}: [FUENTE: {source}] {a.get('title')} | {snippet}\n"
 
+            _now = datetime.now().strftime("%A, %d de %B de %Y, %H:%M (zona Madrid)")
             prompt = f"""
-            Eres un FILTRO DE RELEVANCIA inteligente para el topic: "{topic}".
+            FECHA Y HORA ACTUAL: {_now}
+            Tu conocimiento sobre fechas se reemplaza por esta fecha actual real.
+
+            Eres un FILTRO DE RELEVANCIA para el topic: "{topic}".
             {context_str}
             Tu trabajo: Identificar noticias RELACIONADAS con "{topic}".
+
+            ⚠️ POLÍTICA POR DEFECTO (topics AMPLIOS como F1, Real Madrid, Política,
+            Tecnología, IA, Economía): ante la duda, INCLUIR. El ecosistema es
+            extenso y acepta noticias relacionadas aunque no usen palabras exactas.
+
+            ⚠️⚠️ MODO ESTRICTO PARA TOPICS NICHO (Vinos, Viajes de ocio, MotoGP,
+            Stablecoins, Payments, M&A, Arqueología, etc.): el TÍTULO o el SNIPPET
+            DEBE mencionar el topic explícitamente o un sinónimo INEQUÍVOCO.
+            RECHAZAR si la relación es solo "mismo sector vagamente" o "audiencia
+            similar". Una noticia de chocolate NO es vinos. Una noticia de Feria
+            del Libro NO es viajes de ocio. Una noticia de Real Madrid NO es
+            Formula 1 aunque ambos sean "deporte".
+
+            ⚠️ TEMPORAL: Si una noticia anuncia un evento FUTURO (partido, decisión,
+            anuncio, congreso) cuya fecha YA HA OCURRIDO según la fecha actual de
+            arriba, RECHÁZALA — el evento ya pasó y la noticia está obsoleta.
+            Ej: si es 4 de mayo y la noticia anuncia "partido del 3 de mayo", rechazar.
+
+            ⚠️ BREAKING NEWS: SIEMPRE acepta noticias de eventos mayores (ataques,
+            guerras, atentados, crisis humanitarias, decisiones gubernamentales
+            trascendentales, muertes de líderes, derrotas históricas) si tienen
+            CUALQUIER conexión con el topic. NUNCA descartes breaking news por
+            "es geopolítica y no exactamente X" o similar.
 
             INSTRUCCIÓN SOBRE FUENTES Y MEDIOS:
             - Si el topic o los intereses del usuario mencionan medios concretos (ej: "El Confidencial", "Libertad Digital"), PRIORIZA noticias de esos medios (dales preferencia), pero NO descartes noticias de otros medios si son muy relevantes para el tema.
@@ -1137,20 +1374,73 @@ class HourlyProcessor:
             - La palabra clave o tema debe aparecer o ser claramente implícito
 
             ENFOQUE PARA TOPICS DE ENTRETENIMIENTO/DEPORTE (ej: F1, Real Madrid):
-            - Acepta noticias del equipo, competición, fichajes, partidos, declaraciones
-            - Acepta contenido relacionado (ej: F1 → carreras, pilotos, equipos, FIA, circuitos)
+            - SÉ MUY INCLUSIVO. Acepta TODO lo del ecosistema del deporte/equipo.
+            - F1 cubre: carreras, pilotos, equipos, FIA, circuitos, comentaristas
+              (Brundle), análisis técnicos, polémicas, decisiones de la federación,
+              reglamento, neumáticos, ingenieros. TODO ES F1.
+            - Real Madrid cubre: jugadores (Mendy, Carvajal, Vinicius, Bellingham,
+              Mbappé, Ancelotti, Castilla, filial), partidos, fichajes, traspasos,
+              lesiones, declaraciones, vestuario, canteranos. TODO ES VÁLIDO salvo
+              Liga F (femenino) o Real Madrid Femenino EXPLÍCITO.
+            - NO rechaces por "es administrativa" o "no es deporte directo".
 
             ENFOQUE PARA TOPICS DE NUTRICIÓN/SALUD (ej: Nutricion, salud/nutrición):
-            - SÉ INCLUSIVO: acepta alimentación, dietas, nutrientes, alimentos,
-              estudios sobre comida/bebida, propiedades de alimentos, recetas saludables
-            - Acepta: vitaminas, minerales, suplementos, microbiota intestinal (si
-              relacionado con dieta), efectos de alimentos en la salud
-            - RECHAZAR: noticias puramente médicas sin relación con alimentación
-              (ej: cirugía, fármacos, epidemias, vacunas, genética pura)
+            - ACEPTAR: estudios científicos sobre nutrientes, dietas con base
+              científica, efectos de alimentos en la salud (diabetes, colesterol,
+              microbiota), análisis nutricional de un producto específico,
+              recomendaciones de expertos sobre alimentación, comparativas
+              nutricionales (lentejas vs garbanzos, etc.).
+            - Acepta: vitaminas, minerales, suplementos, microbiota intestinal,
+              ayuno intermitente, dietas (mediterránea, keto), suplementación deportiva.
+            - RECHAZAR:
+              * Recetas genéricas de cocina (cómo preparar X, ingredientes para Y)
+                aunque mencionen un alimento "saludable". Una receta NO es nutrición.
+              * Noticias médicas sin relación con alimentación (cirugía, vacunas, fármacos).
+              * "Truco para...", "secreto del...", "lo que no sabías de...".
 
-            ENFOQUE PARA TOPICS DE VIAJES/OCIO (ej: Viajes de ocio, turismo):
-            - SOLO aceptar: destinos turísticos, experiencias de viaje, rutas, gastronomía local, hoteles, spas, escapadas, guías de viaje, turismo cultural
-            - RECHAZAR: noticias de aviación comercial (aerolíneas, rutas aéreas, precios combustible), transporte público, logística, carburantes, coches, normativa de tráfico, eventos artísticos/culturales sin relación directa con turismo
+            ENFOQUE PARA TOPICS DE VIAJES/OCIO (ej: Viajes de ocio, turismo) — STRICT:
+            - SOLO aceptar si el TÍTULO o el SNIPPET menciona explícitamente:
+              destino turístico, ruta de viaje, hotel/spa, escapada, gastronomía
+              local de un sitio concreto, guía de viaje, ferias internacionales
+              de turismo.
+            - RECHAZAR sin excepción:
+              * Eventos culturales urbanos (Feria del Libro de Madrid, exposiciones,
+                conciertos, estrenos de cine, premios Cannes) — son ocio pero NO
+                son viajes.
+              * Aperturas de comercios (pastelerías, restaurantes nuevos sin que
+                la noticia sea sobre el destino turístico en sí).
+              * Aviación comercial, aerolíneas, rutas aéreas, precios combustible.
+              * Transporte público, logística, carburantes, coches, normativa
+                de tráfico.
+              * Reseñas/críticas de productos.
+
+            ENFOQUE PARA TOPICS DE VINOS/BEBIDAS (ej: Vinos, Cerveza, Whisky) — STRICT:
+            - SOLO aceptar si el TÍTULO o el SNIPPET menciona explícitamente:
+              bodega, denominación de origen (DO/DOC/DOCG), variedad de uva
+              (Tempranillo, Garnacha, Cabernet…), maridaje, cata, vendimia,
+              añada, sumiller, cosechero, vinos puntuados, Wine Enthusiast,
+              Wine Spectator, Decanter, Robert Parker.
+            - RECHAZAR sin excepción:
+              * Recetas o noticias de gastronomía/cocina sin protagonismo del
+                vino (chocolate, postres, planchas de ejercicio, dietas).
+              * Noticias de lifestyle "gourmet" genérico (Los Javis, megayates,
+                eventos sociales con copa de vino tangencial).
+              * Noticias de bares/restaurantes salvo que la noticia sea sobre
+                su carta de vinos o un sumiller específico.
+
+            ENFOQUE PARA TOPICS DE NEGOCIOS/EMPRESAS/STARTUPS:
+            - ACEPTAR: noticias FACTUALES sobre empresas reales (resultados, fichajes
+              de C-level, fusiones, OPAs, lanzamientos de producto, expansión a mercados,
+              rondas de financiación con cifras concretas, IPOs, despidos, regulaciones
+              que afectan a una industria, análisis sectorial).
+            - RECHAZAR:
+              * Listicles tipo "5 hábitos de", "cuatro métricas para",
+                "lo que aprendí siendo CEO", "consejos para emprendedores".
+              * Lifestyle / motivacional: "dejé mi trabajo a los 26 para viajar",
+                "vivo con menos de X y soy feliz", "rutina del fundador exitoso".
+              * Storytime de un freelance/influencer/coach.
+              * Opinión personal sin datos de una empresa o sector.
+              * Promo de producto disfrazada de noticia.
 
             ENFOQUE PARA TOPICS DE ECONOMÍA/MACRO/POLÍTICA MONETARIA (ej: macro, fontanería monetaria, macroeconomia, M&A, tariffs, freight, gold):
             - SÉ INCLUSIVO con todo el universo financiero/macro:
@@ -1175,6 +1465,16 @@ class HourlyProcessor:
             - Ofertas, descuentos, rebajas de tiendas
             - "Mejores productos", "guías de compra"
             - Cobertura en directo sin sustancia
+            - ⚠️ CONTENT MARKETING DE EMPRESAS TECH (CRÍTICO — bloquear siempre):
+              * Concursos, hackathons, challenges patrocinados por empresas
+                (ej: "Gemini Live Agent Challenge", "AWS DeepRacer", "OpenAI Hackathon").
+              * Anuncios de ganadores/participantes de concursos de empresa.
+              * Blog posts de cloud.google.com, developers.google.com, openai.com/blog,
+                anthropic.com/news, aws.amazon.com/blogs, microsoft.com/blog — son
+                MARKETING aunque tengan apariencia de noticia.
+              * Excepción: SOLO acepta si es un LANZAMIENTO REAL de modelo/producto
+                con impacto industrial directo (ej: "GPT-5 lanzado", "Gemini 2.5 Pro").
+                Anuncios secundarios (concursos, ediciones, ganadores) → RECHAZAR.
 
             ACEPTAR:
             - Noticias informativas serias
@@ -1224,8 +1524,10 @@ class HourlyProcessor:
             if batch_start + batch_size < len(articles):
                 await asyncio.sleep(2)
 
-        logger.info(f"✅ {topic}: {len(all_relevant)} relevantes de {len(articles)} evaluados")
-        return all_relevant
+        # Combinar fast-pass (fuentes preferidas, sin LLM) + LLM-filtered
+        final_relevant = preferred_pass + all_relevant
+        logger.info(f"✅ {topic}: {len(all_relevant)} relevantes de {len(articles)} evaluados + {len(preferred_pass)} fast-pass = {len(final_relevant)} total")
+        return final_relevant
     
     async def _fetch_og_image(self, url: str) -> str:
         """Extrae og:image de una URL usando Open Graph y valida que sea una foto real."""
@@ -1341,7 +1643,61 @@ class HourlyProcessor:
         for i, art in enumerate(prepared_articles):
             articles_input += f"\n--- ARTÍCULO {i} ---\nTítulo: {art['title']}\nContenido: {art['content'][:1500]}\n"
 
+        _now = datetime.now().strftime("%A, %d de %B de %Y, %H:%M (zona Madrid)")
+        _today_abs = datetime.now().strftime("%d de %B de %Y")
         prompt = f"""
+        FECHA Y HORA ACTUAL DE LA INGESTA: {_now}
+        Esta es la HORA REAL en la que se está redactando.
+        ⚠️ IMPORTANTE: tu redacción será CACHEADA y leída por el usuario entre
+        ahora y 30 horas más tarde (briefing diario sale a las 7:15 AM Madrid).
+        Por tanto NO PUEDES usar palabras relativas al MOMENTO ACTUAL como
+        "hoy", "esta tarde", "esta noche", "ahora mismo" — quedarían DESFASADAS
+        cuando el usuario las lea.
+
+        ⚠️ REGLAS DE REFERENCIAS TEMPORALES (CRÍTICAS):
+        1. NUNCA escribas "hoy" en tu redacción. En su lugar usa la FECHA
+           ABSOLUTA del evento: "el {_today_abs}", o "el sábado 16 de mayo",
+           o "el pasado domingo". El lector debe poder situar el evento
+           sin depender de saber CUÁNDO fue redactado el texto.
+        2. NUNCA escribas "esta tarde", "esta noche", "esta mañana". Usa
+           "el [día] por la tarde / noche / mañana" con día absoluto.
+        3. "Ayer" y "mañana" SOLO si te refieres al día anterior/siguiente
+           a la fecha del EVENTO en el artículo (no al momento de redacción).
+           Mejor todavía: fechas absolutas.
+        4. "Esta semana" / "este fin de semana" SÍ son seguras si el evento
+           es de la semana actual ({_now}).
+        5. Si el artículo original dice "hoy 17 de mayo": tradúcelo a
+           "el 17 de mayo" (sin "hoy") — quita el adverbio, deja la fecha.
+
+        ⚠️ ANTES DE REDACTAR — LEE CON CUIDADO (CRÍTICO):
+        1. Lee el TÍTULO y el CONTENIDO COMPLETO de cada artículo.
+        2. Identifica los PROTAGONISTAS REALES (quién, qué equipo, qué club, qué país).
+           NO supongas — si el título dice "Ancelotti renueva" y el contenido habla
+           de Brasil, el protagonista es Brasil, no Real Madrid.
+        3. Identifica el ÁNGULO REAL: ¿es un análisis post-evento, un anuncio,
+           una previa, un rumor, una declaración? Tu redacción debe coincidir.
+        4. Identifica las FECHAS / TIEMPOS REALES del artículo y compáralos con
+           la fecha actual de arriba para usar el tiempo verbal correcto.
+        SOLO después de comprender estos 4 puntos, empieza a redactar.
+
+        Si el artículo menciona un evento con fecha (partido, anuncio, conferencia)
+        compárala con la fecha actual: si YA OCURRIÓ usa pasado ("se enfrentó",
+        "ha disputado", "se celebró"); si AÚN NO HA OCURRIDO usa futuro ("se enfrentará").
+
+        ⚠️ REFERENCIAS TEMPORALES RELATIVAS (CRÍTICO):
+        Si el original usa expresiones como "hoy", "ayer", "mañana", "esta tarde",
+        "este sábado", "el próximo lunes", "esta semana" — DEBES traducirlas según
+        la fecha actual de arriba, no copiarlas literalmente.
+        - Si el artículo del SÁBADO dice "el sprint de este sábado" y HOY es DOMINGO
+          → escribe "el sprint del sábado pasado" o "ayer", NO "este sábado".
+        - Si dice "ayer" y la fecha del artículo es de hace 3 días → escribe la fecha
+          concreta ("el lunes pasado") o "hace 3 días".
+        - Si NO PUEDES determinar a qué día absoluto se refiere, omite la referencia
+          temporal o usa frases genéricas ("recientemente", "este fin de semana"
+          solo si el evento es de ESTA misma semana).
+        - REGLA: tras leer la noticia, tu redacción debe ser coherente con que la
+          publica el lector AHORA mismo ({_now}), no cuando se escribió el original.
+
         Eres un redactor de noticias. Tu ÚNICO trabajo es RESUMIR y REFORMULAR el contenido
         proporcionado abajo. NO uses tu conocimiento general del mundo. SOLO puedes usar la
         información que aparece en el texto de cada artículo.
@@ -1370,10 +1726,65 @@ class HourlyProcessor:
            - IDIOMA: Español peninsular. Traduce todo lo que no esté en español.
            - TÍTULO: Descriptivo y claro (sujeto + acción). Emoji al principio.
            - RESUMEN: 10-25 palabras.
-           - NOTICIA: 150-250 palabras con etiquetas <p>. Usa <b>negrita</b> para 3 frases clave.
-           - POR QUÉ IMPORTA: Al final de la noticia, añade un párrafo corto (1-2 frases)
-             con la etiqueta: <p><b>Por qué importa:</b> [contexto breve de por qué esta
-             noticia es relevante para el lector]. SOLO usa información del artículo.
+           - NOTICIA: 100-180 palabras con etiquetas <p>. Usa <b>negrita</b> para 2-3 frases clave.
+             ⚠️ DESCRIPCIÓN 100% OBJETIVA basada ÚNICAMENTE en el contenido original.
+             NUNCA añadas opiniones, versiones alternativas, ni contexto externo.
+             Si el contenido es escaso, la noticia será corta — NUNCA la rellenes
+             inventando. Mejor 80 palabras fieles que 180 con datos inventados.
+
+           ⚠️ ARTÍCULOS ULTRA-TÉCNICOS (papers arxiv, jerga ML/cripto/médica pesada):
+             Si el contenido usa terminología muy especializada (ej: "información
+             mutua condicional", "MDM enmascarado", "ESM-C", "consenso BFT",
+             "tokenómica AMM", "anticuerpo monoclonal anti-PD1"), reordena la
+             información: PRIMER PÁRRAFO en lenguaje accesible explicando QUÉ es
+             y PARA QUÉ sirve, citando explícitamente el campo ("inteligencia
+             artificial", "machine learning", "blockchain", "oncología"...) si
+             no aparece literalmente — esto es REORGANIZAR, no inventar. SOLO
+             después introduce los términos técnicos. El lector debe entender
+             la implicación práctica sin doctorado en la materia.
+
+           ⚠️ TÍTULO — FIDELIDAD ABSOLUTA (CRÍTICO):
+             El título es lo más visible. NO LO REFORMULES. Solo se permite:
+             (a) traducir a español si está en otro idioma (manteniendo sentido literal),
+             (b) quitar prefijos basura ("EN DIRECTO:", "Última hora:", "Vídeo:",
+                 "EN VIVO:", "Directo:", "Crónica:"),
+             (c) añadir UN emoji semántico al inicio.
+
+             PROHIBIDO en el título:
+             - Reformular con sinónimos ("ganó" → "se impuso" si el original
+               no lo dice).
+             - Recortar quitando información ("Con el 75% escrutado el PP gana
+               las elecciones andaluzas" → "El PP gana en Andalucía" ❌).
+             - Cambiar el orden de actores ("X demanda a Y" ≠ "Y es demandado por X").
+             - Añadir contexto que no esté en el título original.
+             - Convertir afirmaciones en preguntas o viceversa.
+
+           ⚠️ FIDELIDAD ABSOLUTA DE NOMBRES PROPIOS (CRÍTICO):
+             - NOMBRE PROPIO en el original = MISMO NOMBRE en tu redacción.
+             - JAMÁS sustituyas un nombre por otro aunque te parezca más famoso
+               o más conocido. Si el original dice "Jódar", escribes "Jódar".
+               NUNCA "Alcaraz". Si dice "Sinner", escribes "Sinner", NUNCA "Djokovic".
+             - Esto aplica a personas, equipos, empresas, ciudades, países, productos.
+             - Una sustitución de nombre = bug crítico que ROMPE la fidelidad
+               periodística. Es la peor falta del redactor.
+
+           ⚠️ NO INVENTES ENTIDADES (CRÍTICO — aún más grave que sustituir nombres):
+             - SOLO puedes mencionar equipos/clubes/instituciones/países que aparezcan
+               EXPLÍCITAMENTE en el texto del artículo. Si el contenido no nombra a un
+               equipo, NO lo añadas — aunque tu conocimiento general sugiera que es
+               "obvio" cuál es.
+             - Ejemplo CRÍTICO: si el original dice solo "Ancelotti renueva hasta 2030"
+               y el cuerpo habla de la selección brasileña → escribes "Brasil" o
+               "selección brasileña". JAMÁS añadas "Real Madrid" porque "antes
+               entrenaba ahí". Eso es FABRICAR información.
+             - Si el contenido es ambiguo sobre el equipo/contexto/club, escribe
+               de forma genérica ("su equipo", "el club") en lugar de inventar
+               cuál es. MEJOR redacción vaga fiel que redacción concreta inventada.
+             - Si tras leer el contenido completo NO PUEDES determinar de qué
+               equipo/empresa/país/institución se trata, devuelve null (DESCARTAR).
+           - NO añadas ningún bloque adicional al final (sin "Por qué importa",
+             sin "Contexto", sin opinión editorial). La redacción termina cuando
+             el artículo original termina.
         5. 🚫 FIDELIDAD AL ORIGINAL (CRÍTICO — rol de RESUMIDOR, NO de editorialista):
            - NO inventes citas textuales. Si usas comillas «...» o "..." deben ser
              PALABRAS EXACTAS del contenido original. Si no hay cita textual, NO
@@ -1396,6 +1807,12 @@ class HourlyProcessor:
            - Gossip de famosos/celebridades sin relevancia informativa
            - "Listicle" superficial ("los 10 mejores...", "las claves de...")
            - Noticia cuyo gancho principal es una celebridad consumiendo/usando un producto
+           - Concursos, hackathons, challenges de empresas (ej: "Gemini Live Agent
+             Challenge", "AWS DeepRacer League", "OpenAI Hackathon", "Anthropic Build"):
+             anuncios de ganadores, casos de uso, ediciones de un concurso → marketing.
+           - Blog corporativo de empresa tech (cloud.google.com, openai.com/blog,
+             developers.google.com, anthropic.com/news, aws.amazon.com/blogs)
+             que NO anuncia un lanzamiento de producto/modelo real de impacto.
 
         Responde JSON con un array. Para artículos descartados, pon null:
         {{
@@ -1407,12 +1824,25 @@ class HourlyProcessor:
         }}
         """
 
+        # PRIMARIO: Gemini quality (más estricto con "solo usa el texto").
+        # FALLBACK: Mistral fast si Gemini falla por cuota (429) o error JSON.
+        primary_client = self.client_quality if getattr(self, "client_quality", None) else self.client
+        primary_model = self.model_quality if getattr(self, "client_quality", None) else self.model
+        is_gemini_primary = primary_client is not self.client
+
         try:
-            response = await _llm_call_with_retry(
-                self.client, self.model,
-                messages=[{"role": "user", "content": prompt}],
-                response_format={"type": "json_object"},
-            )
+            if is_gemini_primary:
+                response = await primary_client.chat.completions.create(
+                    model=primary_model,
+                    messages=[{"role": "user", "content": prompt}],
+                    response_format={"type": "json_object"},
+                )
+            else:
+                response = await _llm_call_with_retry(
+                    primary_client, primary_model,
+                    messages=[{"role": "user", "content": prompt}],
+                    response_format={"type": "json_object"},
+                )
             result = _extract_json(response.choices[0].message.content)
             items = result.get("articles", [])
 
@@ -1425,22 +1855,74 @@ class HourlyProcessor:
                     logger.info(f"⏭️ Descartando '{prep['title'][:40]}...' - AMBIGUA (Filtro LLM)")
                     results.append(None)
                     continue
+                # --- Validación de fidelidad del título (post-LLM) ---
+                # Si el LLM reformuló demasiado el título, sustituimos por el
+                # original limpio. Threshold 0.50 — permite traducción y limpieza
+                # pero rechaza reformulaciones agresivas.
+                # Preservar emoji que el LLM añadió al inicio si la redacción es válida.
+                redacted_title = _sanitize_redacted_text(art_data.get("titulo"))
+                original_title = prep.get("title", "") or ""
+                overlap = _title_token_overlap(original_title, redacted_title)
+                if overlap < 0.50 and len(original_title) > 10:
+                    # El LLM se pasó. Usar título original limpio + emoji del LLM.
+                    clean_original = _clean_original_title(original_title)
+                    # Extraer emoji al inicio de la redacción (si existe) para preservarlo
+                    import re as _re_local
+                    emoji_match = _re_local.match(r'^([^\w\s]+)\s+', redacted_title)
+                    emoji_prefix = (emoji_match.group(1) + ' ') if emoji_match else ''
+                    final_title = emoji_prefix + clean_original
+                    logger.info(
+                        f"📰 Título-guard: overlap={overlap:.2f}, usando original limpio: "
+                        f"'{redacted_title[:60]}...' → '{final_title[:60]}...'"
+                    )
+                else:
+                    final_title = redacted_title
+
                 results.append({
                     "fecha_inventariado": datetime.now().isoformat(),
                     "published_at": prep.get("published_at", ""),
-                    "titulo": _sanitize_redacted_text(art_data.get("titulo")),
+                    "titulo": final_title,
                     "resumen": _sanitize_redacted_text(art_data.get("resumen", "")),
                     "noticia": _sanitize_redacted_html(art_data.get("noticia", "")),
                     "imagen_url": prep["image"],
-                    "fuentes": prep["sources"]
+                    "fuentes": prep["sources"],
+                    "embedding": [],  # se rellena post-batch para cachear cross-runs
                 })
+
+            # Generar embeddings UNA VEZ por artículo (cacheados en topics.json).
+            # Stage 1 del pipeline 2-stage: el orchestrator usa estos embeddings
+            # para descartar noticias semánticamente lejanas al topic del usuario.
+            try:
+                from src.services.embeddings_service import EmbeddingsService
+                _emb = EmbeddingsService()
+                if _emb.is_available:
+                    texts_to_embed = [
+                        f"{r.get('titulo','')}. {(r.get('resumen','') or '')[:500]}".strip()
+                        for r in results if r
+                    ]
+                    embs = await _emb.embed_batch(texts_to_embed)
+                    j = 0
+                    for r in results:
+                        if r:
+                            if j < len(embs) and embs[j]:
+                                r["embedding"] = embs[j]
+                            j += 1
+            except Exception as _e:
+                logger.warning(f"Embeddings ingest falló (no crítico): {_e}")
+
             return results
         except Exception as e:
             logger.error(f"Error redactando batch: {e}")
             error_str = str(e)
-            is_rate_limit = "429" in error_str or "rate_limited" in error_str.lower() or "rate limit" in error_str.lower()
+            is_rate_limit = "429" in error_str or "rate_limited" in error_str.lower() or "rate limit" in error_str.lower() or "resource_exhausted" in error_str.lower() or "quota" in error_str.lower()
             is_json_error = isinstance(e, (json.JSONDecodeError, ValueError, KeyError))
-            fallback_client, fallback_model = LLMFactory.get_fallback_client("mistral")
+            # Si Gemini era primario y falla → usa Mistral fast como fallback.
+            # Si Mistral era primario (sin client_quality) → mantiene el fallback original (MISTRAL_API_KEY2 o Gemini).
+            if is_gemini_primary:
+                fallback_client, fallback_model = self.client, self.model
+                logger.warning("🔄 Gemini falló en redacción, usando Mistral fast como fallback...")
+            else:
+                fallback_client, fallback_model = LLMFactory.get_fallback_client("mistral")
             if is_rate_limit or is_json_error:
                 try:
                     if is_rate_limit:
@@ -1590,45 +2072,52 @@ class HourlyProcessor:
         except Exception as e:
             return [], f"error:{str(e)[:50]}"
 
-    async def _ingest_all_rss(self):
-        """Phase 0: Fetch from all RSS sources and save to GCS."""
+    async def _ingest_all_rss(self) -> list:
+        """Phase 0: Fetch from all RSS sources and save to GCS.
+
+        Devuelve la lista en memoria de TODOS los artículos (existentes + nuevos)
+        después del merge. El caller debe usarla directamente en lugar de releer
+        GCS — evita race conditions de eventual consistency post-write.
+        """
         logger.info("📥 FASE 0: INGESTA RSS (Actualizando GCS...)")
-        
+
         if not self.gcs.is_connected():
             logger.warning("⚠️ Sin conexión a GCS, saltando ingesta RSS.")
-            return
-        
+            return []
+
         sources = self.gcs.get_sources()
         if not sources:
             logger.warning("⚠️ No hay sources.json en el bucket.")
-            return
+            return []
 
         logger.info(f"📡 Procesando {len(sources)} fuentes RSS...")
         all_new_articles = []
         BATCH_SIZE = 50
-        
+
         async with aiohttp.ClientSession() as http_session:
             for batch_start in range(0, len(sources), BATCH_SIZE):
                 batch_end = min(batch_start + BATCH_SIZE, len(sources))
                 batch = sources[batch_start:batch_end]
-                
+
                 tasks = [self._fetch_and_parse_source(http_session, src) for src in batch]
                 results = await asyncio.gather(*tasks, return_exceptions=True)
-                
+
                 for result in results:
                     if isinstance(result, tuple):
                         articles, status = result
                         if articles:
                             all_new_articles.extend(articles)
-        
+
         logger.info(f"📰 Total artículos recolectados: {len(all_new_articles)}")
-        
-        if all_new_articles:
-            added = self.gcs.merge_new_articles(all_new_articles)
+
+        # merge_new_articles devuelve (added, full_list_in_memory).
+        # Usamos full_list_in_memory para evitar el race read-after-write de GCS.
+        added, full_list = self.gcs.merge_new_articles(all_new_articles or [])
+        if added:
             logger.info(f"✅ Nuevos en GCS: {added}")
-            # cleanup se llama desde run() con ARTICLES_RETENTION_HOURS, no aquí
         else:
             logger.info("📭 Sin nuevos artículos en RSS.")
+        return full_list
 
 
 # Export function for main.py import

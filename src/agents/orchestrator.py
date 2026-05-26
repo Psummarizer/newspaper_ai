@@ -179,25 +179,343 @@ def _resolve_preferred_domains(context: str) -> set:
     return domains
 
 
+def _resolve_preferred_entities(context: str) -> set:
+    """Extrae entidades preferidas (personas, equipos, productos) del contexto Firestore.
+
+    A diferencia de _resolve_preferred_domains que detecta MEDIOS, esta función
+    detecta NOMBRES PROPIOS preferidos: jugadores, políticos, atletas, equipos.
+
+    Triggers detectados (case-insensitive):
+      - "prefiero X, Y"
+      - "preferentemente X, Y"
+      - "principalmente X"
+      - "quiero noticias de X"
+      - "me interesa(n) X"
+      - "noticias sobre X"
+      - "fan de X"
+      - "favorito X" / "favoritos X"
+
+    Tras el trigger extrae nombres propios (palabras con mayúscula inicial)
+    hasta el final de la frase. Filtra stop-words y palabras comunes.
+
+    Returns:
+        Set de nombres en minúsculas. Ej: {"alcaraz", "jodar", "carlos sainz"}
+    """
+    if not context:
+        return set()
+
+    # Triggers: capturan "Alcaraz, Jódar y Carlos Sainz" tras el verbo
+    triggers = [
+        r'prefiero\s+(?:noticias\s+(?:de|sobre)\s+)?',
+        r'preferentemente\s+(?:de\s+)?',
+        r'principalmente\s+(?:de\s+|sobre\s+)?',
+        r'quiero\s+noticias\s+(?:de|sobre)\s+',
+        r'me\s+interesa[n]?\s+(?:especialmente\s+)?(?:las?\s+noticias\s+(?:de|sobre)\s+)?',
+        r'noticias\s+(?:de|sobre)\s+',
+        r'fan\s+de\s+',
+        r'favorito[s]?[:\s]+',
+        r'sigo\s+(?:a\s+)?',
+    ]
+
+    # Stop-words que NUNCA son nombres propios aunque empiecen con mayúscula
+    _STOP = {
+        "a", "el", "la", "los", "las", "un", "una", "y", "o", "u", "de", "del",
+        "al", "en", "con", "por", "para", "sin", "sobre", "the", "and", "of",
+        "in", "from", "to", "for", "by", "with", "but", "or", "nor", "if",
+        "solo", "sólo", "también", "tambien", "pero", "no", "ni", "más", "mas",
+        "tiene", "tienen", "es", "son", "ser", "estoy", "está", "están", "estar",
+        "tiene", "muy", "mucho", "poco", "bien", "mal", "moda", "fútbol", "futbol",
+        "tenis", "padel", "pádel", "deporte", "deportes",
+        # Adverbios que aparecen después de nombres propios y deben filtrarse
+        "principalmente", "especialmente", "sobre todo", "preferentemente",
+        "ante todo", "siempre", "nunca", "habitualmente",
+    }
+
+    entities = set()
+    ctx_lower = context.lower()
+
+    for trigger in triggers:
+        # Match desde el trigger hasta punto, salto de línea, o fin
+        match = re.search(trigger + r'([^\.\n]+)', ctx_lower, re.IGNORECASE)
+        if not match:
+            continue
+        # Trabajamos sobre el texto ORIGINAL para preservar mayúsculas
+        original_segment = context[match.start(1):match.end(1)]
+        # Separadores: comas, "y", "&", " e ", " o ", " sobre " (preferencia entre dos)
+        parts = re.split(r',|\s+y\s+|\s+e\s+|&|\s+o\s+|\s+sobre\s+', original_segment, flags=re.IGNORECASE)
+        for raw in parts:
+            name = raw.strip().rstrip('.').strip()
+            if not name or len(name) < 3:
+                continue
+            words = name.split()
+            # Strip preposiciones/conectores al inicio: "a Vinicius" → "Vinicius"
+            while words and words[0].lower() in _STOP:
+                words.pop(0)
+            # Strip al final también: "Alcaraz principalmente" → "Alcaraz"
+            while words and words[-1].lower() in _STOP:
+                words.pop()
+            if not words:
+                continue
+            # Aceptar nombre si tiene al menos una palabra capitalizada
+            # (filtra textos como "noticias claras" que no son entidades)
+            cap_words = [w for w in words if w and w[0].isupper() and w.lower() not in _STOP]
+            if not cap_words:
+                continue
+            clean = " ".join(words).strip()
+            if clean and len(clean) >= 3:
+                entities.add(clean.lower())
+    return entities
+
+
+async def _filter_obsolete_with_llm(articles: List[Dict], processor) -> List[Dict]:
+    """Filtra artículos cuya información ha quedado OBSOLETA usando Mistral.
+
+    Mistral recibe en batch (hasta 25 artículos/call) cada artículo con:
+    - título
+    - resumen[:250]
+    - published_at
+    - fecha actual de generación del briefing
+
+    Y decide para cada uno si VALID u OBSOLETE.
+
+    Casos típicos OBSOLETE:
+    - Preview/anuncio de evento que ya ocurrió y no se incluye su resultado.
+    - Resultados parciales (X% escrutado, sondeo a pie de urna, datos provisionales)
+      publicados hace tiempo cuando ya hay desenlace conocido.
+    - "Hoy se celebra X" cuando el artículo es de hace >12h.
+
+    Casos VALID (mantener):
+    - Hechos consumados, análisis, opinión, novedades vigentes.
+    - Cambios estructurales (fichajes, dimisiones, renuncias, anuncios institucionales).
+    - Crónicas post-evento con resultados.
+    - Cualquier artículo cuya información siga siendo precisa hoy.
+
+    Coste: Mistral free tier (~1 call por lote de 25 artículos).
+    Si Mistral falla por cuota o JSON, fail-open (mantener todos los artículos).
+
+    Returns:
+        Lista de artículos VALID en orden original.
+    """
+    if not articles:
+        return articles
+
+    _now = datetime.now().strftime("%A, %d de %B de %Y, %H:%M (zona Madrid)")
+    BATCH_SIZE = 25
+    valid_articles = []
+
+    for batch_start in range(0, len(articles), BATCH_SIZE):
+        batch = articles[batch_start:batch_start + BATCH_SIZE]
+        items_text = ""
+        for i, art in enumerate(batch):
+            title = (art.get("titulo", "") or "")[:180]
+            resumen = (art.get("resumen", "") or "")[:250]
+            pub = (art.get("published_at", "") or art.get("fecha_inventariado", "") or "")[:19]
+            items_text += f"\nID {i}: [pub={pub}] {title} | {resumen}"
+
+        prompt = f"""FECHA Y HORA ACTUAL: {_now}
+
+Eres un evaluador de RELEVANCIA TEMPORAL de noticias. Para cada artículo
+de abajo, decide si su información sigue siendo RELEVANTE para un lector
+que lo recibirá HOY ({_now}).
+
+CRITERIOS:
+
+VALID (la información sigue siendo útil):
+- Crónica post-evento con resultado/desenlace ("ganó", "se proclamó campeón",
+  "perdieron 2-1", "tras la victoria").
+- Análisis, opinión, declaraciones, entrevistas.
+- Hechos consumados (fichajes oficiales, dimisiones, renuncias, anuncios
+  institucionales firmes, decisiones gubernamentales tomadas).
+- Cualquier información cuyo valor periodístico siga vigente hoy.
+- Artículos publicados HOY o muy recientes (<6h): VALID por defecto salvo
+  excepción muy clara.
+
+OBSOLETE (descartar, su valor ya caducó):
+- Preview/anuncio de un evento que ya ha ocurrido sin incluir su resultado
+  (ej: "Hoy se celebra la final" publicado ayer, sin el marcador).
+- Resultados PARCIALES de un evento en curso publicados hace >6h
+  (ej: "Con el 75% escrutado el PP gana" — al 100% ya hay desenlace).
+- Sondeos / encuestas a pie de urna / exit polls cuando el cierre ya ha
+  pasado y existe el resultado real.
+- "Lo que está pasando AHORA" cuando ese AHORA ya pasó hace >12h.
+
+REGLA: ante la DUDA, marcar VALID. Solo OBSOLETE cuando es CLARAMENTE
+información caducada.
+
+Artículos a evaluar:{items_text}
+
+Responde JSON con un veredicto por artículo:
+{{"verdicts": [{{"id": 0, "verdict": "VALID|OBSOLETE", "reason": "breve"}}, ...]}}
+"""
+
+        try:
+            response = await processor.client.chat.completions.create(
+                model=processor.model_fast,
+                messages=[{"role": "user", "content": prompt}],
+                response_format={"type": "json_object"},
+            )
+            result = json.loads(response.choices[0].message.content)
+            verdicts = result.get("verdicts", [])
+            obsolete_ids = set()
+            for v in verdicts:
+                if v.get("verdict") == "OBSOLETE":
+                    try:
+                        obsolete_ids.add(int(v.get("id")))
+                    except Exception:
+                        pass
+            for i, art in enumerate(batch):
+                if i not in obsolete_ids:
+                    valid_articles.append(art)
+        except Exception as e:
+            # Fail-open: si el LLM falla, mantener todos los del lote
+            logging.getLogger(__name__).warning(
+                f"_filter_obsolete_with_llm batch falló (fail-open): {e}"
+            )
+            valid_articles.extend(batch)
+
+    return valid_articles
+
+
+# Guards deterministas por topic: si el título del artículo no contiene ninguna
+# de estas keywords, se considera mención tangencial y se descarta del pool del
+# topic (la noticia puede seguir en otros topics independientemente).
+#
+# Mantenimiento: actualizar keywords cuando cambien las plantillas o staff.
+# Filosofía: liberal con sinónimos y jugadores actuales; estricto contra
+# artículos que solo mencionan el club en el cuerpo.
+TOPIC_KEYWORD_GUARDS: Dict[str, tuple] = {
+    "real madrid": (
+        # Términos del club
+        "real madrid", "madridista", "bernabéu", "bernabeu", "merengue",
+        "merengues", "rmcf", "blanco", "blancos",
+        # Plantilla fútbol (actualizar cada temporada)
+        "bellingham", "mbappé", "mbappe", "vinicius", "vini jr", "vini ",
+        "carvajal", "tchouaméni", "tchouameni", "valverde",
+        "rüdiger", "rudiger", "endrick", "modric", "camavinga",
+        "courtois", "lunin", "rodrygo", "ceballos", "asensio",
+        "joselu", "militão", "militao", "fran garcía", "alaba",
+        "kroos",  # legacy mention
+        # Plantilla baloncesto (Real Madrid masculino basket)
+        "hezonja", "tavares", "campazzo", "llull", "rudy", "deck",
+        # Cuerpo técnico
+        "ancelotti", "xabi alonso", "xabi a.",
+        # Directivos / candidaturas
+        "florentino", "riquelme",
+        # Filiales / cantera (relevantes aunque limitar puede ser deseado)
+        "castilla", "fundación real madrid",
+    ),
+    "barcelona": (
+        "barcelona", "barça", "barca", "fcbarcelona", "fc barcelona",
+        "blaugrana", "culé", "cules", "camp nou", "spotify camp",
+        "lewandowski", "pedri", "gavi", "yamal", "lamine", "raphinha",
+        "ferran torres", "araújo", "araujo", "iñaki peña", "ter stegen",
+        "balde", "cubarsí", "cubarsi", "olmo", "frenkie de jong",
+        "flick", "deco", "laporta",
+    ),
+    "atlético": (
+        "atlético de madrid", "atletico de madrid", "atlético madrid",
+        "atletico madrid", "atleti", "rojiblanco", "rojiblancos", "metropolitano",
+        "griezmann", "morata", "koke", "oblak", "llorente", "de paul",
+        "lemar", "giménez", "gimenez", "molina", "witsel", "savic",
+        "simeone", "cholo",
+    ),
+    "atletico": (
+        "atlético de madrid", "atletico de madrid", "atlético madrid",
+        "atletico madrid", "atleti", "rojiblanco", "rojiblancos", "metropolitano",
+        "griezmann", "morata", "koke", "oblak", "simeone", "cholo",
+    ),
+}
+
+
+def _topic_keyword_guard(article: Dict, topic_name: str) -> bool:
+    """Determina si un artículo es relevante al topic según keywords en TÍTULO.
+
+    Solo aplica a topics con keywords definidas en TOPIC_KEYWORD_GUARDS
+    (típicamente clubes deportivos donde el ruido por menciones tangenciales
+    es alto).
+
+    Returns:
+        True  = el título menciona el club/jugador/staff → mantener
+        True  = topic sin guard configurado → mantener (no aplica)
+        False = el título no menciona nada del club → descartar (tangencial)
+    """
+    topic_norm = ''.join(
+        ch for ch in unicodedata.normalize('NFD', topic_name.lower())
+        if unicodedata.category(ch) != 'Mn'
+    ).strip()
+    keywords = None
+    for key, kws in TOPIC_KEYWORD_GUARDS.items():
+        key_norm = ''.join(
+            ch for ch in unicodedata.normalize('NFD', key)
+            if unicodedata.category(ch) != 'Mn'
+        )
+        if key_norm in topic_norm:
+            keywords = kws
+            break
+    if keywords is None:
+        return True  # Topic sin guard configurado → no filtramos
+    title_norm = ''.join(
+        ch for ch in unicodedata.normalize('NFD', article.get("titulo", "").lower())
+        if unicodedata.category(ch) != 'Mn'
+    )
+    return any(kw in title_norm for kw in keywords)
+
+
+def _fix_temporal_drift(text: str, news_item: Dict) -> str:
+    """Limpieza cosmética post-cache: elimina referencias temporales relativas
+    del LLM cuando van seguidas de fecha absoluta, y quita bloques "Por qué importa".
+
+    Casos cubiertos:
+    - "hoy, 17 de mayo de 2026" → "el 17 de mayo de 2026"
+    - "hoy 17 de mayo" → "el 17 de mayo"
+    - Bloque <p><b>Por qué importa:</b> ...</p> → eliminado
+    """
+    if not text:
+        return text
+
+    # Caso 1: "hoy" + fecha absoluta → quitar "hoy"
+    text = re.sub(
+        r'\bhoy\s*,?\s+(?=\d{1,2}\s+de\s+\w+)',
+        'el ',
+        text,
+        flags=re.IGNORECASE,
+    )
+    # Caso 2: eliminar bloque "Por qué importa" en HTML o texto plano.
+    # Cubre las redacciones cacheadas con bloque añadido por el prompt antiguo.
+    text = re.sub(
+        r'<p[^>]*>\s*<b>\s*Por\s+qu[éeè]\s+importa:?\s*</b>[\s\S]*?</p>',
+        '',
+        text,
+        flags=re.IGNORECASE,
+    )
+    # Fallback en texto plano (sin etiquetas) por si alguna redacción no es HTML
+    text = re.sub(
+        r'\n?\s*Por\s+qu[éeè]\s+importa:\s*[^\n]*',
+        '',
+        text,
+        flags=re.IGNORECASE,
+    )
+    return text
+
+
 def _sanitize_text_garbage(text) -> str:
-    """Limpia output corrupto del LLM redactor (BOMs, símbolos repetidos al final,
-    JSON garbage). Aplicado en orchestrator antes de renderizar para limpiar
-    también cache vieja redactada con bugs LLM."""
+    """Limpia output corrupto del LLM redactor en CUALQUIER posición:
+    BOMs, zero-width, control chars, JSON garbage al final, símbolos
+    repetidos, alternancias en medio del texto."""
     if not text or not isinstance(text, str):
         return text or ""
     s = text
-    # Strip BOM y zero-width chars
+    # 1. BOM y zero-width chars
     s = re.sub(r'[﻿￾​-‏‪-‮￰-￿︀-️]', '', s)
-    # Strip control chars (no \n \t \r)
+    # 2. Control chars (no \n \t \r)
     s = re.sub(r'[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]', '', s)
-    # JSON garbage al final (}}}}, ]]]}, }))
+    # 3. JSON garbage al final
     s = re.sub(r'(?:[\}\]\)]+\s*)+\s*$', '', s)
-    # Char repetido >5 veces
+    # 4. Char individual repetido >5 veces (en cualquier posición)
     s = re.sub(r'(.)\1{5,}', r'\1\1\1', s)
-    # Patrones cortos repetidos (alternancia tipo "}﬿}﬿")
-    m = re.search(r'([^\w\s]{1,4})\1{2,}', s)
-    if m:
-        s = s[:m.start()].rstrip()
+    # 5. Patrones cortos (1-4 chars no-alfanuméricos) repetidos ≥3 veces
+    #    EN CUALQUIER POSICIÓN (no solo al final). Ej: "}﬿}﬿}﬿" en medio.
+    s = re.sub(r'([^\w\s]{1,4})\1{2,}', '', s)
     return s.strip()
 
 
@@ -210,9 +528,8 @@ def _sanitize_html_garbage(html) -> str:
     s = re.sub(r'[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]', '', s)
     s = re.sub(r'(?:[\}\]\)]+\s*)+\s*$', '', s)
     s = re.sub(r'(.)\1{5,}', r'\1\1\1', s)
-    m = re.search(r'([^\w\s<>/]{1,4})\1{2,}', s)
-    if m:
-        s = s[:m.start()].rstrip()
+    # Patrones cortos no-alfanuméricos (excluyendo tags HTML <>/) en cualquier pos
+    s = re.sub(r'([^\w\s<>/]{1,4})\1{2,}', '', s)
     return s.strip()
 
 
@@ -248,6 +565,10 @@ EJEMPLOS:
 - "quiero tenis y fútbol masculino pero baloncesto femenino" → [{{"name":"tenis","rule":""}},{{"name":"fútbol","rule":"solo masculino"}},{{"name":"baloncesto","rule":"solo femenino"}}]
 - "Real Madrid, tenis (Alcaraz y Jódar), padel" → [{{"name":"Real Madrid","rule":""}},{{"name":"tenis","rule":"preferir Alcaraz y Jódar"}},{{"name":"padel","rule":""}}]
 - "Solo quiero noticias de fútbol masculino" → [{{"name":"fútbol","rule":"solo masculino"}}]
+- TOPIC "Real Madrid" + CONTEXTO "Solo quiero noticias de futbol masculino"
+  → [{{"name":"Real Madrid","rule":"solo fútbol masculino, NO baloncesto, NO femenino"}}]
+  ⚠️ Si el usuario menciona DISCIPLINA específica (fútbol, tenis), CAPTÚRALA
+  en la rule. NO pierdas la disciplina dejando solo "solo masculino".
 - "Fuentes preferidas: Marca, AS" → []
 - "Solo masculino" → []
 - "F1 y MotoGP, no coches eléctricos" → [{{"name":"F1","rule":"no coches eléctricos"}},{{"name":"MotoGP","rule":"no coches eléctricos"}}]
@@ -532,6 +853,12 @@ class Orchestrator:
         title = _sanitize_text_garbage(news_item.get("titulo", ""))
         body = _sanitize_html_garbage(news_item.get("noticia", ""))
 
+        # Corrección temporal post-cache: si el LLM redactó "hoy" referenciando
+        # la fecha de INGESTA, ese "hoy" queda desfasado cuando el briefing se
+        # lee horas después. Reemplazamos por la fecha absoluta del evento.
+        title = _fix_temporal_drift(title, news_item)
+        body = _fix_temporal_drift(body, news_item)
+
         image_url = news_item.get("imagen_url", "")
         sources = news_item.get("fuentes", [])
 
@@ -594,52 +921,76 @@ class Orchestrator:
         </div>
         '''
 
-    async def _generate_pexels_queries_llm(self, articles: List[Dict]) -> Dict[int, str]:
-        """Genera queries de búsqueda VISUAL de Pexels para una lista de artículos
-        usando una sola llamada LLM batch.
+    async def _generate_pexels_queries_llm(self, articles: List[Dict]) -> Dict[int, Dict[str, str]]:
+        """Genera DOS queries por artículo (específica + genérica) para Pexels.
 
-        Devuelve {idx_articulo: "query en inglés"}. Coste: 1 call Mistral free tier
-        para todo el lote (~300 tokens output). Se llama una vez por briefing.
+        Devuelve {idx: {"specific": "...", "generic": "..."}}.
+        - SPECIFIC: incluye nombres propios reconocibles (atletas, políticos,
+          ciudades, marcas) → busca foto literal del protagonista.
+        - GENERIC: solo el concepto visual sin nombres → fallback si Pexels
+          no encuentra fotos del protagonista (común para personas menos famosas).
 
-        El LLM extrae el TEMA VISUAL real (no keywords del título) para que Pexels
-        devuelva fotos coherentes:
-        - "Rally tecnológico impulsa Wall Street" → "stock market trading floor"
-        - "Legora levanta 50 millones" → "business meeting investment"
-        - "BCE mantiene tipos" → "european central bank frankfurt"
+        Pipeline de búsqueda usa SPECIFIC primero; si no hay match landscape de
+        calidad, cae a GENERIC. Una sola llamada LLM batch (~500 tokens output).
         """
         if not articles:
             return {}
 
         articles_input = ""
         for i, a in enumerate(articles):
-            title = a.get("titulo", "")[:150]
-            resumen = a.get("resumen", "")[:200]
+            title = a.get("titulo", "")[:180]
+            resumen = a.get("resumen", "")[:300]
             articles_input += f"ID {i}: {title} | {resumen}\n"
 
         prompt = f"""You generate Pexels stock-photo SEARCH QUERIES for news articles.
 
-For each article, output 2-4 ENGLISH keywords that describe the VISUAL TOPIC
-of the news (NOT the literal article title). The keywords must produce a
-photo that visually matches what the article is ACTUALLY about.
+For EACH article, output TWO queries in ENGLISH:
+1. "specific": includes the NAMED protagonist + visual context (sport, action, location)
+2. "generic": ONLY the visual concept, NO names — used as fallback if Pexels has
+   no photo of the named person.
+
+WHY TWO QUERIES:
+- Pexels has photos of MANY athletes/politicians/celebrities, but not all.
+- Trying the specific first gets a much better match when available.
+- Generic is the safety net so the photo at least matches the topic.
+
+EXAMPLES:
+- "Sinner gana Roland Garros sobre tierra batida"
+  → specific: "Jannik Sinner tennis clay court"
+  → generic: "tennis player clay court victory"
+- "Alcaraz lesión muñeca antes del Masters"
+  → specific: "Carlos Alcaraz tennis injury"
+  → generic: "tennis player wrist injury"
+- "Verstappen gana GP Mónaco"
+  → specific: "Max Verstappen formula 1 monaco"
+  → generic: "formula 1 race monaco circuit"
+- "Putin amenaza a la OTAN"
+  → specific: "Vladimir Putin kremlin"
+  → generic: "russian flag kremlin moscow"
+- "BCE mantiene tipos en 4%"
+  → specific: "Lagarde european central bank"
+  → generic: "european central bank frankfurt"
+- "Legora levanta 50M en serie B"  (startup desconocida)
+  → specific: "business meeting startup investment"  (no incluyas "Legora", Pexels no la tiene)
+  → generic: "business meeting startup investment"
 
 RULES:
-- Output English ALWAYS (Pexels English search has best results).
-- Focus on the SUBJECT: company office, stock exchange, ECB building, tennis match, etc.
-- AVOID literal title words that mislead Pexels:
-  · "Rally tecnológico" (= tech stocks rally) → "stock market trading"
-    (NOT "rally car" — that's literal but wrong)
-  · "Legora levanta 50M" (= legal startup funding round) → "business meeting investment"
-    (NOT "Legora" — Pexels doesn't know that name)
-  · "BCE mantiene tipos" → "european central bank frankfurt"
-  · "Alcaraz lesión muñeca" → "tennis player injury"
-- For famous entities (Real Madrid, Wall Street, Putin) you CAN use the literal name.
-- For unknown company/person names, use the GENERIC concept (startup, executive, scientist).
+- Output English ALWAYS (Pexels best search results).
+- For famous individuals (athletes, world leaders, A-list celebs) → put their name in "specific".
+- For unknown companies/persons → "specific" = "generic" (no point adding name Pexels doesn't recognize).
+- Use the FULL article context (title + summary) to pick the BEST visual angle.
+- If the news is about a victory → include "victory" / "celebration" / "trophy".
+- If it's an injury → "injury" / "hospital" / "doctor".
+- If it's a press conference → "press conference" / "microphone".
 
 Articles:
 {articles_input}
 
-Return JSON only with a SINGLE STRING per id (NOT a list):
-{{"queries": {{"0": "stock market trading floor", "1": "business meeting startup", ...}}}}"""
+Return JSON only:
+{{"queries": {{
+  "0": {{"specific": "Jannik Sinner tennis clay court", "generic": "tennis player clay court"}},
+  "1": {{"specific": "...", "generic": "..."}}
+}}}}"""
 
         try:
             response = await self.processor.client.chat.completions.create(
@@ -649,51 +1000,60 @@ Return JSON only with a SINGLE STRING per id (NOT a list):
             )
             result = json.loads(response.choices[0].message.content)
             raw = result.get("queries", {}) or {}
-            out: Dict[int, str] = {}
+            out: Dict[int, Dict[str, str]] = {}
             for k, v in raw.items():
                 try:
                     idx = int(k)
                 except Exception:
                     continue
-                # LLM puede devolver string o lista. Aceptar ambos.
-                if isinstance(v, list) and v:
-                    q = str(v[0]).strip()
-                else:
-                    q = str(v).strip()
-                if q and 0 <= idx < len(articles):
-                    out[idx] = q
+                if 0 <= idx < len(articles) and isinstance(v, dict):
+                    specific = str(v.get("specific", "")).strip()
+                    generic = str(v.get("generic", "")).strip()
+                    # Fallback retro-compatible si el LLM devolvió string puro
+                    if not specific and not generic and isinstance(v, str):
+                        specific = generic = v.strip()
+                    if specific or generic:
+                        out[idx] = {"specific": specific, "generic": generic or specific}
+                elif 0 <= idx < len(articles) and isinstance(v, str):
+                    # Retro-compat: si vino como string puro
+                    s = v.strip()
+                    out[idx] = {"specific": s, "generic": s}
             return out
         except Exception as e:
             self.logger.warning(f"Pexels LLM query gen failed: {e}. Fallback a títulos crudos.")
             return {}
 
-    async def _pexels_search(self, query: str) -> str:
-        """Búsqueda Pexels HTTP. Devuelve URL de la primera foto landscape o ''."""
+    async def _pexels_search(self, query: str, per_page: int = 1) -> List[str]:
+        """Búsqueda Pexels HTTP. Devuelve lista de URLs (hasta per_page) o []."""
         api_key = os.getenv("PEXELS_API_KEY", "")
         if not api_key or not query:
-            return ""
-        url = f"https://api.pexels.com/v1/search?query={quote_plus(query)}&per_page=1&orientation=landscape"
+            return []
+        url = (f"https://api.pexels.com/v1/search?query={quote_plus(query)}"
+               f"&per_page={per_page}&orientation=landscape")
         try:
             async with aiohttp.ClientSession() as session:
                 async with session.get(url, headers={"Authorization": api_key},
                                        timeout=aiohttp.ClientTimeout(total=5)) as resp:
                     if resp.status != 200:
-                        return ""
+                        return []
                     data = await resp.json()
-                    photos = data.get("photos", [])
-                    if photos:
-                        return photos[0].get("src", {}).get("medium", "")
+                    photos = data.get("photos", []) or []
+                    urls = [p.get("src", {}).get("medium", "") for p in photos]
+                    return [u for u in urls if u]
         except Exception as e:
             self.logger.debug(f"Pexels search failed for '{query}': {e}")
-        return ""
+        return []
 
     async def _fetch_missing_images(self, articles: List[Dict]) -> None:
         """Pre-fetch Pexels images para artículos sin foto.
 
         Pipeline:
         1. Identifica artículos sin imagen.
-        2. UNA llamada LLM batch para generar queries visuales en inglés.
-        3. Búsqueda Pexels en paralelo con esos queries.
+        2. UNA llamada LLM batch para generar 2 queries por artículo
+           (specific con nombre + generic sin nombre).
+        3. Búsqueda Pexels en paralelo:
+           a) Intenta con specific (incluye protagonistas como Sinner, Verstappen).
+           b) Si no hay foto, cae a generic.
         Modifica los dicts in-place.
         """
         missing = [(i, a) for i, a in enumerate(articles)
@@ -702,19 +1062,29 @@ Return JSON only with a SINGLE STRING per id (NOT a list):
             return
         self.logger.info(f"🖼️ Generando queries Pexels para {len(missing)} artículos...")
 
-        # Batch LLM call para generar queries visuales
+        # Batch LLM call: genera SPECIFIC + GENERIC por artículo
         missing_articles = [a for _, a in missing]
         queries_map = await self._generate_pexels_queries_llm(missing_articles)
 
-        # Búsqueda Pexels en paralelo
-        async def _search_one(i: int, art: Dict) -> str:
-            q = queries_map.get(i, "")
-            if not q:
-                # Fallback: título crudo si el LLM no generó query
-                q = art.get("titulo", "")[:60]
-            return await self._pexels_search(q)
+        # Búsqueda Pexels en paralelo: specific PRIMERO, fallback a generic
+        async def _search_one(local_idx: int, art: Dict) -> str:
+            qs = queries_map.get(local_idx, {})
+            specific = qs.get("specific") or art.get("titulo", "")[:60]
+            generic = qs.get("generic") or specific
 
-        tasks = [_search_one(i, a) for i, (_, a) in enumerate(missing)]
+            # Intento 1: SPECIFIC (con nombre del protagonista)
+            urls = await self._pexels_search(specific, per_page=1)
+            if urls:
+                return urls[0]
+            # Intento 2: GENERIC (solo concepto visual) — solo si specific != generic
+            if generic and generic.lower() != specific.lower():
+                self.logger.debug(f"Pexels: '{specific}' sin resultados, fallback a genérica '{generic}'")
+                urls = await self._pexels_search(generic, per_page=1)
+                if urls:
+                    return urls[0]
+            return ""
+
+        tasks = [_search_one(local_i, a) for local_i, (_, a) in enumerate(missing)]
         results = await asyncio.gather(*tasks, return_exceptions=True)
         found = 0
         for (idx, art), result in zip(missing, results):
@@ -772,10 +1142,27 @@ Return JSON only with a SINGLE STRING per id (NOT a list):
             except Exception:
                 return None
 
+        def _is_post_event(art: Dict) -> bool:
+            """Heurística: artículo describe el evento YA OCURRIDO (con resultado)."""
+            t = (art.get("titulo", "") + " " + art.get("resumen", "")[:300]).lower()
+            post_words = [
+                "venció", "vence", "ganó", "gana", "perdió", "pierde",
+                "empató", "empata", "goleó", "se impuso", "victoria",
+                "derrota", "marcador", "remontada", "triunfó", "triunfa",
+                "tras vencer", "tras derrotar", "ganador", "campeón",
+                "fin del partido", "termina con", " 0-", " 1-", " 2-",
+                " 3-", " 4-", " 5-", " 6-",
+            ]
+            return any(p in t for p in post_words)
+
+        # Orden: primero post-event (resultado), luego por fecha desc.
+        # Así si hay duplicados del mismo evento, conservamos el del resultado.
         sorted_arts = sorted(
             articles,
-            key=lambda a: a.get("published_at") or a.get("fecha_inventariado", ""),
-            reverse=True
+            key=lambda a: (
+                not _is_post_event(a),  # False (post-event) primero
+                -(_parse_date(a).timestamp() if _parse_date(a) else 0),
+            ),
         )
         kept = []
         kept_data = []  # [(entities, date, title)]
@@ -834,28 +1221,39 @@ Return JSON only with a SINGLE STRING per id (NOT a list):
         for i, (cat, _url, title, resumen, _pub) in enumerate(flat):
             items_input += f"ID {i} [{cat}]: {title} | {resumen}\n"
 
-        prompt = f"""Detecta artículos sobre el MISMO EVENTO de noticia en este briefing.
+        prompt = f"""Detecta artículos REDUNDANTES en este briefing.
 
 Artículos:
 {items_input}
 
-REGLAS:
-- "Mismo evento" = misma decisión, anuncio, partido, hecho concreto. NO basta con
-  compartir entidad principal: BCE habla todos los días, pero "BCE sube tipos" y
-  "BCE comenta inflación" son eventos distintos.
-- Variaciones del MISMO evento (distinto ángulo, fuente, redacción): SÍ duplicado.
-  Ej: "BCE mantiene tipos sin cambios" + "BCE deja tipos al 2% pese a inflación" → mismo evento.
-- Eventos relacionados pero distintos: NO duplicado.
+CRITERIOS DE DUPLICADO (marcar como redundante):
+- Mismo hecho + información sustancialmente IGUAL (datos parecidos, mismo
+  desarrollo, mismas conclusiones). Aunque cambien titular o redacción,
+  si lo que CUENTAN es prácticamente lo mismo → DUPLICADO.
+  Ej: "Madrid pierde 76-69 ante Hapoel" + "Real Madrid sufre derrota ante Hapoel" → DUPLICADO.
+  Ej: "Banda rusa Karakurt sancionada por DOJ" + "DOJ acusa a Karakurt de ataques" → DUPLICADO.
 
-Devuelve SOLO los grupos donde haya ≥2 IDs sobre el mismo evento. Si no hay ninguno, lista vacía.
+CRITERIOS PARA NO MARCAR DUPLICADO (mantener ambos SOLO si):
+- Aportan INFORMACIÓN COMPLEMENTARIA SUSTANCIAL: datos numéricos distintos,
+  citas distintas, ángulo de causa vs consecuencia con análisis profundo,
+  reacción de un actor totalmente nuevo. NO basta con un detalle distinto.
+- Eventos relacionados pero claramente DIFERENTES (sujetos distintos, fechas
+  distintas, decisiones distintas).
+
+REGLA DE ORO: ante la duda, MARCAR COMO DUPLICADO. Es mejor un briefing más
+limpio sin redundancia que dos noticias casi iguales.
+
+Devuelve TODOS los grupos donde la información sustancialmente coincide.
 
 JSON: {{"duplicate_groups": [[0, 5], [3, 7, 11]]}}"""
 
         try:
-            response = await self.processor.client.chat.completions.create(
-                model=self.processor.model_fast,
+            from src.utils.llm_quality import call_quality_llm
+            response = await call_quality_llm(
+                self.processor,
                 messages=[{"role": "user", "content": prompt}],
                 response_format={"type": "json_object"},
+                label="dedup_briefing",
             )
             result = json.loads(response.choices[0].message.content)
             groups = result.get("duplicate_groups", []) or []
@@ -982,10 +1380,12 @@ EJEMPLOS:
 JSON only: {{"classifications": {{"0": "F1", "1": "Lakers", "2": "", "3": "padel", ...}}}}"""
 
             try:
-                response = await self.processor.client.chat.completions.create(
-                    model=self.processor.model_fast,
+                from src.utils.llm_quality import call_quality_llm
+                response = await call_quality_llm(
+                    self.processor,
                     messages=[{"role": "user", "content": prompt}],
                     response_format={"type": "json_object"},
+                    label="subtopic_classifier",
                 )
                 result = json.loads(response.choices[0].message.content)
                 classif = result.get("classifications", {}) or {}
@@ -1020,6 +1420,35 @@ JSON only: {{"classifications": {{"0": "F1", "1": "Lakers", "2": "", "3": "padel
 
         return result_map
 
+    @staticmethod
+    def _is_weak_editorial(article: Dict) -> bool:
+        """Code-level guard: detecta contenido editorial débil que el LLM filter
+        a veces deja pasar pese a las reglas. Heurística por título."""
+        title = (article.get("titulo", "") or "").lower()
+        # Recetas: "menú semanal", "cómo preparar X", "ingredientes para Y"
+        recipe_patterns = ["menú semanal", "menu semanal", "receta", "recetas",
+                           "cómo preparar", "como preparar", "ingredientes para",
+                           "preparación de", "preparacion de"]
+        if any(p in title for p in recipe_patterns):
+            return True
+        # Listicles: "5 hábitos", "los 10 mejores", "trucos para", "lo que no sabías"
+        listicle_patterns = ["trucos para", "trucos de", "lo que no sabías", "lo que no sabias",
+                             "secretos de", "secreto de", "secreto para",
+                             "claves para", "consejos para",
+                             "razones por las que", "razones para", "lo que debes saber"]
+        if any(p in title for p in listicle_patterns):
+            return True
+        # Numbered listicles ("5 hábitos", "10 mejores")
+        if re.search(r'\b(?:los\s+)?\d{1,2}\s+(?:hábitos|habitos|mejores|peores|claves|trucos|tips|consejos|errores|secretos|formas|maneras|razones|cosas|alimentos|ejercicios|trucos)', title):
+            return True
+        # Lifestyle/motivacional: "dejé mi trabajo a los", "vivo con menos"
+        lifestyle_patterns = ["dejé mi trabajo", "deje mi trabajo", "vivo con menos",
+                              "mi rutina", "mi día perfecto", "mi dia perfecto",
+                              "mi historia de", "soy nómada", "soy nomada"]
+        if any(p in title for p in lifestyle_patterns):
+            return True
+        return False
+
     async def _filter_by_user_rules(self, topic: str, news_list: List[Dict],
                                      user_context: str, subtopics: list = None,
                                      subtopic_rules: list = None) -> List[Dict]:
@@ -1029,6 +1458,30 @@ JSON only: {{"classifications": {{"0": "F1", "1": "Lakers", "2": "", "3": "padel
         subtopic_rules: [{"name": "tenis", "rule": ""}, {"name": "fútbol", "rule": "solo masculino"}]
         Coste: 1 llamada Mistral/topic (free tier). ~500-800 tokens/call.
         """
+        if not news_list:
+            return news_list
+
+        # Code-level guard: filtra contenido editorial débil (recetas, listicles,
+        # lifestyle) ANTES del LLM. Aplicable a cualquier topic. El LLM ignora
+        # estas reglas a veces, así que las hardcodeamos defensivamente.
+        before_guard = len(news_list)
+        news_list = [n for n in news_list if not self._is_weak_editorial(n)]
+        if len(news_list) < before_guard:
+            print(f"      🚫 Code-guard '{topic}': descartadas {before_guard - len(news_list)} (recetas/listicles/lifestyle)")
+
+        # Topic-keyword guard: para topics de club (Real Madrid, Barça, Atlético…)
+        # descartar artículos cuyo TÍTULO no menciona el club ni un jugador/staff
+        # conocido — son menciones tangenciales que el embedding dejó pasar.
+        # No-op para topics sin keywords configuradas en TOPIC_KEYWORD_GUARDS.
+        before_kw = len(news_list)
+        news_list = [n for n in news_list if _topic_keyword_guard(n, topic)]
+        if len(news_list) < before_kw:
+            print(f"      🎯 Topic-keyword guard '{topic}': descartadas {before_kw - len(news_list)} (mención tangencial)")
+
+        # Filtro de obsoletos: SE EJECUTA AHORA EN `_select_top_3_cached`,
+        # independiente del contexto del usuario (antes estaba aquí dentro y
+        # solo corría cuando el topic tenía contexto en Firestore).
+
         if not user_context or not news_list:
             return news_list
 
@@ -1055,7 +1508,10 @@ JSON only: {{"classifications": {{"0": "F1", "1": "Lakers", "2": "", "3": "padel
             subtopics_list = ", ".join(subtopics)
             rules_section = f"SUBTOPICS: [{subtopics_list}]\nTODA noticia de cualquiera de estos subtopics es válida.\n"
 
-        prompt = f"""Eres un filtro PERMISIVO de noticias para el topic "{topic}".
+        _now = datetime.now().strftime("%A, %d de %B de %Y, %H:%M (zona Madrid)")
+        prompt = f"""FECHA Y HORA ACTUAL: {_now}
+
+Eres un filtro PERMISIVO de noticias para el topic "{topic}".
 
 CONTEXTO ORIGINAL DEL USUARIO: "{user_context}"
 
@@ -1063,12 +1519,11 @@ CONTEXTO ORIGINAL DEL USUARIO: "{user_context}"
 Artículos candidatos:
 {articles_input}
 
-REGLAS CRÍTICAS:
+REGLAS CRÍTICAS — POLÍTICA DEFAULT-INCLUDE:
 
-1. POR DEFECTO: TODA noticia de CUALQUIER subtopic es VÁLIDA.
-   La fila "Subtopics con reglas individuales" lista todos los subtopics que el
-   usuario quiere recibir. Cualquier noticia que trate sobre uno de ellos pasa
-   directamente, salvo que viole una regla EXPLÍCITA y CLARA.
+1. POR DEFECTO: TODA noticia de CUALQUIER subtopic es VÁLIDA. Tu trabajo es
+   rechazar ÚNICAMENTE las que CLARAMENTE violan una regla. En cualquier otra
+   situación, INCLUIR.
 
 2. Las reglas individuales SOLO aplican a SU PROPIO subtopic, NUNCA cruzan:
    - "Real Madrid: solo masculino" → SOLO afecta noticias de Real Madrid.
@@ -1081,9 +1536,27 @@ REGLAS CRÍTICAS:
 4. "solo masculino" = excluye SOLO femenino EXPLÍCITO en ese subtopic.
    ⚠️ Por defecto, fútbol/baloncesto/tenis sin género especificado = MASCULINO.
    El fútbol "Liga", "Champions", "Sevilla-Madrid", "Castilla", "filial",
-   "cantera" → MASCULINO por defecto. NO excluir.
+   "cantera", noticias de jugadores con apellidos como "Mendy", "Carvajal",
+   "Vinicius" → MASCULINO por defecto. NO excluir.
    SOLO excluir si el título dice EXPLÍCITAMENTE "femenino", "femenina",
    "Women", "WTA" (en deportes mixtos), "Liga F", etc.
+   NUNCA INFIERAS género femenino sin keyword EXPLÍCITO en el texto.
+
+5. ✅ NOTICIAS ADMINISTRATIVAS/COMENTARIO/ANÁLISIS del subtopic = VÁLIDAS.
+   Ej: noticia de FIA en F1, comentarista de F1 (Brundle), análisis táctico
+   del Real Madrid, entrevista a entrenador, traspaso, lesión de jugador,
+   declaraciones de presidente del club, decisiones de la liga. TODO ES VÁLIDO.
+   NO excluyas por "no es deporte directo" o "es administrativa".
+
+6. ❌ EXCLUIR contenido editorial DÉBIL (siempre, en cualquier topic):
+   - Recetas de cocina ("menú semanal", "cómo preparar X", "ingredientes para Y").
+     Una receta NUNCA es una noticia, aunque mencione un alimento saludable.
+   - Listicles/clickbait ("5 hábitos de", "los 10 mejores", "trucos para",
+     "lo que no sabías de", "secreto para").
+   - Lifestyle/motivacional ("dejé mi trabajo a los 26", "vivo con menos",
+     "mi rutina perfecta").
+   - Opinión personal sin datos verificables.
+   - Promo de producto disfrazada de noticia (review, comparativa de gadgets).
 
 5. RECONOCIMIENTO DE SUBTOPICS — sé generoso:
    - "F1" cubre: Fórmula 1, Ferrari, McLaren, Mercedes, Red Bull, Verstappen,
@@ -1096,8 +1569,12 @@ REGLAS CRÍTICAS:
      mención explícita de "femenino".
    - "tenis" cubre: TODO tenis (ATP, WTA, Masters, Roland Garros, jugador X).
 
-6. ANTE LA DUDA → NO EXCLUYAS. Solo marca como inválido lo que CLARAMENTE no
-   trate sobre ningún subtopic, o que viole EXPLÍCITAMENTE una regla.
+6. ⏰ TEMPORAL: si la noticia anuncia un evento FUTURO (partido, anuncio, mitin)
+   con fecha que YA HA PASADO según la fecha actual de arriba → EXCLUIR (obsoleto).
+   Ej: hoy es 4-may; noticia dice "Madrid-Espanyol el 3-may" → excluir.
+
+7. ANTE LA DUDA → NO EXCLUYAS. Solo marca como inválido lo que CLARAMENTE no
+   trate sobre ningún subtopic, viole EXPLÍCITAMENTE una regla, o sea obsoleto.
 
 Marca los IDs que violan las reglas (deben ser POCOS). Si ninguno viola, lista vacía.
 
@@ -1141,6 +1618,20 @@ JSON only: {{"invalid_ids": [1, 3], "reasons": {{"1": "...", "3": "..."}}}}
         if user_contexts:
             contexts_joined = " ".join(str(c) for c in user_contexts if c).lower()
 
+        # --- STEP 0: Obsolete filter (siempre, independiente de contexto) ---
+        # Descarta artículos cuya información ha quedado caducada al momento de
+        # la entrega del briefing (previews de eventos ya ocurridos sin resultado,
+        # escrutinios parciales obsoletos, sondeos previos al cierre, etc.).
+        # 1 call Mistral free tier por topic (batch de 25 artículos).
+        # Corre siempre que haya >1 artículo: un único obsoleto entre pocos es
+        # peor que ninguno (rellena la sección con basura). Fail-open ya cubre
+        # el caso de LLM fallido.
+        if len(news_list) > 1:
+            before_obsolete = len(news_list)
+            news_list = await _filter_obsolete_with_llm(news_list, self.processor)
+            if len(news_list) < before_obsolete:
+                print(f"      ⏰ Obsolete-LLM guard '{topic}': descartadas {before_obsolete - len(news_list)} obsoletas")
+
         # --- STEP 1: Universal semantic rule filter (LLM with per-subtopic rules) ---
         if contexts_joined.strip():
             original_context = " ".join(str(c) for c in (user_contexts or []) if c)
@@ -1160,31 +1651,68 @@ JSON only: {{"invalid_ids": [1, 3], "reasons": {{"1": "...", "3": "..."}}}}
         if len(news_list) <= max_count:
             return news_list
 
-        # --- Extract preferred source domains from context ---
+        # --- Extract preferred source domains AND entities from context ---
+        # Domains: medios concretos (El Confidencial, Libertad Digital...).
+        # Entities: personas/equipos/productos (Alcaraz, Jódar, Carlos Sainz...).
+        # Ambos se fuerzan en el resultado si están disponibles.
         _pref_domains = _resolve_preferred_domains(contexts_joined)
+        # IMPORTANTE: usar el contexto ORIGINAL (no lowercased) para entities,
+        # porque la detección depende de la capitalización de nombres propios.
+        _original_ctx = " ".join(str(c) for c in (user_contexts or []) if c)
+        _pref_entities = _resolve_preferred_entities(_original_ctx)
 
-        # --- Force preferred-source articles ---
-        # Collects ALL available articles from preferred sources (up to max_count).
-        # If there are enough preferred-source articles to fill the slots, we ONLY
-        # use preferred sources — no external media completes the selection.
-        # If not enough, the LLM fills remaining slots from the full pool.
+        # --- Force preferred articles (sources + entities) ---
+        # Etapa 1: forzar ≥1 artículo por entidad preferida nombrada en título/resumen.
+        # Etapa 2: forzar artículos de fuentes preferidas (1 por dominio único).
+        # Si entre ambas etapas se cubren los slots, no se llama al LLM.
         forced_articles = []
+        forced_urls: set = set()
         remaining_articles = list(news_list)
-        used_domains = set()  # Ensure source diversity in forced articles
-        if _pref_domains:
+        used_domains = set()  # Diversidad de fuentes en forced
+        covered_entities: set = set()
+
+        # ETAPA 1: entidades preferidas (Alcaraz, Jódar, Sainz...)
+        # Garantiza ≥1 noticia por entidad mencionada en el contexto, si existe.
+        if _pref_entities:
             for n in news_list:
+                if len(forced_articles) >= max_count:
+                    break
+                title_l = n.get("titulo", "").lower()
+                summary_l = n.get("resumen", "").lower()
+                for ent in _pref_entities:
+                    if ent in covered_entities:
+                        continue
+                    if ent in title_l or ent in summary_l:
+                        # Evitar duplicar fuente
+                        first_url = (n.get("fuentes") or [""])[0]
+                        first_domain = urlparse(first_url).netloc.lower().replace("www.", "") if first_url else ""
+                        if first_domain and first_domain in used_domains:
+                            continue
+                        forced_articles.append(n)
+                        forced_urls.add(n.get("url"))
+                        used_domains.add(first_domain)
+                        covered_entities.add(ent)
+                        break
+            remaining_articles = [n for n in news_list if n.get("url") not in forced_urls]
+            if covered_entities:
+                print(f"      🎯 Entidades preferidas forzadas: {covered_entities}")
+
+        # ETAPA 2: dominios preferidos (medios)
+        if _pref_domains and len(forced_articles) < max_count:
+            for n in remaining_articles[:]:
+                if len(forced_articles) >= max_count:
+                    break
                 for src_url in n.get("fuentes", []):
                     src_domain = urlparse(src_url).netloc.lower().replace("www.", "")
                     if src_domain in _pref_domains and src_domain not in used_domains:
                         forced_articles.append(n)
+                        forced_urls.add(n.get("url"))
                         remaining_articles.remove(n)
                         used_domains.add(src_domain)
                         break
-                if len(forced_articles) >= max_count:
-                    break
             # If preferred sources cover all slots, return directly (no external media)
             if len(forced_articles) >= max_count:
-                print(f"      🎯 Fuentes preferidas cubren los {max_count} slots — sin medios externos")
+                print(f"      🎯 Fuentes/entidades preferidas cubren los {max_count} slots — sin medios externos")
                 return forced_articles[:max_count]
 
         # --- LLM selects the rest ---
@@ -1204,6 +1732,16 @@ JSON only: {{"invalid_ids": [1, 3], "reasons": {{"1": "...", "3": "..."}}}}
 
         source_pref_str = ""
         if contexts_joined.strip():
+            entities_hint = ""
+            if _pref_entities:
+                entities_hint = (
+                    f"   - 🌟 ENTIDADES PREFERIDAS detectadas: {sorted(_pref_entities)}.\n"
+                    f"     STRONG PRIORITY: si un artículo trata sobre estas entidades\n"
+                    f"     (mencionadas en título o resumen), SELECT it over otherwise-similar\n"
+                    f"     articles. Solo elige otras entidades cuando no haya artículos\n"
+                    f"     disponibles de las preferidas o cuando la cobertura del subtopic\n"
+                    f"     lo exija (ej: la entidad preferida no juega ese torneo).\n"
+                )
             source_pref_str = (
                 f"\n🚫 HARD USER RULES (Firestore topic context) — NON-NEGOTIABLE:\n"
                 f'   "{contexts_joined}"\n'
@@ -1214,6 +1752,7 @@ JSON only: {{"invalid_ids": [1, 3], "reasons": {{"1": "...", "3": "..."}}}}
                 f'     is not in the title.\n'
                 f'   - Example: rule "no moda" → EXCLUDE fashion/runway/outfit articles.\n'
                 f"   - Example: preferred media named → PREFER those sources.\n"
+                f"{entities_hint}"
                 f"   - If fewer than {llm_count} articles pass the rules, return FEWER — do not\n"
                 f"     relax the rules to fill slots.\n"
             )
@@ -1244,11 +1783,21 @@ JSON only: {{"invalid_ids": [1, 3], "reasons": {{"1": "...", "3": "..."}}}}
         Select the {llm_count} most relevant news for topic "{topic}".
         {source_pref_str}{subtopics_str}{topic_emphasis_str}
         SELECTION CRITERIA (in priority order):
-        1. HIGH IMPACT & TRENDING: Choose news that are generating the most debate, that are breaking news, that affect many people, or that represent major developments. Avoid minor/local news when bigger stories exist.
-        2. DIRECTLY about "{topic}" - not tangential.
-        3. SOURCE DIVERSITY: Pick articles from DIFFERENT media outlets. NEVER select 2 articles from the same source domain. This is a HARD rule.
-        4. NO DUPLICATES: If two articles cover the same event, pick only the best one.
-        5. TODAY'S NEWS FIRST. Post-event results over previews.
+        1. ⚠️ BREAKING NEWS — MÁXIMA PRIORIDAD ABSOLUTA: si una noticia describe un
+           evento de impacto mayor (ataque militar, declaración de guerra, atentado
+           con víctimas, decisión gubernamental trascendental, muerte de líder,
+           crisis humanitaria, derrota electoral histórica, colapso económico),
+           DEBE estar en el top {llm_count}. NUNCA descartes breaking news a favor
+           de análisis o noticias menores. Indicadores: "ataque", "guerra", "muerto",
+           "atentado", "crisis", "emergencia", "histórico", "récord", "primer", "denuncia".
+        2. HIGH IMPACT & TRENDING: noticias con repercusión amplia, tendencia,
+           que afectan a muchas personas o representan desarrollos mayores. Evita
+           noticias menores/locales cuando hay historias más grandes disponibles.
+        3. DIRECTLY about "{topic}" — not tangential.
+        4. SOURCE DIVERSITY: pick articles from DIFFERENT media outlets. NEVER
+           select 2 articles from the same source domain. HARD rule.
+        5. NO DUPLICATES: si dos artículos cubren el mismo evento, escoge solo el mejor.
+        6. TODAY'S NEWS FIRST. Post-event results over previews.
 
         DISCARD: tangential articles, promotional content, previews if results exist, minor local news, and anything violating the HARD USER RULES above.
         If fewer than {llm_count} articles are truly relevant, return fewer.
@@ -1259,10 +1808,12 @@ JSON only: {{"invalid_ids": [1, 3], "reasons": {{"1": "...", "3": "..."}}}}
         """
 
         try:
-            response = await self.processor.client.chat.completions.create(
-                model=self.processor.model_fast,
+            from src.utils.llm_quality import call_quality_llm
+            response = await call_quality_llm(
+                self.processor,
                 messages=[{"role": "user", "content": prompt}],
-                response_format={"type": "json_object"}
+                response_format={"type": "json_object"},
+                label="top_n_selector",
             )
             result = json.loads(response.choices[0].message.content)
             ids = result.get("selected_ids", [])
@@ -1494,30 +2045,109 @@ JSON only: {{"invalid_ids": [1, 3], "reasons": {{"1": "...", "3": "..."}}}}
 
         return selected
 
+    @staticmethod
+    def _looks_like_lang(text: str, lang: str) -> bool:
+        """Heurístico cheap (sin LLM) para detectar si `text` está en `lang`.
+
+        Devuelve True si hay marcadores fuertes del idioma. Devuelve False si
+        hay marcadores fuertes de OTRO idioma o si no hay señal clara.
+
+        Pensado como pre-filtro: si todos los títulos de un briefing pasan
+        `_looks_like_lang(title, user_lang)`, podemos saltarnos la llamada
+        LLM de detect+translate.
+        """
+        if not text or len(text) < 6:
+            return False
+        import re as _re
+        t = text.lower()
+        # Tokens-palabra (mínimo 2 chars). Filtramos puntuación.
+        tokens = set(_re.findall(r"\b[\w\xc0-\xff]+\b", t))
+
+        # Marcadores fuertes ESPAÑOLES: caracteres exclusivos + palabras función.
+        es_chars = bool(_re.search(r"[ñ¿¡áéíóúü]", t))
+        es_words = {"el", "la", "los", "las", "que", "del", "de", "en", "con",
+                    "por", "para", "sobre", "según", "una", "uno", "y", "es",
+                    "se", "su", "sus", "este", "esta", "más", "tras", "ante",
+                    "qué", "cómo", "dónde", "cuándo"}
+        es_hits = len(tokens & es_words)
+
+        # Marcadores fuertes INGLESES: palabras función exclusivas.
+        en_words = {"the", "and", "of", "is", "in", "for", "with", "to", "on",
+                    "at", "from", "by", "says", "said", "after", "over", "will",
+                    "would", "has", "have", "this", "that", "an", "as", "be",
+                    "are", "was", "were", "but", "not", "or", "what", "how"}
+        en_hits = len(tokens & en_words)
+
+        # Marcadores fuertes FRANCESES.
+        fr_words = {"le", "les", "des", "du", "et", "est", "dans", "pour",
+                    "avec", "sur", "selon", "une", "un", "que", "qui", "ce",
+                    "cette", "après", "avant", "vers", "chez"}
+        fr_hits = len(tokens & fr_words)
+
+        scores = {"es": (3 if es_chars else 0) + es_hits * 2,
+                  "en": en_hits * 2,
+                  "fr": fr_hits * 2}
+        best_lang = max(scores, key=scores.get)
+        best_score = scores[best_lang]
+        # Si no hay señal clara (≤1), no podemos afirmar nada → False.
+        if best_score < 2:
+            return False
+        return best_lang == lang
+
     async def _translate_news_list(self, news_list: List[Dict], target_lang: str) -> List[Dict]:
-        """Traduce una lista de noticias seleccionadas al idioma objetivo sin límite de tokens restrictivo."""
+        """Detecta el idioma de cada noticia y traduce SOLO las que no estén en `target_lang`.
+
+        Resuelve el caso de fuentes RSS en inglés cuya traducción es revertida
+        por el guard de fidelidad de título en ingesta (token overlap <50% por
+        ser idiomas distintos). Al hacerlo per-usuario aquí, garantizamos que
+        el usuario reciba el briefing 100% en su idioma sin tocar la ingesta.
+
+        Pre-filtro heurístico SIN coste LLM: si todos los títulos parecen ya
+        estar en `target_lang`, devolvemos la lista sin llamar al LLM. Solo
+        invocamos la API cuando hay sospecha de contenido foráneo.
+        """
         if not news_list:
             return []
-            
+
+        # PRE-FILTRO HEURÍSTICO: si todos los títulos pasan el detector cheap,
+        # asumimos que el briefing ya está en target_lang y skip LLM.
+        # Esto cubre el 99% de los briefings ES de usuarios ES.
+        all_ok = all(
+            self._looks_like_lang(n.get("titulo", ""), target_lang)
+            for n in news_list
+        )
+        if all_ok:
+            return news_list
+
         prompt_text = ""
         for i, news in enumerate(news_list):
             title = news.get("titulo", "")
             summary = news.get("resumen", "")
             body = news.get("noticia", "")
             prompt_text += f"\n--- ITEM {i} ---\nTÍTULO: {title}\nRESUMEN: {summary}\nCUERPO:\n{body}\n"
-            
+
         prompt = f"""
-        Eres un traductor profesional de periodismo. Debes traducir exactamente los textos proporcionados al idioma: {target_lang}.
-        Mantén el tono periodístico, la estructura original y cualquier formato HTML (como <b> o etiquetas) que exista.
-        
-        Textos a traducir:
+        Eres un traductor profesional de periodismo. Idioma objetivo: {target_lang}.
+
+        Para CADA item:
+        1. Detecta el idioma del TÍTULO (es, en, fr, de, it, pt, ...).
+        2. Si el idioma detectado == "{target_lang}" → marca needs_translation=false y
+           devuelve los textos EXACTAMENTE como están (no reformules nada).
+        3. Si el idioma detectado != "{target_lang}" → traduce TÍTULO, RESUMEN y CUERPO
+           a {target_lang} respetando tono periodístico, estructura, y etiquetas HTML
+           existentes (<b>, <p>, <a>, etc.). Mantén el sentido literal. NO añadas
+           ni quites información.
+
+        Textos:
         {prompt_text}
-        
-        Devuelve SOLO un JSON estrictamente válido con el siguiente formato, respetando los IDs de cada Item:
+
+        Devuelve SOLO un JSON válido con esta estructura (respeta los IDs):
         {{
             "translated_items": [
                 {{
                     "id": 0,
+                    "detected_lang": "en",
+                    "needs_translation": true,
                     "titulo": "...",
                     "resumen": "...",
                     "noticia": "..."
@@ -1525,7 +2155,7 @@ JSON only: {{"invalid_ids": [1, 3], "reasons": {{"1": "...", "3": "..."}}}}
             ]
         }}
         """
-        
+
         try:
             response = await self.processor.client_quality.chat.completions.create(
                 model=self.processor.model_quality,
@@ -1534,25 +2164,254 @@ JSON only: {{"invalid_ids": [1, 3], "reasons": {{"1": "...", "3": "..."}}}}
             )
             result = json.loads(response.choices[0].message.content)
             translated_data = result.get("translated_items", [])
-            
+
             translated_list = []
-            # Merge logic
+            translated_count = 0
             for i, news in enumerate(news_list):
                 news_copy = dict(news)
-                # Find translation for this index
                 trans = next((t for t in translated_data if t.get("id") == i), None)
-                if trans:
+                if trans and trans.get("needs_translation"):
                     if trans.get("titulo"): news_copy["titulo"] = trans["titulo"]
                     if trans.get("resumen"): news_copy["resumen"] = trans["resumen"]
                     if trans.get("noticia"): news_copy["noticia"] = trans["noticia"]
+                    translated_count += 1
+                    self.logger.info(
+                        f"   🌐 Traducido [{trans.get('detected_lang','?')}→{target_lang}]: "
+                        f"{(trans.get('titulo') or '')[:60]}..."
+                    )
                 translated_list.append(news_copy)
-                
+
+            if translated_count:
+                self.logger.info(f"   ✅ {translated_count}/{len(news_list)} noticias traducidas a {target_lang}")
             return translated_list
-            
+
         except Exception as e:
             self.logger.error(f"Error traduciendo noticias a {target_lang}: {e}")
             return news_list # Fallback to original
 
+    def _append_embeddings_cost(self, user_email: str, stats: dict) -> None:
+        """Append a `embeddings_costs.json` en GCS con tokens/cost del run.
+
+        Estructura: {"YYYY-MM-DD": {total_tokens, total_cost_usd, runs: [...]}}.
+        Permite ver coste acumulado por día sin entrar a la consola OpenAI.
+        """
+        try:
+            blob = self.gcs.bucket.blob("embeddings_costs.json")
+            try:
+                content = blob.download_as_text()
+                data = json.loads(content) if content else {}
+            except Exception:
+                data = {}
+            today = datetime.now().strftime("%Y-%m-%d")
+            day = data.setdefault(today, {"total_tokens": 0, "total_cost_usd": 0.0, "runs": []})
+            day["total_tokens"] = int(day.get("total_tokens", 0)) + int(stats.get("tokens", 0))
+            day["total_cost_usd"] = round(
+                float(day.get("total_cost_usd", 0.0)) + float(stats.get("cost_usd", 0.0)), 6
+            )
+            day["runs"].append({
+                "user": user_email,
+                "tokens": stats.get("tokens", 0),
+                "cost_usd": stats.get("cost_usd", 0.0),
+                "model": stats.get("model", ""),
+                "ts": datetime.now().isoformat(),
+            })
+            # Retener solo últimos 90 días
+            cutoff_keys = sorted(data.keys())[:-90] if len(data) > 90 else []
+            for k in cutoff_keys:
+                data.pop(k, None)
+            blob.upload_from_string(
+                json.dumps(data, ensure_ascii=False, indent=2),
+                content_type="application/json",
+            )
+            self.logger.info(
+                f"💰 Embeddings cost {today}: {day['total_tokens']} tok, "
+                f"${day['total_cost_usd']:.4f} (this run +{stats['tokens']} tok / ${stats['cost_usd']:.4f})"
+            )
+        except Exception as e:
+            self.logger.warning(f"Append cost a GCS falló: {e}")
+
+    async def _cluster_topics_within_categories(
+        self, cat_to_topics: Dict[str, List[str]]
+    ) -> Dict[str, List[str]]:
+        """Reordena los topics dentro de cada categoría agrupando los semánticamente
+        similares (ej: Bitcoin, Stablecoins, Blockchain quedan adyacentes) en
+        UNA sola llamada Mistral free-tier para todo el briefing.
+
+        Input:  {"Economía y Finanzas": ["Macro", "Bitcoin", "Pensiones", "Stablecoins"]}
+        Output: {"Economía y Finanzas": ["Bitcoin", "Stablecoins", "Macro", "Pensiones"]}
+
+        Si una categoría tiene <3 topics, se devuelve sin tocar (no merece la pena agrupar).
+        Si la llamada LLM falla, fail-open: se devuelve el orden original (sin tocar).
+
+        Coste: 1 call Mistral por briefing (free tier), solo si alguna categoría
+        tiene ≥3 topics distintos. Sin ese mínimo no se llama al LLM.
+        """
+        # Filtrar: solo categorías con ≥3 topics distintos. Las demás se pasan tal cual.
+        to_cluster = {c: ts for c, ts in cat_to_topics.items() if len(set(ts)) >= 3}
+        if not to_cluster:
+            return cat_to_topics
+
+        # Construir payload compacto para el LLM
+        payload_lines = []
+        for cat, ts in to_cluster.items():
+            uniq = list(dict.fromkeys(ts))  # preserva orden, quita duplicados
+            payload_lines.append(f'- "{cat}": {json.dumps(uniq, ensure_ascii=False)}')
+        payload = "\n".join(payload_lines)
+
+        prompt = f"""Eres un editor de un periódico. Dentro de cada categoría tienes
+una lista de TOPICS (subtemas). Tu trabajo es REORDENARLOS de modo que los
+topics que tratan de asuntos SEMÁNTICAMENTE SIMILARES queden ADYACENTES.
+
+Reglas:
+- NO inventes topics, NO añadas ni quites ninguno. Devuelve EXACTAMENTE los
+  mismos elementos, solo reordenados.
+- Agrupa por afinidad temática real (ej: "Bitcoin", "Stablecoins", "Blockchain",
+  "Cripto regulación" forman un cluster — adyacentes en el orden final).
+- Topics sobre asuntos distintos van en grupos separados.
+- Si no hay clusters claros, conserva el orden original.
+
+INPUT (categoría → lista de topics):
+{payload}
+
+Devuelve JSON con la MISMA estructura, las listas reordenadas:
+{{"clusters": {{"Categoría": ["topic_reordenado_1", "topic_reordenado_2", ...]}}}}"""
+
+        try:
+            response = await self.processor.client.chat.completions.create(
+                model=self.processor.model_fast,
+                messages=[{"role": "user", "content": prompt}],
+                response_format={"type": "json_object"},
+            )
+            result = json.loads(response.choices[0].message.content)
+            clusters = result.get("clusters", {}) or {}
+
+            output = dict(cat_to_topics)  # copy original
+            for cat, ts in to_cluster.items():
+                llm_order = clusters.get(cat)
+                if not isinstance(llm_order, list):
+                    continue
+                # Validar: el LLM devolvió EXACTAMENTE los mismos topics?
+                # (case-insensitive, normalizado). Si no, descartamos su respuesta.
+                orig_set = {t.strip().lower() for t in ts}
+                llm_set = {str(t).strip().lower() for t in llm_order}
+                if orig_set != llm_set:
+                    self.logger.warning(
+                        f"Cluster LLM devolvió topics inconsistentes para '{cat}': "
+                        f"orig={sorted(orig_set)} vs llm={sorted(llm_set)}. Se ignora."
+                    )
+                    continue
+                # Map case-insensitive: aplicamos el orden del LLM con los nombres originales
+                orig_by_lower = {t.strip().lower(): t for t in ts}
+                output[cat] = [orig_by_lower[str(t).strip().lower()] for t in llm_order]
+                self.logger.info(f"🧩 Cluster '{cat}': {ts} → {output[cat]}")
+            return output
+        except Exception as e:
+            self.logger.warning(f"Cluster LLM falló (fail-open): {e}")
+            return cat_to_topics
+
+    def _send_low_coverage_alert(self, user_email: str, low_topics: list) -> None:
+        """Envía email al admin cuando un usuario tuvo topics con <3 noticias.
+        Útil para detectar topics mal definidos o feeds insuficientes."""
+        admin = os.getenv("ADMIN_EMAIL", "psummarizer@gmail.com")
+        if not admin or admin == user_email:
+            return
+        subject = f"⚠️ Cobertura baja: {len(low_topics)} topics para {user_email}"
+        rows = ""
+        for t in low_topics:
+            kw_str = ", ".join(t.get("keywords", [])[:6]) or "(sin keywords)"
+            reason = t.get("reason", "filter+dedup")
+            rows += (
+                f"<tr>"
+                f"<td style='padding:6px'><b>{t['topic']}</b></td>"
+                f"<td style='padding:6px'>{t['selected']} / pool {t['fresh_pool']}</td>"
+                f"<td style='padding:6px;font-size:12px;color:#888'>{reason}</td>"
+                f"<td style='padding:6px;font-size:12px;color:#666'>{kw_str}</td>"
+                f"</tr>"
+            )
+        html = (
+            f"<h3>Topics con cobertura baja para {user_email}</h3>"
+            f"<p>Estos topics quedaron con &lt;3 noticias tras filter+dedup. "
+            f"Posibles acciones: añadir feeds RSS, revisar prompt filter, "
+            f"reformular el topic del usuario.</p>"
+            f"<table border=1 cellspacing=0 cellpadding=4>"
+            f"<tr><th>Topic</th><th>Seleccionadas / Pool fresco</th><th>Razón</th><th>Keywords obligatorias</th></tr>"
+            f"{rows}"
+            f"</table>"
+        )
+        try:
+            self.email_service.send_email(admin, subject, html)
+            self.logger.info(f"📨 Alerta low-coverage enviada a {admin} ({len(low_topics)} topics)")
+        except Exception as e:
+            self.logger.warning(f"Email low-coverage alert falló: {e}")
+
+    async def _generate_topic_keywords(
+        self, topic: str, user_context: str = "",
+    ) -> list:
+        """Genera keywords obligatorias del topic con 1 llamada Mistral.
+        Usado como RED DE SEGURIDAD post-LLM filter — el LLM hace el 99%
+        del trabajo, pero a veces deja pasar noticias muy lejanas en topics
+        específicos. Si una noticia no contiene NINGUNA keyword del topic,
+        se descarta defensivamente.
+
+        Cacheado en `self._topic_keywords_cache` para no repetir llamadas.
+        """
+        if not hasattr(self, "_topic_keywords_cache"):
+            self._topic_keywords_cache = {}
+        cache_key = f"{topic}|{user_context}".strip()
+        if cache_key in self._topic_keywords_cache:
+            return self._topic_keywords_cache[cache_key]
+
+        prompt = f"""Genera 8-15 KEYWORDS OBLIGATORIAS que DEBE contener cualquier
+noticia para considerarse del topic.
+
+TOPIC: "{topic}"
+CONTEXTO USUARIO: "{user_context or 'sin contexto'}"
+
+INSTRUCCIONES:
+- Cada keyword es una palabra o sintagma corto (1-2 palabras) en MINÚSCULAS sin tildes.
+- Cubre el topic Y sus DERIVADOS MUY CERCANOS — NO ramas amplias.
+  Ej: "Roman And Greek archeology" → ["arqueolog", "archeolog", "yacimiento",
+       "excavacion", "ruina", "antigueedad", "antiquity", "pompeya", "epigraf",
+       "necropolis", "templo romano", "templo griego", "civilizacion antigua"]
+       NO incluir: "ciencia", "investigacion", "historia general".
+- Para "Real Madrid" + "solo futbol masculino" → ["real madrid", "madridismo",
+       "bernabeu", "ancelotti", "vinicius", "bellingham", "mbappe", "modric",
+       "futbol masculino"]. NO "baloncesto", NO "femenino".
+- Permite raíces parciales (ej: "arqueolog" matchea "arqueólogo", "arqueología").
+- Si el topic es muy genérico (Geopolitica, Deporte) y no requiere filtro
+  estricto, devuelve lista VACÍA — el LLM filter es suficiente.
+
+JSON only: {{"keywords": ["kw1", "kw2", ...]}}"""
+
+        try:
+            response = await self.processor.client.chat.completions.create(
+                model=self.processor.model_fast,
+                messages=[{"role": "user", "content": prompt}],
+                response_format={"type": "json_object"},
+            )
+            result = json.loads(response.choices[0].message.content)
+            kws = [str(k).lower().strip() for k in result.get("keywords", []) if k]
+            kws = [k for k in kws if len(k) >= 3]
+            self._topic_keywords_cache[cache_key] = kws
+            if kws:
+                self.logger.info(f"   🔑 Keywords obligatorias '{topic}': {kws[:8]}...")
+            return kws
+        except Exception as e:
+            self.logger.warning(f"Keyword generation failed for '{topic}': {e}")
+            self._topic_keywords_cache[cache_key] = []
+            return []
+
+    @staticmethod
+    def _article_passes_keyword_guard(article: Dict, keywords: list) -> bool:
+        """Devuelve True si el artículo contiene AL MENOS UNA keyword.
+        Si la lista de keywords está vacía, NO bloquea (LLM filter decide solo)."""
+        if not keywords:
+            return True
+        text = ((article.get("titulo", "") or "") + " "
+                + (article.get("resumen", "") or "")).lower()
+        text_norm = ''.join(c for c in unicodedata.normalize('NFKD', text)
+                            if not unicodedata.combining(c))
+        return any(kw in text_norm for kw in keywords)
 
     async def run_for_user(self, user_data: Dict):
         """
@@ -1577,6 +2436,12 @@ JSON only: {{"invalid_ids": [1, 3], "reasons": {{"1": "...", "3": "..."}}}}
         else:
             topics = [t.strip() for t in topics_raw if t.strip()]
         user_lang = user_data.get('Language') or user_data.get('language', 'es')
+        # 3-5 noticias POR TOPIC del usuario (no por sección del briefing).
+        # Una sección (ej: Deporte) puede agrupar varios topics → puede tener
+        # más de 5 noticias en total. El cap aplica a CADA topic individual.
+        MIN_PER_TOPIC = 3
+        MAX_PER_TOPIC = 5
+        _low_coverage_topics: list = []  # alerta admin al final del run
         self.logger.info(f"📋 Topics del usuario: {topics}")
         if isinstance(topics_raw, dict):
             for tk, tv in topics_raw.items():
@@ -1688,7 +2553,23 @@ JSON only: {{"invalid_ids": [1, 3], "reasons": {{"1": "...", "3": "..."}}}}
             topic_id, cached_data = self._find_topic_by_alias(topic, topics_cache)
 
             if not topic_id or not cached_data or not cached_data.get("noticias"):
-                print(f"   ⚠️ No hay noticias cacheadas para alias '{topic}'. Saltando.")
+                # Visibilidad: registramos para alerta admin. Antes este caso
+                # se silenciaba con un print y el topic desaparecía sin rastro.
+                # Caso típico: topic nuevo añadido en Firestore que aún no se
+                # ingestó, o cuya ingesta no encontró artículos relevantes, o
+                # cuyo alias fue mal fusionado con otro topic por LLM matching.
+                reason = (
+                    "topic-no-encontrado-en-cache" if not topic_id
+                    else "topic-sin-noticias-ingeridas"
+                )
+                print(f"   ⚠️ No hay noticias cacheadas para alias '{topic}' ({reason}). Saltando.")
+                _low_coverage_topics.append({
+                    "topic": topic,
+                    "selected": 0,
+                    "fresh_pool": 0,
+                    "keywords": [],
+                    "reason": reason,
+                })
                 continue
 
             print(f"   ✅ Alias '{topic}' → Topic '{topic_id}' encontrado")
@@ -1707,33 +2588,44 @@ JSON only: {{"invalid_ids": [1, 3], "reasons": {{"1": "...", "3": "..."}}}}
             # publicó hace >72h, descartarlo aunque fecha_inventariado sea reciente.
             # Esto evita que artículos viejos que reaparecen en feeds RSS se
             # re-ingesten con fecha_inventariado fresca y pasen los filtros.
-            _MAX_PUBLISHED_AGE_HOURS = 24  # artículo RSS >24h = demasiado viejo para el briefing
+            # Default cap. Si FRESHNESS_RELAX_HOURS está set (tests fuera del cron),
+            # ampliamos la ventana para que la cache de la ingesta previa siga visible.
+            _MAX_PUBLISHED_AGE_HOURS = int(os.getenv("FRESHNESS_RELAX_HOURS", "24"))
+            _MAX_INV_FALLBACK_HOURS = max(18, int(_MAX_PUBLISHED_AGE_HOURS * 0.75))
 
             def get_fresh_news(hours_limit):
                 filtered = []
                 for n in all_news:
-                    # Sanity check: published_at (fecha real del artículo) no debe
-                    # ser antigua aunque fecha_inventariado sea reciente
                     pub_str = n.get("published_at", "")
+                    pub_age = None
                     if pub_str:
                         try:
                             pub_dt = datetime.fromisoformat(str(pub_str)[:19].replace("Z", ""))
                             pub_age = (current_time - pub_dt).total_seconds() / 3600
+                            # HARD CUT por published_at: NO importa fecha_inventariado.
+                            # Cualquier artículo cuyo published_at sea >24h queda fuera.
                             if pub_age > _MAX_PUBLISHED_AGE_HOURS:
-                                continue  # artículo RSS demasiado viejo, descartar
+                                continue
+                            if pub_age < 0:
+                                continue  # fecha futura (RSS typo)
                         except:
-                            pass
+                            pub_age = None  # no parseable, intentar inventariado
 
-                    # fecha_inventariado primero: es la fecha que pone nuestro sistema
-                    fecha_str = n.get("fecha_inventariado") or n.get("published_at", "")
-                    if fecha_str:
-                        try:
-                            fecha = datetime.fromisoformat(fecha_str[:19])
-                            age_hours = (current_time - fecha).total_seconds() / 3600
-                            if 0 <= age_hours <= hours_limit:
-                                filtered.append(n)
-                        except:
-                            pass
+                    fecha_str = n.get("fecha_inventariado") or pub_str
+                    if not fecha_str:
+                        continue
+                    try:
+                        fecha = datetime.fromisoformat(fecha_str[:19])
+                        age_hours = (current_time - fecha).total_seconds() / 3600
+                        if age_hours < 0:
+                            continue  # futuro
+                        # Si NO hay published_at válido, el cap por inventariado es 18h
+                        # (no 24h) para evitar noticias re-ingerentes con pub viejo.
+                        cap = hours_limit if pub_age is not None else min(hours_limit, _MAX_INV_FALLBACK_HOURS)
+                        if age_hours <= cap:
+                            filtered.append(n)
+                    except:
+                        pass
                 return filtered
 
             _tier = _get_topic_freshness_tier(topic, cached_data.get("categories", []))
@@ -1742,6 +2634,12 @@ JSON only: {{"invalid_ids": [1, 3], "reasons": {{"1": "...", "3": "..."}}}}
                 "normal":   FRESHNESS_NORMAL_STEPS,
                 "evergreen": FRESHNESS_EVERGREEN_STEPS,
             }[_tier]
+            # Si FRESHNESS_RELAX_HOURS está set (tests), añadimos el cap relajado
+            # como último step para que tiers que paran en 20h amplíen a 30h
+            # cuando no encuentran suficiente material.
+            _relax_h = int(os.getenv("FRESHNESS_RELAX_HOURS", "0"))
+            if _relax_h and _relax_h > max(tier_steps):
+                tier_steps = list(tier_steps) + [_relax_h]
             print(f"   🕐 Tier frescura: {_tier} (ventanas: {tier_steps}h)")
 
             fresh_news = []
@@ -1845,14 +2743,29 @@ JSON only: {{"invalid_ids": [1, 3], "reasons": {{"1": "...", "3": "..."}}}}
                         else:
                             country_score = -1.0  # Light penalty: foreign source, international topic
 
+                # --- Topic-core boost (vía embedding similarity stage 1) ---
+                # Prioriza noticias del topic puro (sim alta) sobre tangenciales
+                # (sim baja pero pasaron). Sim 0.40+ = core, 0.30-0.40 = relevante,
+                # 0.20-0.30 = tangencial.
+                sim = article.get("_sim_score") or 0.0
+                if sim >= 0.40:
+                    topic_core_score = 3.0   # Core del topic
+                elif sim >= 0.30:
+                    topic_core_score = 1.5   # Relevante
+                elif sim >= 0.20:
+                    topic_core_score = 0.0   # Tangencial — sin boost
+                else:
+                    topic_core_score = -1.0  # Muy tangencial — penalizar
+
                 # --- Combine ---
-                # Recency is dominant: today's news must always rank above yesterday's
+                # Recency dominante + topic_core para priorizar noticias del centro del topic
                 total = (
-                    0.40 * recency +            # Dominant: today > yesterday
-                    0.10 * source_score +        # Multi-source articles
-                    0.05 * summary_score +       # Content depth
-                    0.10 * category_score +      # Keyword relevance
-                    0.20 * country_score          # Country match/penalty
+                    0.35 * recency +              # Today > yesterday
+                    0.25 * topic_core_score +     # ⭐ NUEVO: topic puro > tangencial
+                    0.10 * source_score +
+                    0.05 * summary_score +
+                    0.05 * category_score +
+                    0.20 * country_score
                 )
                 return total
 
@@ -1860,23 +2773,42 @@ JSON only: {{"invalid_ids": [1, 3], "reasons": {{"1": "...", "3": "..."}}}}
             fresh_news.sort(key=lambda a: _compute_article_score(a, current_time, user_country), reverse=True)
             print(f"   Noticias ordenadas por relevancia: {len(fresh_news)}")
 
-            # Extract preferred source domains from THIS USER's topic context ONLY
+            # Extract preferred source domains + entities from THIS USER's topic context ONLY
             # (not from cached shared contexts which mix all users)
             _user_ctx_for_topic = _user_topic_map.get(topic, "")
             _preferred_domains = _resolve_preferred_domains(_user_ctx_for_topic)
+            _preferred_entities = _resolve_preferred_entities(_user_ctx_for_topic)
 
-            # Re-sort with preferred source boost if any
-            if _preferred_domains:
+            # Re-sort with preferred-source and preferred-entity boosts
+            if _preferred_domains or _preferred_entities:
                 def _boosted_score(article):
                     base = _compute_article_score(article, current_time, user_country)
-                    # Check if article source matches preferred domains
-                    for src_url in article.get("fuentes", []):
-                        src_domain = urlparse(src_url).netloc.lower().replace("www.", "")
-                        if src_domain in _preferred_domains:
-                            return base + 5.0  # Strong boost for user-preferred sources
-                    return base
+                    boost = 0.0
+                    # Boost 1: fuente preferida (+5.0)
+                    if _preferred_domains:
+                        for src_url in article.get("fuentes", []):
+                            src_domain = urlparse(src_url).netloc.lower().replace("www.", "")
+                            if src_domain in _preferred_domains:
+                                boost += 5.0
+                                break
+                    # Boost 2: entidad preferida nombrada en título/resumen (+4.0)
+                    # Más agresivo si aparece en el título (+4.0) vs solo resumen (+2.5)
+                    if _preferred_entities:
+                        title_lower = article.get("titulo", "").lower()
+                        summary_lower = article.get("resumen", "").lower()
+                        for ent in _preferred_entities:
+                            if ent in title_lower:
+                                boost += 4.0
+                                break
+                            elif ent in summary_lower:
+                                boost += 2.5
+                                break
+                    return base + boost
                 fresh_news.sort(key=_boosted_score, reverse=True)
-                print(f"   🎯 Boost aplicado para fuentes preferidas: {_preferred_domains}")
+                if _preferred_domains:
+                    print(f"   🎯 Boost fuentes preferidas: {_preferred_domains}")
+                if _preferred_entities:
+                    print(f"   🎯 Boost entidades preferidas: {_preferred_entities}")
 
             # Store for second pass (section balancing)
             topic_fresh_news[topic] = (fresh_news, cached_data)
@@ -1927,7 +2859,7 @@ JSON only: {{"invalid_ids": [1, 3], "reasons": {{"1": "...", "3": "..."}}}}
         def _base_slots(topic_name: str) -> int:
             subs = topic_subtopics.get(topic_name, [])
             if subs:
-                return min(6, len(subs))  # 1 slot per subtopic, hard cap 6
+                return min(5, len(subs))  # 1 slot per subtopic, hard cap MAX_PER_SECTION
             t_lower = topic_name.lower()
             for kw in _niche_keywords:
                 if kw in t_lower:
@@ -2004,7 +2936,32 @@ JSON only: {{"invalid_ids": [1, 3], "reasons": {{"1": "...", "3": "..."}}}}
             "negocios": {"Negocios y Empresas"},
             "nutrici": {"Salud y Bienestar", "Agricultura y Alimentación"},
             "salud": {"Salud y Bienestar"},
+            # Topics niche de finanzas/macro/cripto — fuerzan Economía como expected
+            # para que noticias de Fed/BOJ/yen no caigan en Tech si el LLM al asignar
+            # categorías al topic puso Tech por error léxico ("fontanería" suena técnico).
+            "fontaneria": {"Economía y Finanzas"},
+            "monetar": {"Economía y Finanzas"},
+            "tokeniz": {"Economía y Finanzas", "Tecnología y Digital"},
+            "blockchain": {"Tecnología y Digital", "Economía y Finanzas"},
+            "cripto": {"Economía y Finanzas", "Tecnología y Digital"},
+            "stablecoin": {"Economía y Finanzas"},
         }
+
+        # Pipeline 3-stage profesional:
+        #   Stage 1 (embeddings OpenAI):  recall alto, threshold bajo (~0.40)
+        #   Stage 2 (LLM YES/NO estricto): precision alta
+        #   Stage 3 (LLM rules existente): aplica reglas del usuario/subtopics
+        from src.services.embeddings_service import (
+            EmbeddingsService, expand_topic_with_llm, llm_strict_yes_no_filter,
+        )
+        _emb_service = EmbeddingsService()
+        _emb_service.reset_run_stats()
+        # text-embedding-3-small: topics amplios (deporte, geopolitica) tienen
+        # similaridades dispersas 0.20-0.30. Para no perder cobertura, threshold
+        # bajo (0.20) y dejar que el Stage 2 LLM YES/NO haga precision.
+        _emb_threshold = float(os.getenv("EMBEDDINGS_THRESHOLD", "0.20"))
+        # Cache memoria de topic expansions (1 por topic+context)
+        _topic_expansion_cache: dict = {}
 
         # --- Second pass: select and process ---
         for idx, topic in enumerate(topics):
@@ -2038,12 +2995,73 @@ JSON only: {{"invalid_ids": [1, 3], "reasons": {{"1": "...", "3": "..."}}}}
                     urlparse(src).netloc.lower().replace('www.', '') in _forbidden_domains
                     for src in n.get("fuentes", []) if src
                 )]
+
+            # 🧠 STAGE 1 (recall alto): embeddings OpenAI + topic expansion.
+            # 🎯 STAGE 2 (precision alta): LLM YES/NO estricto.
+            # Fail-open en ambos: si APIs fallan, fresh_news pasa al filter de stage 3.
+            try:
+                # Topic expansion (cacheada por (topic, context)). Mejora separación.
+                _exp_key = f"{topic}|{_this_user_ctx}"
+                if _exp_key not in _topic_expansion_cache:
+                    _topic_expansion_cache[_exp_key] = await expand_topic_with_llm(
+                        topic, _this_user_ctx, self.processor,
+                    )
+                topic_query = _topic_expansion_cache[_exp_key]
+
+                # Stage 1: embeddings (añade `_sim_score` a cada artículo)
+                fresh_news, _emb_dropped = await _emb_service.filter_by_similarity(
+                    topic_query, fresh_news,
+                    threshold=_emb_threshold, log_label=topic,
+                )
+                if _all_news and _all_news is not fresh_news:
+                    _all_news, _ = await _emb_service.filter_by_similarity(
+                        topic_query, _all_news,
+                        threshold=_emb_threshold, log_label=f"{topic}/cache",
+                    )
+
+                # Re-rank: topic core (sim alta) primero, tangenciales (sim baja) al final.
+                # Esto prioriza noticias puramente del topic antes que las tangenciales
+                # que apenas pasaron el threshold.
+                fresh_news.sort(
+                    key=lambda a: _compute_article_score(a, current_time, user_country),
+                    reverse=True,
+                )
+
+                # Stage 2: LLM YES/NO estricto (post-stage 1, antes del selector).
+                # Recibe subtopic_rules → exige encajar con AL MENOS un subtopic.
+                # Norrie con subtopic "tenis Alcaraz/Jódar" → NO. Wemby con
+                # subtopic "Lakers" → NO.
+                if fresh_news:
+                    _before_strict = len(fresh_news)
+                    fresh_news = await llm_strict_yes_no_filter(
+                        topic, _this_user_ctx, fresh_news, self.processor,
+                        subtopic_rules=_topic_sub_rules,
+                    )
+                    if len(fresh_news) < _before_strict:
+                        self.logger.info(
+                            f"   🎯 Stage 2 LLM-strict [{topic}]: "
+                            f"{_before_strict} → {len(fresh_news)} "
+                            f"(descartados {_before_strict - len(fresh_news)})"
+                        )
+            except Exception as _e:
+                self.logger.warning(f"Stage 1+2 falló para '{topic}': {_e}")
+
             selected_news = await self._select_top_3_cached(
                 topic, fresh_news, max_count=max_for_topic,
                 user_contexts=topic_user_contexts, subtopics=_topic_subs,
                 subtopic_rules=_topic_sub_rules,
                 full_topic_cache=_all_news,
             )
+
+            # ❌ NO rescatamos automáticamente: mejor topic con <3 noticias que
+            #    rellenar con noticias que el filter excluyó por buena razón.
+            # Si <MIN, registramos para alerta admin al final del run.
+            if len(selected_news) < MIN_PER_TOPIC:
+                _low_coverage_topics.append({
+                    "topic": topic,
+                    "selected": len(selected_news),
+                    "fresh_pool": len(fresh_news),
+                })
             print(f"   ✅ [{topic}] Seleccionadas Top {len(selected_news)} para el boletín.")
             
             # PRE-CHECK BARATO de imágenes: solo descarta iconos OBVIOS por URL
@@ -2056,11 +3074,24 @@ JSON only: {{"invalid_ids": [1, 3], "reasons": {{"1": "...", "3": "..."}}}}
                         print(f"      🖼️ Imagen icono descartada por URL: {img[:80]}")
                         n["imagen_url"] = ""  # dispara fallback de categoría
 
-            # TRADUCCION DE LAS NOTICIAS SELECCIONADAS
-            user_lang_lower = user_lang.lower()
-            if user_lang_lower not in ['es', 'spanish', 'español', 'es-es'] and selected_news:
-                print(f"   🌐 Traduciendo {len(selected_news)} noticias seleccionadas al idioma '{user_lang}'...")
-                selected_news = await self._translate_news_list(selected_news, user_lang)
+            # TRADUCCION PER-USUARIO: detecta el idioma de cada noticia y traduce
+            # SOLO las que no estén en el idioma del usuario (campo `Language` en
+            # Firestore). Esto cubre el caso de fuentes RSS en inglés cuya
+            # traducción del ingest fue revertida por el guard de fidelidad.
+            # Mapear aliases comunes al código ISO para que el LLM detecte bien.
+            _lang_aliases = {
+                'spanish': 'es', 'español': 'es', 'es-es': 'es', 'es-mx': 'es',
+                'english': 'en', 'inglés': 'en', 'en-us': 'en', 'en-gb': 'en',
+                'french': 'fr', 'francés': 'fr', 'fr-fr': 'fr',
+                'german': 'de', 'alemán': 'de', 'de-de': 'de',
+                'italian': 'it', 'italiano': 'it',
+                'portuguese': 'pt', 'portugués': 'pt', 'pt-pt': 'pt', 'pt-br': 'pt',
+            }
+            user_lang_iso = _lang_aliases.get(user_lang.lower(), user_lang.lower())
+            if selected_news:
+                # Llamada LLM solo si el pre-filtro heurístico detecta titulares
+                # foráneos. Caso normal (todo en target_lang): coste 0.
+                selected_news = await self._translate_news_list(selected_news, user_lang_iso)
             
             # Acumular para podcast -> MOVIDO AL FINAL PARA SINCRONIZAR CON EMAIL FINAL
             # if selected_news:
@@ -2073,9 +3104,15 @@ JSON only: {{"invalid_ids": [1, 3], "reasons": {{"1": "...", "3": "..."}}}}
             
             # Asignar a Categoría (Inicial / Default)
             cached_cats = cached_data.get("categories", ["General"])
-            original_cat = cached_cats[0] if cached_cats else "General"
-            
+            _default_cat = cached_cats[0] if cached_cats else "General"
+
             for news in selected_news:
+                # Usar category_feed (categoría real del RSS de origen) si está disponible.
+                # Sin esto, todas las noticias del topic comparten la misma original_cat
+                # = primera categoría asignada al topic en ingesta, lo que provocaba
+                # que noticias de finanzas cayeran en Tech si el topic tenía Tech
+                # como primera categoría (ej: 'fontanería monetaria').
+                original_cat = news.get("category_feed") or _default_cat
                 # Dedup cross-categoria: exact title OR keyword similarity ≥55% on title OR ≥35% on resumen
                 title = news.get("titulo", "")
                 resumen = news.get("resumen", "")
@@ -2139,50 +3176,75 @@ JSON only: {{"invalid_ids": [1, 3], "reasons": {{"1": "...", "3": "..."}}}}
                      continue
                 
                 # --- RE-CLASIFICACIÓN SMART ---
-                # Lógica:
-                # 1. LLM reclasifica con título + resumen + lista oficial de categorías.
-                # 2. Si el LLM da una categoría específica y la original es GENÉRICA
-                #    (Internacional, General, Geopolítica), preferir la específica.
-                # 3. Si la nueva está en topic_expected, aceptarla.
-                # 4. Si la nueva NO está en topic_expected pero la original SÍ → mantener
-                #    original (evita F1 → Tecnología por error LLM).
+                # PRINCIPIO RECTOR: cada topic del usuario garantiza su sección.
+                # Si el topic del usuario espera categorías concretas (topic_expected)
+                # y la original ya es una de ellas, NO la movemos. Esto evita que la
+                # re-clasificación vacíe secciones (caso real: Geopolítica → Internacional
+                # dejó la sección Geopolítica con 1 sola noticia).
                 final_cat = original_cat
                 summary = news.get("resumen", "")
-                _GENERIC_CATS = {"internacional", "general", "geopolitica", "geopolítica"}
 
-                print(f"      🧠 Re-analizando categoría para: '{title[:30]}...'")
-                new_cat = await self.classifier.reclassify_article(title, summary, user_country)
+                topic_expected = set()
+                t_norm = ''.join(ch for ch in unicodedata.normalize('NFD', topic.lower()) if unicodedata.category(ch) != 'Mn')
+                for key, cats in _topic_cat_map.items():
+                    if key in t_norm:
+                        topic_expected.update(cats)
+                if not topic_expected:
+                    topic_expected = set(cached_data.get("categories", []))
 
-                if new_cat:
-                    topic_expected = set()
-                    t_norm = ''.join(ch for ch in unicodedata.normalize('NFD', topic.lower()) if unicodedata.category(ch) != 'Mn')
-                    for key, cats in _topic_cat_map.items():
-                        if key in t_norm:
-                            topic_expected.update(cats)
-                    if not topic_expected:
-                        topic_expected = set(cached_data.get("categories", []))
+                def _norm_cat(c):
+                    return ''.join(ch for ch in unicodedata.normalize('NFD', c) if unicodedata.category(ch) != 'Mn').lower().strip()
+                norm_expected = {_norm_cat(c) for c in topic_expected}
+                norm_original = _norm_cat(original_cat)
 
-                    def _norm_cat(c):
-                        return ''.join(ch for ch in unicodedata.normalize('NFD', c) if unicodedata.category(ch) != 'Mn').lower().strip()
-                    norm_expected = {_norm_cat(c) for c in topic_expected}
-                    norm_original = _norm_cat(original_cat)
-                    norm_new = _norm_cat(new_cat)
-
-                    # Caso 1: original es genérica y nueva es específica → confiar en LLM
-                    if norm_original in _GENERIC_CATS and norm_new not in _GENERIC_CATS:
-                        print(f"         🔀 {original_cat} (genérica) → {new_cat} (específica, LLM)")
-                        final_cat = new_cat
-                    # Caso 2: nueva fuera de expected pero original dentro → mantener (estabilidad)
-                    elif norm_original in norm_expected and norm_new not in norm_expected:
-                        print(f"         🛡️ Manteniendo {original_cat} (topic '{topic}' espera esta categoría, LLM sugería {new_cat})")
-                        final_cat = original_cat
-                    elif new_cat != original_cat:
-                        print(f"         🔀 Cambio: {original_cat} -> {new_cat}")
-                        final_cat = new_cat
-                    else:
-                        final_cat = new_cat
+                # Solo re-clasificar si la categoría original NO es esperada del topic.
+                # Si ya lo es, respetamos la decisión inicial — el usuario quiere ver
+                # ese topic en esa sección.
+                # IMPORTANTE: si la noticia viene SIN category_feed (legacy o ingesta
+                # vieja), no podemos confiar en original_cat (== primera cat del topic)
+                # y forzamos reclassify para asignar categoría real basada en contenido.
+                _has_feed_cat = bool(news.get("category_feed"))
+                if _has_feed_cat and norm_original in norm_expected:
+                    print(f"      🛡️ '{title[:40]}...' mantiene {original_cat} (categoría esperada del topic '{topic}')")
                 else:
-                    print(f"         Plan B: Manteniendo {original_cat}")
+                    print(f"      🧠 Re-analizando categoría para: '{title[:30]}...'")
+                    new_cat = await self.classifier.reclassify_article(title, summary, user_country)
+                    if new_cat:
+                        norm_new = _norm_cat(new_cat)
+                        # Si la nueva está en expected, aceptar.
+                        if norm_new in norm_expected:
+                            print(f"         🔀 {original_cat} → {new_cat} (esperada del topic)")
+                            final_cat = new_cat
+                        elif topic_expected:
+                            # FORZAR override: el artículo viene de un topic con categorías
+                            # esperadas pero ni la original ni la reclassify están en ellas.
+                            # Solución: forzar a la primera categoría esperada del topic
+                            # para que todos los artículos del topic agrupen en una sección.
+                            # Caso real: "ruta senderismo" de topic "Viajes" → cae en Deporte;
+                            # reclassify dice "Consumo" pero a veces dice "Cultura" o "Negocios";
+                            # forzamos Consumo (la primera de expected) para agrupar todo en
+                            # la sección Viajes/Estilo de Vida en lugar de dispersarlo.
+                            forced_cat = sorted(topic_expected)[0]
+                            print(f"         🎯 {original_cat} (LLM dijo {new_cat}) → {forced_cat} (forzada por topic '{topic}')")
+                            final_cat = forced_cat
+                        else:
+                            # Sin categorías esperadas — preferir la más específica.
+                            _GENERIC_CATS = {"general", "internacional"}
+                            if norm_original in _GENERIC_CATS and norm_new not in _GENERIC_CATS:
+                                print(f"         🔀 {original_cat} (genérica) → {new_cat}")
+                                final_cat = new_cat
+                            elif new_cat != original_cat:
+                                print(f"         🔀 Cambio: {original_cat} -> {new_cat}")
+                                final_cat = new_cat
+                            else:
+                                final_cat = new_cat
+                    elif topic_expected:
+                        # Reclassify falló pero hay categorías esperadas → forzar.
+                        forced_cat = sorted(topic_expected)[0]
+                        print(f"         🎯 Reclassify falló; forzando '{forced_cat}' por topic '{topic}'")
+                        final_cat = forced_cat
+                    else:
+                        print(f"         Plan B: Manteniendo {original_cat}")
 
                 # Inicializar mapa si no existe para la categoría final
                 if final_cat not in category_map: category_map[final_cat] = {}
@@ -2203,8 +3265,9 @@ JSON only: {{"invalid_ids": [1, 3], "reasons": {{"1": "...", "3": "..."}}}}
                 }
 
         # --- FASE 1b: DEDUP SEMÁNTICA FINAL (LLM, cross-categoría) ---
-        # Captura duplicados que las capas anteriores (keyword similarity) no detectan
-        # cuando 2 artículos del mismo evento usan títulos muy distintos.
+        # Captura duplicados QUE COMPARTEN PERSPECTIVA. Diferentes ángulos del
+        # mismo hecho (causa vs consecuencia, reacción de partes distintas)
+        # se MANTIENEN ambos.
         try:
             removed = await self._dedup_briefing_llm(category_map)
             if removed:
@@ -2377,6 +3440,27 @@ JSON only: {{"invalid_ids": [1, 3], "reasons": {{"1": "...", "3": "..."}}}}
             except Exception as e:
                 print(f"   ⚠️ Error generando portada: {e}")
 
+        # --- CLUSTERING SEMÁNTICO DE TOPICS DENTRO DE CADA CATEGORÍA ---
+        # Para evitar la sensación de "saltos" cuando una sección agrupa varios
+        # topics (ej: en Economía aparecen "Bitcoin", "Macro", "Stablecoins"
+        # alternándose). Una sola llamada Mistral free-tier por briefing devuelve
+        # el orden óptimo agrupando topics semánticamente similares (cripto
+        # juntos, macro juntos). Solo se invoca si hay ≥1 categoría con ≥3
+        # topics distintos — para topics simples no añade coste.
+        _topics_by_cat_for_cluster: Dict[str, List[str]] = {}
+        for cat in sorted_cats:
+            arts = category_map.get(cat, {})
+            if not arts:
+                continue
+            seen = []
+            for art in arts.values():
+                st = art.get("source_topic", "unknown")
+                if st not in seen:
+                    seen.append(st)
+            if seen:
+                _topics_by_cat_for_cluster[cat] = seen
+        _clustered_order = await self._cluster_topics_within_categories(_topics_by_cat_for_cluster)
+
         # --- SECCIONES DEL CUERPO: excluir artículos ya en portada ---
         for cat_idx, cat in enumerate(sorted_cats):
             articles_dict = category_map[cat]
@@ -2415,26 +3499,37 @@ JSON only: {{"invalid_ids": [1, 3], "reasons": {{"1": "...", "3": "..."}}}}
                             selected_urls.add(art.get("url"))
                             remaining_slots -= 1
 
-            # Re-order: group articles by source_topic so related news appear together.
-            # Within each group, preserve original order (by relevance score).
+            # Re-order: group articles by source_topic. El orden de los GRUPOS
+            # viene de `_clustered_order` (clusters semánticos) para que topics
+            # afines (Bitcoin+Stablecoins+Blockchain) queden adyacentes en lugar
+            # de mezclarse con macro/pensiones. Dentro de cada grupo se preserva
+            # el orden original (por score). Fallback al orden de primera
+            # aparición si el cluster no cubre el topic.
+            cluster_order = _clustered_order.get(cat, [])
             grouped_ordered = []
-            seen_topics_order = []
+            placed_topics: set = set()
+            for st in cluster_order:
+                arts = [a for a in selected_articles if a.get("source_topic", "unknown") == st]
+                if arts:
+                    grouped_ordered.extend(arts)
+                    placed_topics.add(st)
+            # Topics no incluidos en cluster_order: añadirlos al final en orden de
+            # primera aparición (compatibilidad si el LLM devolvió subset).
             for art in selected_articles:
                 st = art.get("source_topic", "unknown")
-                if st not in seen_topics_order:
-                    seen_topics_order.append(st)
-            for st in seen_topics_order:
-                grouped_ordered.extend(a for a in selected_articles if a.get("source_topic", "unknown") == st)
+                if st not in placed_topics:
+                    grouped_ordered.extend(a for a in selected_articles if a.get("source_topic", "unknown") == st)
+                    placed_topics.add(st)
             selected_articles = grouped_ordered
 
-            # Render HTML — skip articles already shown in portada
-            items_html = []
-            for art in selected_articles:
-                if art.get("url") in portada_urls:
-                    print(f"      ⏭️ Omitiendo en cuerpo (ya en portada): {art.get('title', '')[:40]}")
-                    continue
-                if art.get("pre_rendered_html"):
-                    items_html.append(art["pre_rendered_html"])
+            # Render HTML — la portada DUPLICA el cuerpo (no lo vacía).
+            # La portada es un highlight; el cuerpo conserva todas las noticias del topic.
+            # Antes (G8) saltábamos los artículos en portada_urls, lo que dejaba
+            # secciones con 1 noticia cuando la portada se llevaba la única destacada.
+            # NO hay cap por sección — el cap es por topic. Una sección puede
+            # agregar varios topics y por tanto tener >5 noticias en total.
+            items_html = [art["pre_rendered_html"] for art in selected_articles
+                          if art.get("pre_rendered_html")]
 
             if items_html:
                 section_body = "\n".join(items_html)
@@ -2603,6 +3698,10 @@ JSON only: {{"invalid_ids": [1, 3], "reasons": {{"1": "...", "3": "..."}}}}
                 print(f"   ⚠️ GIF generation skipped: {e}")
 
             final_html = build_newsletter_html(full_body_html, front_page_html, lang=user_lang, market_ticker_html=market_html, header_gif_url=header_gif_url, ticker_gif_url=ticker_gif_url, categories=toc_categories)
+            # Sanitize global del HTML final: limpia garbage del LLM redactor
+            # (BOMs, JSON garbage, símbolos repetidos) que pudiera quedar en
+            # CUALQUIER parte del email, incluido footer/podcast/portada.
+            final_html = _sanitize_html_garbage(final_html)
 
             if user_lang.lower() in ("en", "english"):
                 subject = f"📰 Daily Briefing - {datetime.now().strftime('%m/%d/%Y')}"
@@ -2611,6 +3710,24 @@ JSON only: {{"invalid_ids": [1, 3], "reasons": {{"1": "...", "3": "..."}}}}
             print(f"\n📧 Enviando email a {user_email}...")
             self.email_service.send_email(user_email, subject, final_html)
             print(f"   ✅ Email enviado correctamente!")
+
+            # 📨 Alerta admin si algún topic quedó con <MIN_PER_TOPIC noticias.
+            # Permite ajustar feeds/prompts sin esperar feedback del usuario final.
+            if _low_coverage_topics:
+                try:
+                    self._send_low_coverage_alert(user_email, _low_coverage_topics)
+                except Exception as e:
+                    self.logger.warning(f"Low-coverage alert falló: {e}")
+
+            # 💰 Cost tracking embeddings: append a archivo en GCS.
+            # Permite ver coste diario de OpenAI embeddings sin entrar a la consola.
+            try:
+                stats = _emb_service.get_run_stats()
+                if stats["tokens"] > 0:
+                    self._append_embeddings_cost(user_email, stats)
+            except Exception as e:
+                self.logger.warning(f"Cost tracking falló: {e}")
+
             return final_html
             
         print("⚠️ No se generó contenido HTML.")

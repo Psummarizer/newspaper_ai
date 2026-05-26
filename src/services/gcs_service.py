@@ -303,18 +303,22 @@ class GCSService:
         )
         return filtered
     
-    def merge_new_articles(self, new_articles: list) -> int:
+    def merge_new_articles(self, new_articles: list) -> tuple:
         """
         Añade artículos nuevos sin duplicados.
         Marca cada artículo con fecha_ingesta (cuándo lo capturamos) para que
         get_articles_by_category y cleanup puedan operar sobre nuestra fecha,
         no sobre la fecha RSS que puede ser errónea o futura.
+
+        Devuelve (added_count, articles_list_in_memory).
+        El caller debe usar `articles_list_in_memory` directamente en lugar de
+        releer GCS — evita race conditions de eventual consistency post-write.
         """
+        existing = self.get_articles()
         if not new_articles:
-            return 0
+            return 0, existing
 
         now_str = datetime.now().isoformat()
-        existing = self.get_articles()
         existing_urls = {art.get("url") for art in existing}
         self.logger.info(f"📥 merge_new_articles: {len(existing)} existentes, {len(new_articles)} candidatos")
 
@@ -334,7 +338,6 @@ class GCSService:
                     f"❌ CRITICAL: save_articles FAILED after merging {added} new articles — "
                     f"articles.json NOT updated in GCS!"
                 )
-                # Retry with fresh client connection
                 self.logger.info("🔄 Retrying with fresh GCS client...")
                 try:
                     self.client = storage.Client()
@@ -342,32 +345,35 @@ class GCSService:
                     ok = self.save_articles(existing)
                     if not ok:
                         self.logger.error("❌ Retry also failed. Giving up.")
-                        return 0
+                        # Pese al fail de save, devolvemos la lista en memoria — el resto
+                        # de la pipeline puede seguir; al final se reintentará el save.
                 except Exception as e:
                     self.logger.error(f"❌ Retry exception: {e}")
-                    return 0
 
-            self.logger.info(f"✅ merge_new_articles: {added} nuevos artículos guardados correctamente")
+            self.logger.info(f"✅ merge_new_articles: {added} nuevos artículos en memoria")
 
-        return added
+        return added, existing
 
-    def cleanup_old_articles(self, hours: int = 72):
+    def cleanup_old_articles(self, hours: int = 72, articles: list = None) -> tuple:
         """
         Elimina artículos más antiguos que X horas.
         Prioriza fecha_ingesta (cuándo los capturamos) sobre published_at.
         Descarta también artículos con fecha futura (RSS typos).
+
+        articles: lista pre-cargada (evita releer GCS). Si None, lee desde GCS.
+        Devuelve (removed_count, kept_articles_list).
+        El caller debe usar `kept_articles_list` directamente — evita race
+        conditions de eventual consistency post-write.
         """
-        from src.utils.constants import ARTICLES_RETENTION_HOURS
-        articles = self.get_articles()
+        if articles is None:
+            articles = self.get_articles()
         if not articles:
-            return 0
+            return 0, []
 
         from datetime import timedelta
         now = datetime.now()
         cutoff = now - timedelta(hours=hours)
-
-        # Margen de 4h para fechas "futuras": cubre desfases de TZ (CEST=UTC+2, con margen)
-        # Solo descarta artículos que están >4h en el futuro (RSS typos reales como año 2926).
+        # Margen de 4h para fechas "futuras": cubre desfases de TZ (CEST=UTC+2)
         future_threshold = now + timedelta(hours=4)
 
         kept = []
@@ -380,7 +386,7 @@ class GCSService:
             try:
                 fecha_dt = datetime.fromisoformat(str(fecha_str)[:19].replace("Z", ""))
                 if fecha_dt > future_threshold:
-                    removed += 1  # fecha futura real (RSS typo, ej: año 2926) → descartar
+                    removed += 1  # fecha futura real (RSS typo) → descartar
                 elif fecha_dt >= cutoff:
                     kept.append(art)
                 else:
@@ -395,7 +401,7 @@ class GCSService:
                     f"❌ CRITICAL: cleanup save_articles FAILED — articles.json NOT cleaned up!"
                 )
 
-        return removed
+        return removed, kept
 
     def cleanup_old_topic_news(self, topics_data: dict, days: int = 2) -> int:
         """

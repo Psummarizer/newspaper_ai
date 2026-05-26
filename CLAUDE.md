@@ -91,7 +91,7 @@ Estas garantías deben respetarse en todo desarrollo nuevo. Si un cambio las rom
 
 ### G2 — Solo noticias de las 2 últimas ingestas
 - El filtro primario es `fecha_inventariado` (timestamp que pone nuestro sistema al procesar), **no** `published_at` (fecha RSS, puede ser incorrecta).
-- Las ingestas son a las **5:30am y 20:30pm hora Madrid**. Gap máximo entre ellas = 15h.
+- Las ingestas son a las **6:30am y 20:30pm hora Madrid**. Envío diario a las **7:15am**. Gap máximo entre ingestas = 14h.
 - `INGESTA_COVERAGE_HOURS = 20` garantiza que ningún tier supera 2 ingestas. **No subir este valor.**
 - Freshness tiers (definidos en `src/utils/constants.py`):
   - **URGENTE** (política, deporte, geopolítica): prueba 12h, amplía a 20h si <3 artículos
@@ -229,6 +229,12 @@ OPENAI_API_KEY=...            # Backup, no se usa como primario
 7. **Guardado incremental** cada 5 topics (no en cada 1)
 
 **Si se rompe algo**: comprobar primero si el fix afecta al pipeline de costes antes de revertir la optimización. Mantener la optimización y arreglar el bug por separado.
+
+---
+
+## Refactors planificados (no implementados)
+
+Ver `docs/NEXT_STEPS.md` para roadmap de cambios drásticos pendientes de decisión.
 
 ---
 
