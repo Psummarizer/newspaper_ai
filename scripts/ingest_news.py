@@ -1057,6 +1057,31 @@ class HourlyProcessor:
         except Exception as e:
             logger.error(f"Error enviando alerta de cobertura: {e}")
 
+        # --- AUTO-DISCOVERY DE FEEDS RSS ---
+        # Tras enviar la alerta, intentamos descubrir y añadir feeds nuevos para
+        # los topics con cobertura baja. El discoverer tiene rate-limit 24h por
+        # topic y safety-cap global de 4 min. Si falla, log y seguimos.
+        try:
+            from scripts.auto_discover_rss import RSSAutoDiscoverer
+            low_topic_names = [name for name, _ in low_coverage]
+            logger.info(f"🔎 Auto-discovery de feeds RSS para {len(low_topic_names)} topics")
+            discoverer = RSSAutoDiscoverer()
+            disc_summary = await discoverer.discover(low_topic_names)
+            added = disc_summary.get("added", 0)
+            skipped = disc_summary.get("skipped_rate_limit", 0)
+            logger.info(
+                f"🔎 Discovery completado: +{added} fuentes, "
+                f"{skipped} topics saltados por rate-limit"
+            )
+            if added > 0:
+                per_topic = disc_summary.get("per_topic", {})
+                for topic, feeds in per_topic.items():
+                    if feeds:
+                        for f in feeds:
+                            logger.info(f"   + [{topic}] {f.get('name')} ({f.get('rss_url')})")
+        except Exception as e:
+            logger.error(f"Auto-discovery RSS falló: {e}")
+
     async def _assign_categories(self, topic_name: str) -> list:
         """Usa LLM rápido para asignar 2 categorías"""
         categories_str = ", ".join(VALID_CATEGORIES)
