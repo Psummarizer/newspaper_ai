@@ -416,7 +416,15 @@ class HourlyProcessor:
             else:
                 logger.info(f"💤 Topic '{info.get('name')}' SALTADO (Inactivo/Sin usuarios)")
         logger.info(f"📰 Procesando {len(topic_names)} topics...")
-        
+
+        # --- DISCOVERY PROACTIVO ---
+        # (a) First-sight: topics que nunca pasaron por discovery → encuentra
+        #     feeds ANTES de la primera ingesta, así un usuario nuevo recibe
+        #     un briefing decente desde el día 1 (no espera 12h).
+        # (b) Weekly refresh: los domingos por la mañana, recorre TODOS los
+        #     topics activos para encontrar feeds nuevos que hayan aparecido.
+        await self._proactive_rss_discovery(topic_names)
+
         async def process_topic_wrapper(topic_name):
             async with semaphore:
                 return await self._process_single_topic(topic_name, topics_data)
@@ -983,6 +991,66 @@ class HourlyProcessor:
             f.write(json_str)
         self.gcs.save_topics(topics_list)
     
+    async def _proactive_rss_discovery(self, topic_names: list):
+        """Discovery proactivo de feeds RSS antes de la ingesta principal.
+
+        Cubre dos casos:
+        (a) FIRST-SIGHT: topics que NUNCA pasaron por el log de discovery.
+            Típicamente usuarios nuevos con topics nicho que el sistema
+            todavía no ha investigado. Usa force=True para saltar rate-limit.
+        (b) WEEKLY REFRESH: los domingos en la ingesta matinal (<12h Madrid),
+            recorre todos los topics activos respetando rate-limit de 24h.
+            Detecta feeds nuevos que hayan aparecido en la última semana.
+
+        Ambos modos comparten el mismo discoverer y el mismo log en GCS, de
+        modo que los duplicados quedan filtrados por dedup interno.
+        """
+        try:
+            from scripts.auto_discover_rss import RSSAutoDiscoverer, LOG_FILENAME
+        except Exception as e:
+            logger.error(f"No se pudo importar RSSAutoDiscoverer: {e}")
+            return
+
+        try:
+            log = self.gcs.get_json_file(LOG_FILENAME) or {}
+        except Exception:
+            log = {}
+
+        # (a) First-sight: topics que no aparecen en el log
+        first_sight = [t for t in topic_names if t not in log]
+
+        # (b) Weekly refresh: domingos (weekday==6) en la ingesta matinal
+        now = datetime.now()
+        is_weekly_window = now.weekday() == 6 and now.hour < 12
+        weekly_topics = [t for t in topic_names if t not in first_sight] if is_weekly_window else []
+
+        if not first_sight and not weekly_topics:
+            return
+
+        # Runtime cap más generoso para el path proactivo (5 min first-sight,
+        # 25 min weekly) porque corre fuera del ciclo de alerta.
+        cap = 1500 if is_weekly_window else 300
+        discoverer = RSSAutoDiscoverer(max_runtime_seconds=cap)
+
+        if first_sight:
+            logger.info(f"🌱 First-sight discovery: {len(first_sight)} topics nuevos ({first_sight[:5]}{'...' if len(first_sight) > 5 else ''})")
+            try:
+                summary = await discoverer.discover(first_sight, force=True)
+                logger.info(f"🌱 First-sight: +{summary.get('added', 0)} fuentes (de {summary.get('discovered', 0)} sugeridos)")
+            except Exception as e:
+                logger.error(f"First-sight discovery falló: {e}")
+
+        if weekly_topics:
+            logger.info(f"📅 Weekly refresh: {len(weekly_topics)} topics (force=False, rate-limit 24h)")
+            try:
+                summary = await discoverer.discover(weekly_topics, force=False)
+                logger.info(
+                    f"📅 Weekly refresh: +{summary.get('added', 0)} fuentes, "
+                    f"{summary.get('skipped_rate_limit', 0)} saltados por rate-limit"
+                )
+            except Exception as e:
+                logger.error(f"Weekly refresh falló: {e}")
+
     async def _check_coverage_and_alert(self, topics_data: dict, active_topic_names: list):
         """Detecta topics activos con <3 noticias recientes y envía alerta al admin.
 

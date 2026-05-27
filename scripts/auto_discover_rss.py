@@ -64,10 +64,11 @@ MAX_TOTAL_RUNTIME_SECONDS = 240  # safety cap when invoked from ingest
 
 
 class RSSAutoDiscoverer:
-    def __init__(self):
+    def __init__(self, max_runtime_seconds: int = MAX_TOTAL_RUNTIME_SECONDS):
         self.gcs = GCSService()
         self.client_q, self.model_q = LLMFactory.get_client("quality")
         self.client_f, self.model_f = LLMFactory.get_client("fast")
+        self.max_runtime_seconds = max_runtime_seconds
 
     async def discover(self, topics: List[str], force: bool = False) -> Dict:
         """Discovery completa para una lista de topics. Devuelve summary."""
@@ -93,7 +94,7 @@ class RSSAutoDiscoverer:
             "skipped_irrelevant": 0, "per_topic": {},
         }
         now = datetime.now()
-        deadline = now + timedelta(seconds=MAX_TOTAL_RUNTIME_SECONDS)
+        deadline = now + timedelta(seconds=self.max_runtime_seconds)
 
         for topic in topics:
             if datetime.now() > deadline:
