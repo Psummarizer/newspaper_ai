@@ -328,14 +328,33 @@ async def llm_strict_yes_no_filter(
             # Detectar exclusiones explícitas
             if rule and any(k in rule_lower for k in ["solo ", "sólo ", "no ", "sin ", "excluir", "salvo "]):
                 exclusion_rules.append(f"subtopic '{name}': {rule}")
+        # Detección de topic NICHO: ≥5 subtopics, todos son entidades sin
+        # regla de exclusión (ej: "Canton Network", "JPM Kinexys", "Onyx HSBC"
+        # para Institutional blockchain networks). En ese caso, una noticia
+        # del dominio (DLT permissioned, tokenización, settlement on-chain)
+        # es legítima aunque no nombre la plataforma concreta. Sin este
+        # ajuste, el LLM rechazaba ~90% de artículos válidos por no nombrar
+        # exactamente "Kinexys" o "Canton". Caso real 2026-05-28: alex con
+        # 11→1 (Institutional blockchain) y 4→1 (Tokenización).
+        _niche_mode = len(positive_subs) >= 5 and not exclusion_rules
         if positive_subs:
-            subtopics_block = (
-                "\nENTIDADES PREFERIDAS del usuario dentro del topic:\n"
-                + "\n".join(f"  · {p}" for p in positive_subs)
-                + "\nNoticias que mencionen estas entidades = SI (son lo que el usuario quiere).\n"
-                + "Noticias del topic general SIN mencionar estas entidades = SI también si"
-                  " son del mismo dominio (no descartes por no mencionar la entidad concreta).\n"
-            )
+            if _niche_mode:
+                subtopics_block = (
+                    "\nENTIDADES DE INTERÉS PRIORITARIO (NO obligatorias):\n"
+                    + "\n".join(f"  · {p}" for p in positive_subs)
+                    + "\nEstas entidades concretas le interesan especialmente al usuario,\n"
+                    + "PERO el topic es un dominio amplio. Cualquier noticia DEL DOMINIO\n"
+                    + "del topic es SI aunque no nombre estas entidades específicas.\n"
+                    + "Solo rechaza si la noticia está CLARAMENTE fuera del dominio.\n"
+                )
+            else:
+                subtopics_block = (
+                    "\nENTIDADES PREFERIDAS del usuario dentro del topic:\n"
+                    + "\n".join(f"  · {p}" for p in positive_subs)
+                    + "\nNoticias que mencionen estas entidades = SI (son lo que el usuario quiere).\n"
+                    + "Noticias del topic general SIN mencionar estas entidades = SI también si"
+                      " son del mismo dominio (no descartes por no mencionar la entidad concreta).\n"
+                )
         if exclusion_rules:
             subtopics_block += (
                 "\nREGLAS DE EXCLUSIÓN EXPLÍCITAS del usuario (OBLIGATORIAS):\n"

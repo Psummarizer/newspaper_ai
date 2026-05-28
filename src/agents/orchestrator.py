@@ -1007,31 +1007,39 @@ WHY TWO QUERIES:
 EXAMPLES:
 - "Sinner gana Roland Garros sobre tierra batida"
   → specific: "Jannik Sinner tennis clay court"
-  → generic: "tennis player clay court victory"
+  → generic: "tennis racket clay court net"           (OBJETO, sin personas)
 - "Alcaraz lesión muñeca antes del Masters"
   → specific: "Carlos Alcaraz tennis injury"
-  → generic: "tennis player wrist injury"
+  → generic: "tennis racket grass court empty"        (OBJETO/escenario)
 - "Verstappen gana GP Mónaco"
   → specific: "Max Verstappen formula 1 monaco"
-  → generic: "formula 1 race monaco circuit"
+  → generic: "formula 1 race car asphalt"             (coche, no podio)
 - "Putin amenaza a la OTAN"
   → specific: "Vladimir Putin kremlin"
-  → generic: "russian flag kremlin moscow"
+  → generic: "kremlin red square moscow"              (edificios, no persona)
 - "BCE mantiene tipos en 4%"
   → specific: "Lagarde european central bank"
-  → generic: "european central bank frankfurt"
+  → generic: "european central bank building frankfurt"  (edificio, no persona)
+- "Goolsbee de la Fed sobre inflación"
+  → specific: "Federal Reserve building washington"  (Goolsbee no es A-list → directo a edificio)
+  → generic: "federal reserve building exterior"     (NO dollar bills genéricos)
+- "Tokenización de bonos en JPM"
+  → specific: "JP Morgan headquarters skyscraper"
+  → generic: "blockchain abstract circuit lines"
 - "Legora levanta 50M en serie B"  (startup desconocida)
-  → specific: "business meeting startup investment"  (no incluyas "Legora", Pexels no la tiene)
-  → generic: "business meeting startup investment"
+  → specific: "office whiteboard charts"             (NO personas en reunión)
+  → generic: "office whiteboard charts"
 
 RULES:
 - Output English ALWAYS (Pexels best search results).
-- For famous individuals (athletes, world leaders, A-list celebs) → put their name in "specific".
-- For unknown companies/persons → "specific" = "generic" (no point adding name Pexels doesn't recognize).
+- For famous individuals (athletes top-10, world leaders, A-list celebs) → put their name in "specific". For everyone else, use OBJECT/PLACE.
+- For unknown companies/persons → "specific" = OBJECT/PLACE (no point adding name Pexels doesn't recognize).
+- ⚠️ GENERIC RULE OF GOLD: the generic query MUST favor OBJECTS, BUILDINGS, INSTRUMENTS, LANDSCAPES, ABSTRACTS — NOT people, NOT teams, NOT celebrations. People in stock photos rarely match the gender, sport, or context of the real story (a tennis story should not show a football team).
+- For sports → prefer the EQUIPMENT (tennis racket, F1 steering wheel, basketball hoop) over generic "athlete celebrating".
+- For institutions → prefer the BUILDING/HQ (ECB Frankfurt tower, Federal Reserve building, Kremlin) over generic "central bank money" (which all look the same).
+- For finance/macro → prefer ABSTRACT (stock chart screen, bond certificate, gold bars close-up) over "money cash" (which all look identical).
+- For tech/blockchain → prefer ABSTRACT CODE/CIRCUIT visuals over "businessman with laptop".
 - Use the FULL article context (title + summary) to pick the BEST visual angle.
-- If the news is about a victory → include "victory" / "celebration" / "trophy".
-- If it's an injury → "injury" / "hospital" / "doctor".
-- If it's a press conference → "press conference" / "microphone".
 
 Articles:
 {articles_input}
@@ -1094,18 +1102,24 @@ Return JSON only:
             self.logger.debug(f"Pexels search failed for '{query}': {e}")
         return []
 
-    async def _fetch_missing_images(self, articles: List[Dict]) -> None:
+    async def _fetch_missing_images(self, articles: List[Dict], used_images: set = None) -> None:
         """Pre-fetch Pexels images para artículos sin foto.
 
         Pipeline:
         1. Identifica artículos sin imagen.
         2. UNA llamada LLM batch para generar 2 queries por artículo
            (specific con nombre + generic sin nombre).
-        3. Búsqueda Pexels en paralelo:
-           a) Intenta con specific (incluye protagonistas como Sinner, Verstappen).
-           b) Si no hay foto, cae a generic.
-        Modifica los dicts in-place.
+        3. Búsqueda Pexels en paralelo (per_page=5 para tener alternativas).
+        4. Asignación SECUENCIAL con dedup: para cada artículo elige la
+           primera URL aún no usada en el briefing. Garantiza que dos
+           artículos del mismo briefing no compartan la misma foto Pexels.
+
+        Modifica los dicts in-place. `used_images` se actualiza con cada URL
+        asignada para que category banners posteriores también deduplique.
         """
+        if used_images is None:
+            used_images = set()
+
         missing = [(i, a) for i, a in enumerate(articles)
                    if not a.get("imagen_url") or not a["imagen_url"].startswith("http")]
         if not missing:
@@ -1116,31 +1130,44 @@ Return JSON only:
         missing_articles = [a for _, a in missing]
         queries_map = await self._generate_pexels_queries_llm(missing_articles)
 
-        # Búsqueda Pexels en paralelo: specific PRIMERO, fallback a generic
-        async def _search_one(local_idx: int, art: Dict) -> str:
+        # Búsqueda Pexels en paralelo: pedimos 5 por query para tener
+        # alternativas si las primeras están duplicadas en el briefing.
+        async def _candidates_for(local_idx: int, art: Dict) -> List[str]:
             qs = queries_map.get(local_idx, {})
             specific = qs.get("specific") or art.get("titulo", "")[:60]
             generic = qs.get("generic") or specific
-
-            # Intento 1: SPECIFIC (con nombre del protagonista)
-            urls = await self._pexels_search(specific, per_page=1)
-            if urls:
-                return urls[0]
-            # Intento 2: GENERIC (solo concepto visual) — solo si specific != generic
-            if generic and generic.lower() != specific.lower():
+            # Intento 1: SPECIFIC
+            urls = await self._pexels_search(specific, per_page=5)
+            if not urls and generic and generic.lower() != specific.lower():
                 self.logger.debug(f"Pexels: '{specific}' sin resultados, fallback a genérica '{generic}'")
-                urls = await self._pexels_search(generic, per_page=1)
-                if urls:
-                    return urls[0]
-            return ""
+                urls = await self._pexels_search(generic, per_page=5)
+            elif urls and generic and generic.lower() != specific.lower():
+                # Mezclamos con resultados de generic para más diversidad
+                # cuando la búsqueda específica devuelve poco material.
+                if len(urls) < 3:
+                    urls += await self._pexels_search(generic, per_page=5)
+            return urls
 
-        tasks = [_search_one(local_i, a) for local_i, (_, a) in enumerate(missing)]
-        results = await asyncio.gather(*tasks, return_exceptions=True)
+        tasks = [_candidates_for(local_i, a) for local_i, (_, a) in enumerate(missing)]
+        candidates_per_article = await asyncio.gather(*tasks, return_exceptions=True)
+
         found = 0
-        for (idx, art), result in zip(missing, results):
-            if isinstance(result, str) and result:
-                art["imagen_url"] = result
+        for (idx, art), cands in zip(missing, candidates_per_article):
+            if isinstance(cands, Exception) or not cands:
+                continue
+            # Recorre las URLs candidate en orden y escoge la primera NO usada
+            chosen = ""
+            for url in cands:
+                if url and url not in used_images:
+                    chosen = url
+                    break
+            if chosen:
+                art["imagen_url"] = chosen
+                used_images.add(chosen)
                 found += 1
+            # else: ninguna candidate disponible (todas duplicadas) → se queda
+            # sin imagen y el fallback de categoría GCS (build_section_html /
+            # pick_category_image) tomará el relevo, también con dedup.
         self.logger.info(f"🖼️ Pexels: {found}/{len(missing)} imágenes encontradas")
 
     @staticmethod
@@ -3362,9 +3389,12 @@ JSON only: {{"keywords": ["kw1", "kw2", ...]}}"""
             self.logger.warning(f"Dedup briefing falló: {e}")
 
         # --- FASE 1c: PRE-FETCH PEXELS IMAGES PARA ARTÍCULOS SIN FOTO ---
+        # Pasamos briefing_used_images al fetcher para que dos artículos del
+        # mismo briefing no compartan la misma foto Pexels (caso real: dos
+        # noticias de la Fed acababan con el mismo plano de billetes).
         all_news_refs = [art["_news_ref"] for cat in category_map.values()
                          for art in cat.values() if "_news_ref" in art]
-        await self._fetch_missing_images(all_news_refs)
+        await self._fetch_missing_images(all_news_refs, used_images=briefing_used_images)
 
         # Ahora renderizar HTML con las imágenes ya populadas
         for final_cat, articles in category_map.items():
