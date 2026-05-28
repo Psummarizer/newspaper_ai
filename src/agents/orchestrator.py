@@ -768,6 +768,56 @@ class Orchestrator:
         "norway": "NO", "no": "NO", "noruega": "NO",
     }
 
+    # Keywords léxicos para detectar si el cuerpo de una noticia es "doméstico"
+    # de un país concreto (ej: solo se entiende dentro de ese país y no aporta
+    # valor a usuarios de otros). Usado por _is_foreign_domestic.
+    _COUNTRY_DOMESTIC_KEYWORDS = {
+        "ES": ["españa", "spain", "spanish", "español", "gobierno español", "moncloa",
+               "castilla", "madrid", "barcelona", "andaluc", "cataluñ", "smi",
+               "junta de", "psoe", "pp ", "vox ", "podemos", "sumar"],
+        "US": ["united states", "u.s.", "america", "americans", "washington",
+               "congress", "biden", "trump", "republican", "democrat"],
+        "FR": ["france", "french", "paris", "macron", "élysée", "assemblée"],
+        "DE": ["germany", "german", "berlin", "bundestag", "merz", "scholz"],
+        "GB": ["britain", "british", "london", "uk ", "westminster", "labour party"],
+        "IT": ["italy", "italian", "rome", "roma", "meloni", "salvini"],
+        "NL": ["netherlands", "dutch", "amsterdam", "the hague", "rutte"],
+    }
+
+    def _is_foreign_domestic(self, article: dict, user_iso: str) -> bool:
+        """¿Es esta noticia doméstica de un país que NO es el del usuario?
+
+        True si la fuente es de país X != user_iso AND el contenido contiene
+        marcadores fuertes de ser noticia DOMÉSTICA de X (no internacional).
+        Una noticia ES sobre Bruselas/UE NO cuenta como doméstica ES.
+        """
+        if not user_iso:
+            return False
+        sources = article.get("fuentes", []) or []
+        article_countries = set()
+        for src_url in sources:
+            try:
+                dom = urlparse(src_url).netloc.lower().replace("www.", "")
+            except Exception:
+                continue
+            cc = self._domain_country_map.get(dom, "")
+            if cc and cc not in ("INT", "INTL", "EU"):
+                article_countries.add(cc)
+        if not article_countries:
+            return False
+        # Si la fuente es del país del usuario, no es foreign
+        if user_iso in article_countries:
+            return False
+        # Detectar marcadores domésticos del país fuente
+        title = (article.get("titulo") or "").lower()
+        summary = (article.get("resumen") or "").lower()
+        combined = title + " " + summary
+        for src_c in article_countries:
+            for kw in self._COUNTRY_DOMESTIC_KEYWORDS.get(src_c, []):
+                if kw in combined:
+                    return True
+        return False
+
     def _country_to_iso(self, country: str) -> str:
         """Convert country name or code to ISO 2-letter code."""
         if not country:
@@ -2109,14 +2159,25 @@ JSON only: {{"invalid_ids": [1, 3], "reasons": {{"1": "...", "3": "..."}}}}
         if not news_list:
             return []
 
-        # PRE-FILTRO HEURÍSTICO: si todos los títulos pasan el detector cheap,
+        # PRE-FILTRO HEURÍSTICO: si título Y resumen pasan el detector cheap,
         # asumimos que el briefing ya está en target_lang y skip LLM.
-        # Esto cubre el 99% de los briefings ES de usuarios ES.
-        all_ok = all(
-            self._looks_like_lang(n.get("titulo", ""), target_lang)
-            for n in news_list
-        )
-        if all_ok:
+        # IMPORTANTE: NO basta con chequear sólo el título — el title summarizer
+        # puede acortar/inglesar el título mientras el body permanece en otro
+        # idioma (bug observado 2026-05-28: "Trump risks triggering financial
+        # crisis, warns ECB" con cuerpo en castellano para usuario EN). Chequear
+        # también el resumen evita ese caso a coste ~0.
+        def _both_ok(n: Dict) -> bool:
+            title_ok = self._looks_like_lang(n.get("titulo", ""), target_lang)
+            if not title_ok:
+                return False
+            # El resumen puede ser largo: usar los primeros 240 chars basta para
+            # los marcadores léxicos del heurístico.
+            resumen = (n.get("resumen") or "")[:240]
+            if len(resumen) < 30:
+                return title_ok  # muy corto para juzgar fiable: confiamos en el título
+            return self._looks_like_lang(resumen, target_lang)
+
+        if all(_both_ok(n) for n in news_list):
             return news_list
 
         prompt_text = ""
@@ -2689,15 +2750,15 @@ JSON only: {{"keywords": ["kw1", "kw2", ...]}}"""
                             recency = -1.0  # Older than 24h: penalty
                     except Exception:
                         recency = 0.0
-                sources = article.get("fuentes", [])
+                sources = article.get("fuentes", []) or []
                 source_score = len(set(sources)) * 2
-                summary = article.get("resumen", "")
+                summary = article.get("resumen") or ""
                 summary_score = len(summary) / 100.0
 
                 # --- Category keyword boost ---
-                cat = article.get("category", "").title()
+                cat = (article.get("category") or "").title()
                 keywords = CATEGORY_KEYWORDS.get(cat, [])
-                title = article.get("titulo", "").lower()
+                title = (article.get("titulo") or "").lower()
                 summary_text = summary.lower()
                 keyword_hits = sum(1 for kw in keywords if kw in title or kw in summary_text)
                 category_score = keyword_hits * 0.1  # each hit adds 0.1
@@ -2768,6 +2829,31 @@ JSON only: {{"keywords": ["kw1", "kw2", ...]}}"""
                     0.20 * country_score
                 )
                 return total
+
+            # --- HARD FILTER: noticias domésticas de un país extranjero ---
+            # Para un usuario NL leyendo macroeconomía, una noticia sobre el SMI
+            # español publicada por vozpopuli NO es relevante. El penalty del
+            # scorer (-1.0 contribuido) era insuficiente: recency+topic_core la
+            # rescataban igualmente. Aquí la descartamos antes del sort, salvo
+            # que el topic del usuario sea geopolítico/internacional (caso en el
+            # que la noticia extranjera SÍ tiene valor).
+            user_iso = self._country_to_iso(user_country)
+            _topic_n = ''.join(
+                ch for ch in unicodedata.normalize('NFD', (topic or '').lower())
+                if unicodedata.category(ch) != 'Mn'
+            )
+            _geopol_kw = {"geopolit", "intern", "iran", "arabia", "contraintelig",
+                          "tariff", "trade", "global", "world"}
+            _topic_is_geopolitical = any(kw in _topic_n for kw in _geopol_kw)
+            if user_iso and not _topic_is_geopolitical:
+                before_cut = len(fresh_news)
+                fresh_news = [
+                    a for a in fresh_news
+                    if not self._is_foreign_domestic(a, user_iso)
+                ]
+                cut = before_cut - len(fresh_news)
+                if cut:
+                    print(f"   🌍 Hard country filter '{topic}' (user={user_iso}): descartadas {cut} noticias domésticas de otros países")
 
             # Ordenar noticias por puntuación descendente (using the new helper)
             fresh_news.sort(key=lambda a: _compute_article_score(a, current_time, user_country), reverse=True)

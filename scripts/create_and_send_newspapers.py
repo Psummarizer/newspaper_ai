@@ -88,14 +88,24 @@ async def generate_and_send():
         # 3. Check Credits (from 'users' collection)
         user_ref = fb_service.db.collection("users").document(email)
         user_doc = user_ref.get()
-        
+
         if not user_doc.exists:
              logger.warning(f"Usuario {email} no tiene documento de creditos en 'users'. Saltando.")
              continue
-             
+
         user_data_credits = user_doc.to_dict()
         credits_data = user_data_credits.get("credits", {})
         current_credits = credits_data.get("current", 0)
+
+        # CHECK 3 (IDEMPOTENCY): si ya se envió un briefing hoy (hora Madrid),
+        # no reenviar. Protege contra retries del Cloud Run Job y dobles
+        # invocaciones manuales/programadas. Hora Madrid porque el contenedor
+        # corre con TZ=Europe/Madrid (Dockerfile v0.63).
+        today_madrid = datetime.now().strftime("%Y-%m-%d")
+        last_sent = user_data_credits.get("last_briefing_sent_date", "")
+        if last_sent == today_madrid:
+            logger.info(f"⏭️  {email}: ya recibió briefing hoy ({today_madrid}). Saltando (idempotente).")
+            continue
         
         # Parse list if string
         if isinstance(user_topics_list, str):
@@ -143,7 +153,10 @@ async def generate_and_send():
             user_ref.update({
                 "credits.current": new_current,
                 "credits.totalUsed": new_total,
-                "credits.usedThisMonth": new_month
+                "credits.usedThisMonth": new_month,
+                # Marca idempotente: si el job se reintenta hoy, el CHECK 3
+                # de la siguiente iteración saltará a este usuario.
+                "last_briefing_sent_date": today_madrid,
             })
             logger.info(f"✅ Cobrado a {email}. Restante: {new_current}")
             processed_count += 1
