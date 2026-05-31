@@ -1,4 +1,5 @@
 import asyncio
+import argparse
 import sys
 import os
 import logging
@@ -17,9 +18,12 @@ from src.services.firebase_service import FirebaseService
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-async def generate_and_send():
-    logger.info("🚀 Generación de Newsletters MASIVA (Orchestrator + Créditos)...")
-    
+async def generate_and_send(test_user: str = None, skip_idempotency: bool = False, skip_credits: bool = False):
+    if test_user:
+        logger.info(f"🧪 TEST MODE: procesando SOLO {test_user} | skip_idempotency={skip_idempotency} | skip_credits={skip_credits}")
+    else:
+        logger.info("🚀 Generación de Newsletters MASIVA (Orchestrator + Créditos)...")
+
     # 1. Init
     try:
         fb_service = FirebaseService()
@@ -59,6 +63,10 @@ async def generate_and_send():
     for doc in docs:
         email = doc.id
         sub_data = doc.to_dict()
+
+        # TEST MODE: skip everyone except the target user
+        if test_user and email.lower() != test_user.lower():
+            continue
         
         # User Topics: 'topic' (New Map), 'Topics' (Legacy Str), 'topics' (Legacy List)
         raw_topics = sub_data.get("topic") or sub_data.get("Topics") or sub_data.get("topics", [])
@@ -103,7 +111,7 @@ async def generate_and_send():
         # corre con TZ=Europe/Madrid (Dockerfile v0.63).
         today_madrid = datetime.now().strftime("%Y-%m-%d")
         last_sent = user_data_credits.get("last_briefing_sent_date", "")
-        if last_sent == today_madrid:
+        if last_sent == today_madrid and not skip_idempotency:
             logger.info(f"⏭️  {email}: ya recibió briefing hoy ({today_madrid}). Saltando (idempotente).")
             continue
         
@@ -145,29 +153,53 @@ async def generate_and_send():
         has_content = bool(result_html) and ('h3' in result_html or 'noticia' in result_html.lower())
 
         if has_content:
-            # 5. Deduct Credits if successful
-            new_current = current_credits - cost
-            new_total = credits_data.get("totalUsed", 0) + cost
-            new_month = credits_data.get("usedThisMonth", 0) + cost
-            
-            user_ref.update({
-                "credits.current": new_current,
-                "credits.totalUsed": new_total,
-                "credits.usedThisMonth": new_month,
-                # Marca idempotente: si el job se reintenta hoy, el CHECK 3
-                # de la siguiente iteración saltará a este usuario.
-                "last_briefing_sent_date": today_madrid,
-            })
-            logger.info(f"✅ Cobrado a {email}. Restante: {new_current}")
-            processed_count += 1
+            if skip_credits:
+                logger.info(f"🧪 TEST MODE: skip cobro y marca idempotente para {email}")
+                processed_count += 1
+            else:
+                # 5. Deduct Credits if successful
+                new_current = current_credits - cost
+                new_total = credits_data.get("totalUsed", 0) + cost
+                new_month = credits_data.get("usedThisMonth", 0) + cost
+
+                user_ref.update({
+                    "credits.current": new_current,
+                    "credits.totalUsed": new_total,
+                    "credits.usedThisMonth": new_month,
+                    # Marca idempotente: si el job se reintenta hoy, el CHECK 3
+                    # de la siguiente iteración saltará a este usuario.
+                    "last_briefing_sent_date": today_madrid,
+                })
+                logger.info(f"✅ Cobrado a {email}. Restante: {new_current}")
+                processed_count += 1
         elif result_html and not has_content:
             logger.warning(f"⚠️ HTML generado pero sin artículos reales para {email}. No se cobra.")
         else:
             logger.warning(f"⚠️ No se envió email a {email} (sin noticias o error). No se cobra.")
 
+    # Flush UNA sola alerta consolidada con TODOS los usuarios+topics low-cov
+    # del run (antes era N emails — uno por usuario).
+    try:
+        orchestrator.send_consolidated_low_coverage_alert()
+    except Exception as e:
+        logger.warning(f"Consolidated low-coverage alert falló: {e}")
+
     logger.info(f"🏁 Finalizado. Newsletters enviadas: {processed_count}")
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Generador de briefings (modo masivo o test).")
+    parser.add_argument("--test-user", type=str, default=None,
+                        help="Email único a procesar (modo test). Si se omite, procesa a todos los suscriptores activos.")
+    parser.add_argument("--skip-idempotency", action="store_true",
+                        help="Test: ignorar CHECK 3 (last_briefing_sent_date) y permitir reenvío hoy.")
+    parser.add_argument("--skip-credits", action="store_true",
+                        help="Test: no descontar créditos ni marcar last_briefing_sent_date al éxito.")
+    args = parser.parse_args()
+
     if sys.platform == 'win32':
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
-    asyncio.run(generate_and_send())
+    asyncio.run(generate_and_send(
+        test_user=args.test_user,
+        skip_idempotency=args.skip_idempotency,
+        skip_credits=args.skip_credits,
+    ))

@@ -362,6 +362,115 @@ async def llm_strict_yes_no_filter(
                 + "\nUna noticia que viole alguna de estas reglas = NO.\n"
             )
 
+        # --- ADJACENCIA DE DISCIPLINAS (estricta) ---
+        # Cuando el topic es genérico (ej "deporte") pero los subtopics nombran
+        # disciplinas/equipos concretos (F1, MotoGP, Tenis, Lakers), debemos
+        # rechazar (a) disciplinas adyacentes que comparten apellidos comunes
+        # y (b) contenido lifestyle/personal del personaje sin contexto deportivo.
+        # Casos reales (fallos observados):
+        #   - subtopic="F1"     → "Alonso pasea con Porsche 918 en Mónaco" NO
+        #   - subtopic="Lakers" → "Wembanyama lleva a los Spurs a las Finales NBA" NO
+        # IMPORTANTE: si el usuario tiene MÚLTIPLES subtopics adyacentes (ej
+        # tenis Y pádel), el "forbidden" de tenis debe excluir pádel — el
+        # usuario ya pidió ambos explícitamente.
+        #
+        # Cada entrada: (forbidden_set, valid_examples, what_we_want)
+        # `what_we_want` = lo que SI cuenta como el subtopic (filtra lifestyle/gossip).
+        _discipline_adjacency = {
+            "f1":          ({"rally", "dakar", "wec", "indycar", "motogp", "fórmula e", "formula e", "nascar", "sbk",
+                             "lifestyle del piloto", "colección de coches", "vida personal"},
+                            "Verstappen, Hamilton, Leclerc, Norris, Russell, Sainz Jr, Alonso, Piastri, Tsunoda",
+                            "Gran Premio, parrilla, clasificación, podio, ingeniería, fichajes/rookies del equipo F1, FIA, sanciones, polémicas en pista"),
+            "formula 1":   ({"rally", "dakar", "wec", "indycar", "motogp", "fórmula e", "formula e", "nascar", "sbk",
+                             "lifestyle del piloto", "colección de coches", "vida personal"},
+                            "Verstappen, Hamilton, Leclerc, Norris, Russell, Sainz Jr, Alonso, Piastri, Tsunoda",
+                            "Gran Premio, parrilla, clasificación, podio, ingeniería, fichajes/rookies del equipo F1, FIA, sanciones, polémicas en pista"),
+            "motogp":      ({"f1", "formula 1", "fórmula 1", "sbk", "rally", "dakar", "bsb",
+                             "lifestyle del piloto", "colección de motos", "vida personal"},
+                            "Márquez, Bagnaia, Quartararo, Acosta, Bezzecchi, Martín",
+                            "Gran Premio, parrilla MotoGP, clasificación, podio, fichajes, FIM, lesiones de carrera"),
+            "tenis":       ({"pádel", "padel", "tenis de mesa", "frontón", "frontenis", "badminton", "bádminton",
+                             "vida personal del tenista", "moda/celebrity"},
+                            "Alcaraz, Sinner, Djokovic, Nadal, Swiatek, Sabalenka",
+                            "torneo ATP/WTA, partido, set, ranking, retirada, lesión deportiva, sanción"),
+            "pádel":       ({"tenis", "badminton", "bádminton", "tenis de mesa",
+                             "vida personal del jugador", "celebrity"},
+                            "Coello, Tapia, Galán, Lebrón",
+                            "Premier Padel, WPT, partido, ranking, equipos, sanción"),
+            "padel":       ({"tenis", "badminton", "bádminton", "tenis de mesa",
+                             "vida personal del jugador", "celebrity"},
+                            "Coello, Tapia, Galán, Lebrón",
+                            "Premier Padel, WPT, partido, ranking, equipos, sanción"),
+            "nba":         ({"ncaa", "euroliga", "acb", "wnba", "baloncesto femenino",
+                             "vida personal", "moda/celebrity"},
+                            "LeBron, Curry, Doncic, Tatum, Jokic, Antetokounmpo",
+                            "playoffs, finals, partido, traspaso, draft NBA, lesión, sanción"),
+            # Lakers = SOLO Lakers. Otras franquicias NBA NO valen, aunque sean NBA.
+            # Excepción: noticia de NBA general (rules, draft, commissioner) que afecta a Lakers.
+            "lakers":      ({"otras franquicias NBA (Spurs, Knicks, Celtics, Warriors, Heat, Nuggets, Thunder, etc.) sin mencionar a Lakers",
+                             "ncaa", "euroliga", "acb", "wnba", "baloncesto femenino",
+                             "vida personal", "moda/celebrity"},
+                            "LeBron, Reaves, Doncic (LAL), Hachimura",
+                            "Lakers playoffs, partido de Lakers, traspaso Lakers, lesión jugador Lakers"),
+            # Real Madrid = SOLO Real Madrid (primer equipo masculino).
+            # Champions League sin mencionar Real Madrid NO vale.
+            "real madrid": ({"otros equipos LaLiga (Atlético, Barcelona, Sevilla, Valencia, Athletic, etc.) sin mencionar Real Madrid",
+                             "selecciones nacionales sin conexión al club",
+                             "baloncesto femenino", "fútbol femenino",
+                             "filial/Castilla", "cantera/juvenil",
+                             "vida personal", "moda/celebrity"},
+                            "Bellingham, Vinicius, Modric, Mbappé, Camavinga, Tchouameni, Rodrygo, Valverde",
+                            "partido Real Madrid, traspaso/fichaje Real Madrid, lesión jugador Real Madrid, LaLiga (con Real Madrid), Champions (con Real Madrid)"),
+        }
+        # Set de disciplinas que el usuario YA tiene como subtopic — nunca
+        # las metemos en el "forbidden" de otro subtopic.
+        _user_disciplines = {
+            s.get("name", "").lower().strip() for s in subtopic_rules
+        }
+        # Aliases para que "F1" en user_disciplines también cubra "formula 1"
+        _alias_map = {
+            "f1": ["formula 1", "fórmula 1"],
+            "formula 1": ["f1", "fórmula 1"],
+            "fórmula 1": ["f1", "formula 1"],
+            "pádel": ["padel"],
+            "padel": ["pádel"],
+        }
+        _user_disciplines_expanded = set(_user_disciplines)
+        for d in list(_user_disciplines):
+            _user_disciplines_expanded.update(_alias_map.get(d, []))
+
+        adjacency_lines: list = []
+        for sub_name in (s.get("name", "") for s in subtopic_rules):
+            key = sub_name.lower().strip()
+            if key in _discipline_adjacency:
+                forbidden_set, examples, what_we_want = _discipline_adjacency[key]
+                # Filtrar disciplinas que el propio usuario tiene como subtopic —
+                # no podemos rechazarlas si el usuario las pidió. EXCEPCIÓN: si el
+                # forbidden no es una disciplina sino lifestyle/personal, siempre
+                # se rechaza (esos no se piden como subtopic).
+                forbidden_filtered = sorted(
+                    f for f in forbidden_set
+                    if f.lower() not in _user_disciplines_expanded
+                )
+                adjacency_lines.append(
+                    f"  · subtopic '{sub_name}':\n"
+                    f"      ✅ SI a: {what_we_want}.\n"
+                    f"      ✅ Jugadores/equipos relevantes: {examples}.\n"
+                    f"      ❌ NO a: {'; '.join(forbidden_filtered)}."
+                )
+        if adjacency_lines:
+            subtopics_block += (
+                "\nDISCIPLINAS ADYACENTES — CRITERIO ESTRICTO POR SUBTOPIC:\n"
+                + "\n".join(adjacency_lines)
+                + "\nREGLA CRÍTICA:\n"
+                + "  1. El artículo debe tratar DIRECTAMENTE sobre el ámbito deportivo del subtopic.\n"
+                + "     Lifestyle (coches personales, moda, fiestas, vida sentimental) → NO.\n"
+                + "     Aunque mencione al deportista por nombre, si no es noticia de competición → NO.\n"
+                + "  2. Si la noticia es de OTRA disciplina/equipo (rally, MotoGP cuando subtopic=F1; Spurs/Knicks cuando subtopic=Lakers; Champions/Barça cuando subtopic=Real Madrid),\n"
+                + "     SOLO se acepta si la disciplina/equipo del subtopic aparece EXPLÍCITAMENTE en el titular o resumen.\n"
+                + "  3. Ante la duda → NO (mejor cobertura baja que cross-leak).\n"
+            )
+
     kept = []
     for start in range(0, len(articles), batch_size):
         batch = articles[start:start + batch_size]
@@ -386,21 +495,26 @@ Para cada artículo responde SI o NO. Reglas en orden:
    - TOPIC "IA" → SI a cualquier noticia de inteligencia artificial.
    - TOPIC "fontaneria monetaria" → SI a bancos centrales, tipos, repo, QE.
 
-2. ⚠️ REGLAS DE EXCLUSIÓN del usuario (si las hay arriba) son OBLIGATORIAS.
+2. ⚠️ DISCIPLINAS ADYACENTES (si el bloque "DISCIPLINAS ADYACENTES" aparece arriba):
+   Aplícalas TAL CUAL. Sin mención explícita de la disciplina del subtopic,
+   un artículo de disciplina adyacente = NO, aunque comparta apellido común.
+
+3. ⚠️ REGLAS DE EXCLUSIÓN del usuario (si las hay arriba) son OBLIGATORIAS.
    Ej: "solo masculino" → excluye femenino EXPLÍCITO (Liga F, WTA).
    Ej: "no X" / "sin Y" → excluye Y.
    "preferir X" NO es exclusión (NUNCA descarta por preferencia).
 
-3. ⏰ VIGENCIA TEMPORAL: si la noticia anuncia un evento FUTURO que YA HA
+4. ⏰ VIGENCIA TEMPORAL: si la noticia anuncia un evento FUTURO que YA HA
    OCURRIDO según la fecha actual → NO (obsoleto).
    Ej: hoy 11-may, noticia "Real Madrid afronta clásico del sábado 10-may" → NO.
 
-4. 🚫 RECHAZAR si CLARAMENTE no es del topic.
+5. 🚫 RECHAZAR si CLARAMENTE no es del topic.
    Ej: TOPIC "fontaneria monetaria" + "Deuda Comunidad Madrid" → NO (regional, no monetaria).
    Ej: TOPIC "startups" + "ESG empresarial" → NO (ESG no es startups).
    Ej: TOPIC "Roman archeology" + "ransomware" → NO.
 
-ANTE LA DUDA → SI. El subtopic priority lo decide otro filtro posterior.
+ANTE LA DUDA → SI **salvo** disciplinas adyacentes a un topic específico (regla 2):
+ahí preferimos rechazar para evitar cross-leak entre F1/rally, NBA/NCAA, etc.
 
 JSON only: {{"results": ["SI","NO","SI","NO",...]}}"""
         try:

@@ -1057,11 +1057,22 @@ class HourlyProcessor:
         'Reciente' = fecha_inventariado dentro de las últimas INGESTA_COVERAGE_HOURS
         (por defecto 20h, cubre exactamente las 2 últimas ingestas).
         Solo evalúa los topics que se acaban de procesar (active_topic_names).
+
+        TRACKING NICHE: cada topic con baja cobertura incrementa un contador
+        en `topic_coverage_history.json` (GCS). Si supera NICHE_THRESHOLD_DAYS
+        consecutivos, se marca como NICHE → solo alertamos los domingos
+        (recordatorio semanal) y desactivamos auto-discovery para él.
+        Cuando recupera cobertura, el contador se resetea a 0.
         """
+        NICHE_THRESHOLD_DAYS = 3
+        NICHE_HISTORY_FILE = "topic_coverage_history.json"
+
         now = datetime.now()
         cutoff = now - timedelta(hours=INGESTA_COVERAGE_HOURS)
+        is_sunday = now.weekday() == 6  # 0=lunes, 6=domingo
 
-        low_coverage = []  # [(topic_name, count)]
+        # --- Cálculo de cobertura por topic ---
+        topic_recent_count: dict = {}
         for topic_name in active_topic_names:
             topic_id = self._normalize_id(topic_name)
             topic_info = topics_data.get(topic_id, {})
@@ -1076,17 +1087,84 @@ class HourlyProcessor:
                             recent += 1
                     except Exception:
                         pass
-            if recent < 3:
-                low_coverage.append((topic_name, recent))
+            topic_recent_count[topic_name] = recent
 
-        if not low_coverage:
-            logger.info("✅ Cobertura OK: todos los topics tienen ≥3 noticias recientes")
+        # --- Cargar histórico para tracking niche ---
+        try:
+            history = self.gcs.get_json_file(NICHE_HISTORY_FILE) or {}
+        except Exception:
+            history = {}
+        if not isinstance(history, dict):
+            history = {}
+
+        today_iso = now.strftime("%Y-%m-%d")
+
+        # Bucket de topics: low_active (alertable hoy), low_niche (skip excepto dom),
+        # ok (cobertura recuperada, resetear)
+        low_active: list = []   # [(name, count)]
+        low_niche: list = []    # [(name, count, consec_days)]
+        recovered: list = []    # nombres que recuperaron
+
+        for topic_name, recent in topic_recent_count.items():
+            prev = history.get(topic_name, {}) if isinstance(history.get(topic_name), dict) else {}
+            consec = int(prev.get("consecutive_low_days", 0) or 0)
+
+            if recent < 3:
+                # Una ingesta del día cuenta como 1 día solo si difiere del último registro
+                last_check = prev.get("last_low_date", "")
+                if last_check != today_iso:
+                    consec += 1
+                history[topic_name] = {
+                    "consecutive_low_days": consec,
+                    "last_low_date": today_iso,
+                    "last_count": recent,
+                }
+                if consec >= NICHE_THRESHOLD_DAYS:
+                    low_niche.append((topic_name, recent, consec))
+                else:
+                    low_active.append((topic_name, recent))
+            else:
+                # Cobertura recuperada → reset
+                if consec > 0:
+                    recovered.append(topic_name)
+                history[topic_name] = {
+                    "consecutive_low_days": 0,
+                    "last_low_date": "",
+                    "last_count": recent,
+                }
+
+        # Persistir histórico actualizado
+        try:
+            self.gcs.save_json_file(NICHE_HISTORY_FILE, history)
+        except Exception as e:
+            logger.warning(f"No se pudo persistir {NICHE_HISTORY_FILE}: {e}")
+
+        if recovered:
+            logger.info(f"📈 Topics recuperados (reset niche counter): {recovered}")
+
+        # --- Filtrar low_niche según día de la semana ---
+        # Niche: solo aparece en alerta los domingos (recordatorio semanal)
+        niche_to_report = low_niche if is_sunday else []
+
+        all_low_to_alert = low_active + [(n, c) for n, c, _ in niche_to_report]
+
+        if not all_low_to_alert:
+            logger.info(
+                f"✅ Cobertura OK: {len(low_active)} active-low, "
+                f"{len(low_niche)} niche (silenciados, próximo recordatorio domingo)"
+            )
             return
 
         # Log siempre
-        logger.warning(f"⚠️ COBERTURA BAJA: {len(low_coverage)} topics con <3 noticias:")
-        for name, count in low_coverage:
-            logger.warning(f"   - '{name}': {count} noticia(s)")
+        logger.warning(
+            f"⚠️ COBERTURA BAJA: {len(low_active)} active, "
+            f"{len(niche_to_report)} niche (recordatorio dominical), "
+            f"{len(low_niche) - len(niche_to_report)} niche silenciados"
+        )
+        for name, count in low_active:
+            logger.warning(f"   - [ACTIVE] '{name}': {count} noticia(s)")
+        for name, count, consec in niche_to_report:
+            logger.warning(f"   - [NICHE x{consec}d] '{name}': {count} noticia(s)")
 
         # Enviar email solo si hay credenciales SMTP configuradas
         admin_email = os.getenv("ADMIN_EMAIL", "psummarizer@gmail.com")
@@ -1096,45 +1174,80 @@ class HourlyProcessor:
             if not email_svc.sender_email or not email_svc.sender_password:
                 return  # Sin credenciales → solo log, no simular
 
-            rows = "".join(
-                f"<tr><td style='padding:6px 12px;border-bottom:1px solid #333;'>{name}</td>"
-                f"<td style='padding:6px 12px;border-bottom:1px solid #333;color:#f39c12;'>"
-                f"{count} noticia(s)</td></tr>"
-                for name, count in sorted(low_coverage, key=lambda x: x[1])
+            def _row(name: str, count: int, kind: str, consec: int = 0):
+                badge = ""
+                if kind == "niche":
+                    badge = (
+                        f"<span style='background:#8e44ad;color:white;padding:2px 8px;"
+                        f"border-radius:10px;font-size:11px;margin-left:8px;'>NICHE {consec}d</span>"
+                    )
+                return (
+                    f"<tr><td style='padding:6px 12px;border-bottom:1px solid #333;'>{name}{badge}</td>"
+                    f"<td style='padding:6px 12px;border-bottom:1px solid #333;color:#f39c12;'>"
+                    f"{count} noticia(s)</td></tr>"
+                )
+
+            rows_active = "".join(
+                _row(name, count, "active") for name, count in sorted(low_active, key=lambda x: x[1])
             )
-            html = f"""
-            <div style='font-family:monospace;background:#1a1a2e;color:#eee;padding:24px;'>
-              <h2 style='color:#e74c3c;'>⚠️ Alerta de cobertura RSS</h2>
-              <p>Los siguientes topics tuvieron <strong>&lt;3 noticias</strong> en las últimas
-              {INGESTA_COVERAGE_HOURS}h (ingesta {now.strftime('%d/%m %H:%M')}):</p>
+            rows_niche = "".join(
+                _row(name, count, "niche", consec) for name, count, consec in sorted(niche_to_report, key=lambda x: x[1])
+            )
+
+            niche_block = ""
+            if rows_niche:
+                niche_block = f"""
+              <h3 style='color:#8e44ad;margin-top:16px;'>📅 Recordatorio dominical — Topics nicho</h3>
+              <p style='color:#aaa;font-size:13px;'>Topics con cobertura baja ≥3 días consecutivos.
+              Auto-discovery desactivado. Reseteamos contador cuando vuelvan a tener ≥3 noticias.</p>
               <table style='border-collapse:collapse;width:100%;max-width:500px;'>
                 <tr><th style='text-align:left;padding:6px 12px;background:#2c2c54;'>Topic</th>
                     <th style='text-align:left;padding:6px 12px;background:#2c2c54;'>Noticias</th></tr>
-                {rows}
+                {rows_niche}
               </table>
-              <p style='margin-top:16px;color:#aaa;'>Considera añadir más feeds RSS para estas
-              categorías en <code>data/sources.json</code>.</p>
+                """
+            active_block = ""
+            if rows_active:
+                active_block = f"""
+              <table style='border-collapse:collapse;width:100%;max-width:500px;'>
+                <tr><th style='text-align:left;padding:6px 12px;background:#2c2c54;'>Topic</th>
+                    <th style='text-align:left;padding:6px 12px;background:#2c2c54;'>Noticias</th></tr>
+                {rows_active}
+              </table>
+                """
+
+            html = f"""
+            <div style='font-family:monospace;background:#1a1a2e;color:#eee;padding:24px;'>
+              <h2 style='color:#e74c3c;'>⚠️ Alerta de cobertura RSS</h2>
+              <p>Estado de cobertura en la ingesta {now.strftime('%d/%m %H:%M')} (últimas {INGESTA_COVERAGE_HOURS}h):</p>
+              {active_block}
+              {niche_block}
+              <p style='margin-top:16px;color:#aaa;font-size:12px;'>Considera añadir más feeds en
+              <code>data/sources.json</code> para los topics ACTIVE. Los NICHE se silencian
+              hasta el próximo domingo.</p>
             </div>
             """
             email_svc.send_email(
                 to_email=admin_email,
-                subject=f"[Briefing] Cobertura baja: {len(low_coverage)} topic(s) — {now.strftime('%d/%m %H:%M')}",
+                subject=f"[Briefing] Cobertura: {len(low_active)} active + {len(niche_to_report)} niche — {now.strftime('%d/%m')}",
                 html_content=html,
             )
             logger.info(f"📧 Alerta de cobertura enviada a {admin_email}")
         except Exception as e:
             logger.error(f"Error enviando alerta de cobertura: {e}")
 
-        # --- AUTO-DISCOVERY DE FEEDS RSS ---
-        # Tras enviar la alerta, intentamos descubrir y añadir feeds nuevos para
-        # los topics con cobertura baja. El discoverer tiene rate-limit 24h por
-        # topic y safety-cap global de 4 min. Si falla, log y seguimos.
+        # --- AUTO-DISCOVERY DE FEEDS RSS (solo para topics ACTIVE, no NICHE) ---
+        # Los niche se silencian porque tras 3 días el problema no son los feeds,
+        # es que el topic es genuinamente nicho (ej "Pokemon").
         try:
             from scripts.auto_discover_rss import RSSAutoDiscoverer
-            low_topic_names = [name for name, _ in low_coverage]
-            logger.info(f"🔎 Auto-discovery de feeds RSS para {len(low_topic_names)} topics")
+            active_low_names = [name for name, _ in low_active]
+            if not active_low_names:
+                logger.info("🔎 Auto-discovery: sin topics ACTIVE para procesar (todos niche o cubiertos)")
+                return
+            logger.info(f"🔎 Auto-discovery de feeds RSS para {len(active_low_names)} topics ACTIVE")
             discoverer = RSSAutoDiscoverer()
-            disc_summary = await discoverer.discover(low_topic_names)
+            disc_summary = await discoverer.discover(active_low_names)
             added = disc_summary.get("added", 0)
             skipped = disc_summary.get("skipped_rate_limit", 0)
             logger.info(

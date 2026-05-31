@@ -34,10 +34,33 @@ def _run_ingest() -> int:
 
 
 def _run_send() -> int:
-    """Ejecuta la generación + envío diaria de briefings. Devuelve exit code."""
+    """Ejecuta la generación + envío diaria de briefings. Devuelve exit code.
+
+    Soporta MODO TEST vía env vars (útil para validar fixes con un solo usuario
+    antes del despliegue full a producción):
+      - TEST_USER       = email único a procesar (resto saltados)
+      - SKIP_IDEMPOTENCY = "true" → bypass CHECK 3 (last_briefing_sent_date)
+      - SKIP_CREDITS    = "true" → no descuenta créditos al éxito
+    """
     from scripts.create_and_send_newspapers import generate_and_send
-    logger.info("🚀 JOB_MODE=send → ejecutando generación y envío de briefings")
-    asyncio.run(generate_and_send())
+
+    test_user = (os.environ.get("TEST_USER") or "").strip() or None
+    skip_idempotency = (os.environ.get("SKIP_IDEMPOTENCY") or "").strip().lower() in ("1", "true", "yes")
+    skip_credits = (os.environ.get("SKIP_CREDITS") or "").strip().lower() in ("1", "true", "yes")
+
+    if test_user:
+        logger.info(
+            f"🧪 JOB_MODE=send TEST → user={test_user} "
+            f"skip_idempotency={skip_idempotency} skip_credits={skip_credits}"
+        )
+    else:
+        logger.info("🚀 JOB_MODE=send → ejecutando generación y envío de briefings")
+
+    asyncio.run(generate_and_send(
+        test_user=test_user,
+        skip_idempotency=skip_idempotency,
+        skip_credits=skip_credits,
+    ))
     logger.info("✅ Envío finalizado")
     return 0
 

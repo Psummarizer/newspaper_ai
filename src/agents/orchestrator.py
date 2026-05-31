@@ -136,6 +136,134 @@ _EVERGREEN_CATS = {
 }
 
 
+# Atletas/personajes con cobertura real en Pexels stock photos.
+# Caso real: "Arturo Coello padel" → Pexels devuelve fotos cualquiera de
+# padel (incluidas mujeres) porque hace fuzzy text match e ignora el nombre.
+# Solo dejamos pasar SPECIFIC con nombre si está en esta lista; el resto
+# va directo a la query GENERIC OBJECT-only.
+PEXELS_KNOWN_NAMES = {
+    # Tenis A-list global
+    "alcaraz", "sinner", "djokovic", "nadal", "federer", "swiatek", "sabalenka",
+    # F1 A-list
+    "verstappen", "hamilton", "leclerc", "norris",
+    # NBA A-list
+    "lebron", "curry", "durant", "doncic",
+    # Fútbol A-list
+    "messi", "ronaldo", "mbappe", "haaland", "vinicius",
+    # Líderes mundiales (Pexels tiene fotos editoriales de eventos)
+    "trump", "putin", "biden", "macron", "xi jinping", "modi", "zelensky",
+    "lagarde", "powell", "merkel", "sanchez",
+}
+
+
+def _looks_like_proper_name_query(query: str) -> bool:
+    """Detecta si una query SPECIFIC contiene un nombre propio (probable persona).
+
+    Heurística: si hay 2+ palabras consecutivas capitalizadas (longitud 3+),
+    asumimos que es un nombre completo (ej: "Arturo Coello padel").
+    Excluye casos de marcas/lugares conocidos (ej: "Federal Reserve", "Real Madrid").
+    """
+    if not query:
+        return False
+    # Palabras conocidas como NO-persona (marcas, sitios, instituciones)
+    _NON_PERSON = {
+        "federal", "reserve", "european", "central", "bank", "real",
+        "madrid", "barcelona", "wall", "street", "white", "house",
+        "kremlin", "downing", "champs", "elysees", "monte", "carlo",
+        "saudi", "arabia", "north", "korea", "south", "korea",
+    }
+    import re as _re
+    pairs = _re.findall(r'\b([A-Z][a-zA-Záéíóúñ]{2,})\s+([A-Z][a-zA-Záéíóúñ]{2,})\b', query)
+    for w1, w2 in pairs:
+        if w1.lower() in _NON_PERSON or w2.lower() in _NON_PERSON:
+            continue
+        return True
+    return False
+
+
+def _query_has_known_name(query: str) -> bool:
+    """¿La query menciona algún nombre del whitelist PEXELS_KNOWN_NAMES?"""
+    if not query:
+        return False
+    q_lower = query.lower()
+    return any(name in q_lower for name in PEXELS_KNOWN_NAMES)
+
+
+def _entities_from_subtopic_rules(rules: list) -> set:
+    """Extrae nombres propios preferidos de subtopic rules.
+
+    El LLM `_parse_subtopics_llm` convierte contextos tipo
+    "tenis de Alcaraz y Jódar" en `{"name":"tenis","rule":"preferir Alcaraz y Jódar"}`.
+    Esta función rescata "Alcaraz" y "Jódar" de la rule para inyectarlos en
+    `_preferred_entities` y que disparen el boost de scoring + force-select.
+
+    Patrones reconocidos en la rule:
+      - "preferir X y Y"        → {X, Y}
+      - "preferir X, Y, Z"      → {X, Y, Z}
+      - "(X y Y)" / "(X)"       → {X, Y}  (paréntesis en rule)
+      - "preferentemente X"     → {X}
+
+    También revisa el campo `name` del subtopic: si es un nombre propio
+    aislado (Lakers, Real Madrid), se considera entidad preferida.
+    """
+    entities = set()
+    if not rules:
+        return entities
+
+    _STOP = {
+        "noticias", "deporte", "fútbol", "futbol", "tenis", "padel", "pádel",
+        "f1", "formula", "nba", "baloncesto", "ciclismo", "atletismo", "motogp",
+        "premier", "premiere", "liga", "champions", "y", "e", "o", "u",
+        "de", "del", "la", "el", "los", "las", "un", "una", "que",
+        "solo", "sólo", "masculino", "femenino", "preferir", "preferentemente",
+    }
+
+    def _names_from_text(text: str) -> set:
+        out = set()
+        if not text:
+            return out
+        # Capturamos secuencias de palabras capitalizadas (1-3 palabras seguidas)
+        for m in re.finditer(r'([A-ZÁÉÍÓÚÑ][a-záéíóúñ]{2,}(?:\s+[A-ZÁÉÍÓÚÑ][a-záéíóúñ]{2,}){0,2})', text):
+            name = m.group(1).strip()
+            tokens = [t for t in name.split() if t.lower() not in _STOP]
+            if tokens:
+                clean = " ".join(tokens)
+                if len(clean) >= 3:
+                    out.add(clean.lower())
+        return out
+
+    for sr in rules:
+        if not isinstance(sr, dict):
+            continue
+        rule = (sr.get("rule") or "")
+        name = (sr.get("name") or "")
+        rule_lower = rule.lower()
+
+        # Patrón 1: "preferir X y Y" o "preferentemente X"
+        if "preferir" in rule_lower or "preferentemente" in rule_lower:
+            # Strip el verbo y procesa el resto
+            after = re.sub(r'\b(preferir|preferentemente)\b', '', rule, flags=re.IGNORECASE)
+            entities |= _names_from_text(after)
+
+        # Patrón 2: paréntesis en la rule "(Alcaraz, Jódar)"
+        for m in re.finditer(r'\(([^)]+)\)', rule):
+            entities |= _names_from_text(m.group(1))
+
+        # Patrón 3: si el `name` del subtopic ES en sí mismo un nombre propio
+        # (Lakers, Real Madrid) — no un nombre de deporte ni keyword
+        if name and name.lower() not in _STOP:
+            # Solo si tiene mayúscula y no es una keyword de deporte
+            if name[0].isupper() and not any(s in name.lower() for s in
+                ("noticias", "resultados", "carreras", "equipos", "pilotos",
+                 "calendario", "destinos", "hoteles", "rutas", "vinos")):
+                # Multi-palabra capitalizada o single con cap (Lakers, Sainz)
+                tokens = [t for t in name.split() if t.lower() not in _STOP]
+                if tokens and len(" ".join(tokens)) >= 3:
+                    entities.add(" ".join(tokens).lower())
+
+    return entities
+
+
 def _resolve_preferred_domains(context: str) -> set:
     """Extrae dominios preferidos del contexto de Firestore del usuario.
 
@@ -721,6 +849,12 @@ class Orchestrator:
         self.gcs = gcs_service or GCSService()  # Usar GCS para artículos
         self.fb_service = FirebaseService()  # Solo para usuarios
 
+        # Acumulador de low-coverage cross-usuarios. Se flushea con
+        # send_consolidated_low_coverage_alert() al final del send job
+        # para enviar UN solo email al admin en vez de N (uno por usuario).
+        # Estructura: {user_email: [low_topic_dict, ...]}
+        self.pending_low_coverage_by_user: Dict[str, list] = {}
+
         # Build domain → country lookup from sources.json for country filtering
         self._domain_country_map: Dict[str, str] = {}
         try:
@@ -1136,6 +1270,23 @@ Return JSON only:
             qs = queries_map.get(local_idx, {})
             specific = qs.get("specific") or art.get("titulo", "")[:60]
             generic = qs.get("generic") or specific
+
+            # GUARD nombres-no-en-Pexels: si specific contiene un nombre propio
+            # (Arturo Coello, Rafael Jódar...) que NO está en PEXELS_KNOWN_NAMES,
+            # saltamos specific y vamos directo a generic OBJECT. Causa: Pexels
+            # hace fuzzy text matching sin reconocimiento facial — "Coello padel"
+            # devuelve cualquier foto con "padel" en metadatos (incluidas mujeres).
+            # Mejor una pala genérica que un género/jugador equivocado.
+            if (_looks_like_proper_name_query(specific)
+                    and not _query_has_known_name(specific)
+                    and generic and generic.lower() != specific.lower()):
+                self.logger.debug(
+                    f"Pexels: skip specific '{specific}' (nombre no whitelisteado), "
+                    f"usando generic '{generic}'"
+                )
+                urls = await self._pexels_search(generic, per_page=5)
+                return urls
+
             # Intento 1: SPECIFIC
             urls = await self._pexels_search(specific, per_page=5)
             if not urls and generic and generic.lower() != specific.lower():
@@ -1737,6 +1888,11 @@ JSON only: {{"invalid_ids": [1, 3], "reasons": {{"1": "...", "3": "..."}}}}
         # porque la detección depende de la capitalización de nombres propios.
         _original_ctx = " ".join(str(c) for c in (user_contexts or []) if c)
         _pref_entities = _resolve_preferred_entities(_original_ctx)
+        # Merge entidades de subtopic_rules ("preferir Alcaraz y Jódar") con las
+        # del contexto raw. Sin este merge, el FORCE-SELECT de etapa 1 no rescata
+        # entidades preferidas declaradas vía subtopic.
+        if subtopic_rules:
+            _pref_entities = _pref_entities | _entities_from_subtopic_rules(subtopic_rules)
 
         # --- Force preferred articles (sources + entities) ---
         # Etapa 1: forzar ≥1 artículo por entidad preferida nombrada en título/resumen.
@@ -2172,39 +2328,51 @@ JSON only: {{"invalid_ids": [1, 3], "reasons": {{"1": "...", "3": "..."}}}}
         return best_lang == lang
 
     async def _translate_news_list(self, news_list: List[Dict], target_lang: str) -> List[Dict]:
-        """Detecta el idioma de cada noticia y traduce SOLO las que no estén en `target_lang`.
+        """Traduce campos no-target_lang a target_lang, evaluando CADA CAMPO independientemente.
 
-        Resuelve el caso de fuentes RSS en inglés cuya traducción es revertida
-        por el guard de fidelidad de título en ingesta (token overlap <50% por
-        ser idiomas distintos). Al hacerlo per-usuario aquí, garantizamos que
-        el usuario reciba el briefing 100% en su idioma sin tocar la ingesta.
+        Resuelve el bug crítico de inconsistencia idiomática (caso real
+        diondijkshoorn 2026-05-30): el guard de fidelidad de título en ingesta
+        deja el `titulo` en idioma fuente cuando el LLM tradujo demasiado,
+        mientras `noticia` puede haber quedado redactada en otro idioma.
+        Resultado: título EN + body ES (o cualquier mezcla).
 
-        Pre-filtro heurístico SIN coste LLM: si todos los títulos parecen ya
-        estar en `target_lang`, devolvemos la lista sin llamar al LLM. Solo
-        invocamos la API cuando hay sospecha de contenido foráneo.
+        El prompt anterior evaluaba `needs_translation` a NIVEL DE ITEM basándose
+        SOLO en el título. Si título == target, body quedaba sin traducir aunque
+        estuviera en otro idioma.
+
+        Solución: el LLM evalúa cada campo (titulo, resumen, noticia) por separado
+        y traduce solo los que no estén en target_lang.
+
+        Pre-filtro heurístico: si TODOS los campos de TODAS las noticias parecen
+        ya estar en target_lang → skip LLM (coste 0).
         """
         if not news_list:
             return []
 
-        # PRE-FILTRO HEURÍSTICO: si título Y resumen pasan el detector cheap,
-        # asumimos que el briefing ya está en target_lang y skip LLM.
-        # IMPORTANTE: NO basta con chequear sólo el título — el title summarizer
-        # puede acortar/inglesar el título mientras el body permanece en otro
-        # idioma (bug observado 2026-05-28: "Trump risks triggering financial
-        # crisis, warns ECB" con cuerpo en castellano para usuario EN). Chequear
-        # también el resumen evita ese caso a coste ~0.
-        def _both_ok(n: Dict) -> bool:
-            title_ok = self._looks_like_lang(n.get("titulo", ""), target_lang)
-            if not title_ok:
-                return False
-            # El resumen puede ser largo: usar los primeros 240 chars basta para
-            # los marcadores léxicos del heurístico.
-            resumen = (n.get("resumen") or "")[:240]
-            if len(resumen) < 30:
-                return title_ok  # muy corto para juzgar fiable: confiamos en el título
-            return self._looks_like_lang(resumen, target_lang)
+        def _field_in_target(text: str) -> bool:
+            """¿Este campo concreto está claramente en target_lang?
 
-        if all(_both_ok(n) for n in news_list):
+            Sesgo defensivo: ante la duda devolvemos False para forzar el LLM,
+            ya que el coste de un false-negative (campo sin traducir) es mucho
+            peor que el de una llamada LLM extra.
+            """
+            if not text:
+                return True  # vacío: nada que traducir
+            if len(text) < 12:
+                # Texto demasiado corto para que el heurístico léxico decida
+                # fiablemente. Asumimos OK SOLO si el otro campo del item ya
+                # nos lleva al LLM. Como `_all_fields_ok` exige True en todos,
+                # devolver True aquí no obliga a saltar el LLM — solo no
+                # lo dispara por este campo concreto.
+                return True
+            return self._looks_like_lang(text[:300], target_lang)
+
+        def _all_fields_ok(n: Dict) -> bool:
+            return (_field_in_target(n.get("titulo", ""))
+                    and _field_in_target(n.get("resumen", ""))
+                    and _field_in_target(n.get("noticia", "")))
+
+        if all(_all_fields_ok(n) for n in news_list):
             return news_list
 
         prompt_text = ""
@@ -2217,25 +2385,33 @@ JSON only: {{"invalid_ids": [1, 3], "reasons": {{"1": "...", "3": "..."}}}}
         prompt = f"""
         Eres un traductor profesional de periodismo. Idioma objetivo: {target_lang}.
 
-        Para CADA item:
-        1. Detecta el idioma del TÍTULO (es, en, fr, de, it, pt, ...).
-        2. Si el idioma detectado == "{target_lang}" → marca needs_translation=false y
-           devuelve los textos EXACTAMENTE como están (no reformules nada).
-        3. Si el idioma detectado != "{target_lang}" → traduce TÍTULO, RESUMEN y CUERPO
-           a {target_lang} respetando tono periodístico, estructura, y etiquetas HTML
-           existentes (<b>, <p>, <a>, etc.). Mantén el sentido literal. NO añadas
-           ni quites información.
+        ⚠️ REGLA CRÍTICA: dentro de un mismo item, los CAMPOS pueden estar en
+        idiomas DISTINTOS (título en EN, cuerpo en ES, etc.). Evalúa CADA CAMPO
+        INDEPENDIENTEMENTE — no asumas que el idioma del título es el del cuerpo.
+
+        Para CADA item y CADA campo (titulo, resumen, noticia):
+        1. Detecta el idioma de ESE CAMPO concreto.
+        2. Si el campo ya está en "{target_lang}" → devuélvelo EXACTAMENTE como está
+           (sin reformular, sin "mejorar" estilo).
+        3. Si el campo está en otro idioma → tradúcelo a "{target_lang}" respetando
+           tono periodístico, etiquetas HTML existentes (<b>, <p>, <a>...), y
+           el sentido literal. NO añadas ni quites información.
+
+        Indica además qué campos detectaste fuera de idioma en `translated_fields`
+        (lista de nombres: "titulo", "resumen", "noticia").
 
         Textos:
         {prompt_text}
 
         Devuelve SOLO un JSON válido con esta estructura (respeta los IDs):
         {{
-            "translated_items": [
+            "items": [
                 {{
                     "id": 0,
-                    "detected_lang": "en",
-                    "needs_translation": true,
+                    "titulo_lang": "en",
+                    "resumen_lang": "es",
+                    "noticia_lang": "es",
+                    "translated_fields": ["resumen", "noticia"],
                     "titulo": "...",
                     "resumen": "...",
                     "noticia": "..."
@@ -2251,26 +2427,40 @@ JSON only: {{"invalid_ids": [1, 3], "reasons": {{"1": "...", "3": "..."}}}}
                 response_format={"type": "json_object"}
             )
             result = json.loads(response.choices[0].message.content)
-            translated_data = result.get("translated_items", [])
+            translated_data = result.get("items", []) or result.get("translated_items", [])
 
             translated_list = []
             translated_count = 0
             for i, news in enumerate(news_list):
                 news_copy = dict(news)
                 trans = next((t for t in translated_data if t.get("id") == i), None)
-                if trans and trans.get("needs_translation"):
-                    if trans.get("titulo"): news_copy["titulo"] = trans["titulo"]
-                    if trans.get("resumen"): news_copy["resumen"] = trans["resumen"]
-                    if trans.get("noticia"): news_copy["noticia"] = trans["noticia"]
-                    translated_count += 1
-                    self.logger.info(
-                        f"   🌐 Traducido [{trans.get('detected_lang','?')}→{target_lang}]: "
-                        f"{(trans.get('titulo') or '')[:60]}..."
-                    )
+                if trans:
+                    fields_changed = trans.get("translated_fields") or []
+                    # Backward-compat: si el modelo no devolvió translated_fields,
+                    # comparamos cada campo y solo overrideamos si difiere.
+                    for field in ("titulo", "resumen", "noticia"):
+                        new_val = trans.get(field)
+                        if not new_val:
+                            continue
+                        # Aceptamos override solo si LLM marcó el campo como traducido
+                        # o si el modelo devolvió translated_fields vacío (modo legacy)
+                        # y el valor es distinto al original.
+                        if fields_changed:
+                            if field in fields_changed:
+                                news_copy[field] = new_val
+                        else:
+                            if new_val != news.get(field):
+                                news_copy[field] = new_val
+                    if fields_changed:
+                        translated_count += 1
+                        self.logger.info(
+                            f"   🌐 Traducido campos {fields_changed} → {target_lang}: "
+                            f"{(news_copy.get('titulo') or '')[:60]}..."
+                        )
                 translated_list.append(news_copy)
 
             if translated_count:
-                self.logger.info(f"   ✅ {translated_count}/{len(news_list)} noticias traducidas a {target_lang}")
+                self.logger.info(f"   ✅ {translated_count}/{len(news_list)} noticias con campos traducidos a {target_lang}")
             return translated_list
 
         except Exception as e:
@@ -2397,40 +2587,142 @@ Devuelve JSON con la MISMA estructura, las listas reordenadas:
             self.logger.warning(f"Cluster LLM falló (fail-open): {e}")
             return cat_to_topics
 
-    def _send_low_coverage_alert(self, user_email: str, low_topics: list) -> None:
-        """Envía email al admin cuando un usuario tuvo topics con <3 noticias.
-        Útil para detectar topics mal definidos o feeds insuficientes."""
-        admin = os.getenv("ADMIN_EMAIL", "psummarizer@gmail.com")
-        if not admin or admin == user_email:
+    def send_consolidated_low_coverage_alert(self) -> None:
+        """Envía UN email al admin con TODOS los usuarios+topics low-coverage del run.
+
+        Reemplaza el modelo previo de N emails (uno por usuario). Estructura:
+          1. RESUMEN GLOBAL (cross-usuarios): topics ordenados por nº de usuarios
+             afectados — identifica problemas sistémicos (topic mal definido en
+             ingesta, feeds insuficientes, etc.) antes que problemas per-usuario.
+          2. DESGLOSE POR USUARIO: solo si hay un mismo topic afectando a un único
+             usuario (problema puntual de su configuración Firestore).
+        """
+        if not self.pending_low_coverage_by_user:
             return
-        subject = f"⚠️ Cobertura baja: {len(low_topics)} topics para {user_email}"
-        rows = ""
-        for t in low_topics:
-            kw_str = ", ".join(t.get("keywords", [])[:6]) or "(sin keywords)"
-            reason = t.get("reason", "filter+dedup")
-            rows += (
+        admin = os.getenv("ADMIN_EMAIL", "psummarizer@gmail.com")
+        if not admin:
+            return
+
+        from collections import defaultdict
+        total_users = len(self.pending_low_coverage_by_user)
+        total_topics = sum(len(v) for v in self.pending_low_coverage_by_user.values())
+
+        # --- AGREGADO CROSS-USUARIOS por topic ---
+        # {topic_name: {"users": [emails], "selected": [n,...], "fresh_pool": [n,...], "reasons": set}}
+        topic_aggregate: dict = defaultdict(lambda: {
+            "users": [], "selected": [], "fresh_pool": [], "reasons": set()
+        })
+        for user_email, low_topics in self.pending_low_coverage_by_user.items():
+            if admin == user_email:
+                continue
+            for t in low_topics:
+                name = t.get("topic", "")
+                topic_aggregate[name]["users"].append(user_email)
+                topic_aggregate[name]["selected"].append(t.get("selected", 0))
+                topic_aggregate[name]["fresh_pool"].append(t.get("fresh_pool", 0))
+                topic_aggregate[name]["reasons"].add(t.get("reason", "filter+dedup"))
+
+        # Ordenar global por nº usuarios afectados (descendente)
+        global_rows = ""
+        systemic_topics: set = set()  # topics que afectan a ≥2 usuarios
+        per_user_topics: set = set()  # topics que afectan solo a 1 usuario
+        for name, agg in sorted(topic_aggregate.items(), key=lambda x: -len(x[1]["users"])):
+            n_users = len(agg["users"])
+            avg_sel = sum(agg["selected"]) / max(1, len(agg["selected"]))
+            avg_pool = sum(agg["fresh_pool"]) / max(1, len(agg["fresh_pool"]))
+            reasons_str = ", ".join(sorted(agg["reasons"]))
+            tag = ""
+            if n_users >= 2:
+                tag = "<span style='background:#e74c3c;color:white;padding:2px 8px;border-radius:10px;font-size:11px;margin-left:8px;'>SISTÉMICO</span>"
+                systemic_topics.add(name)
+            else:
+                per_user_topics.add(name)
+            global_rows += (
                 f"<tr>"
-                f"<td style='padding:6px'><b>{t['topic']}</b></td>"
-                f"<td style='padding:6px'>{t['selected']} / pool {t['fresh_pool']}</td>"
-                f"<td style='padding:6px;font-size:12px;color:#888'>{reason}</td>"
-                f"<td style='padding:6px;font-size:12px;color:#666'>{kw_str}</td>"
+                f"<td style='padding:8px;border-bottom:1px solid #eee;'><b>{name}</b>{tag}</td>"
+                f"<td style='padding:8px;border-bottom:1px solid #eee;text-align:center;'>{n_users}/{total_users}</td>"
+                f"<td style='padding:8px;border-bottom:1px solid #eee;text-align:center;'>{avg_sel:.1f} / {avg_pool:.1f}</td>"
+                f"<td style='padding:8px;border-bottom:1px solid #eee;font-size:12px;color:#888;'>{reasons_str}</td>"
                 f"</tr>"
             )
-        html = (
-            f"<h3>Topics con cobertura baja para {user_email}</h3>"
-            f"<p>Estos topics quedaron con &lt;3 noticias tras filter+dedup. "
-            f"Posibles acciones: añadir feeds RSS, revisar prompt filter, "
-            f"reformular el topic del usuario.</p>"
-            f"<table border=1 cellspacing=0 cellpadding=4>"
-            f"<tr><th>Topic</th><th>Seleccionadas / Pool fresco</th><th>Razón</th><th>Keywords obligatorias</th></tr>"
-            f"{rows}"
-            f"</table>"
+
+        # --- DESGLOSE POR USUARIO (solo topics no-sistémicos) ---
+        user_blocks = []
+        for user_email, low_topics in sorted(self.pending_low_coverage_by_user.items()):
+            if admin == user_email:
+                continue
+            user_low = [t for t in low_topics if t.get("topic") in per_user_topics]
+            if not user_low:
+                continue
+            rows = ""
+            for t in user_low:
+                kw_str = ", ".join(t.get("keywords", [])[:6]) or "(sin keywords)"
+                reason = t.get("reason", "filter+dedup")
+                rows += (
+                    f"<tr>"
+                    f"<td style='padding:6px'><b>{t['topic']}</b></td>"
+                    f"<td style='padding:6px'>{t['selected']} / pool {t['fresh_pool']}</td>"
+                    f"<td style='padding:6px;font-size:12px;color:#888'>{reason}</td>"
+                    f"<td style='padding:6px;font-size:12px;color:#666'>{kw_str}</td>"
+                    f"</tr>"
+                )
+            user_blocks.append(
+                f"<h4 style='color:#3498db;margin-top:20px;margin-bottom:6px;'>👤 {user_email} "
+                f"<span style='font-size:12px;color:#888;'>({len(user_low)} topic(s))</span></h4>"
+                f"<table border=0 cellspacing=0 cellpadding=4 style='border-collapse:collapse;width:100%;max-width:700px;'>"
+                f"<tr style='background:#f5f5f5;'><th align='left'>Topic</th><th align='left'>Sel/Pool</th><th align='left'>Razón</th><th align='left'>Keywords</th></tr>"
+                f"{rows}"
+                f"</table>"
+            )
+
+        subject = (
+            f"⚠️ Cobertura baja: {len(systemic_topics)} topic(s) sistémicos + "
+            f"{len(per_user_topics)} per-usuario ({total_users} usuario/s)"
         )
+        html = f"""
+        <div style='font-family:sans-serif;'>
+          <h2 style='color:#e74c3c;'>⚠️ Cobertura baja del briefing diario</h2>
+          <p style='color:#555;'>Run de hoy: <b>{total_users}</b> usuario(s) procesado(s), <b>{total_topics}</b> registros de topics con &lt;3 noticias.</p>
+
+          <h3 style='color:#2c3e50;margin-top:24px;'>📊 Resumen GLOBAL (cross-usuarios)</h3>
+          <p style='color:#888;font-size:13px;margin-top:0;'>
+            Topics ordenados por nº de usuarios afectados. Los marcados como
+            <b style='color:#e74c3c;'>SISTÉMICO</b> tienen problema en común
+            (probable feed insuficiente o aliasing erróneo en ingesta) — atacar primero.
+          </p>
+          <table border=0 cellspacing=0 cellpadding=4 style='border-collapse:collapse;width:100%;max-width:700px;'>
+            <tr style='background:#34495e;color:white;'>
+              <th align='left' style='padding:8px;'>Topic</th>
+              <th align='center' style='padding:8px;'>Users afectados</th>
+              <th align='center' style='padding:8px;'>Avg Sel / Pool</th>
+              <th align='left' style='padding:8px;'>Razones</th>
+            </tr>
+            {global_rows}
+          </table>
+
+          {'<h3 style="color:#2c3e50;margin-top:32px;">👥 Detalle por usuario (problemas únicos)</h3>' if user_blocks else ''}
+          {''.join(user_blocks)}
+
+          <p style='margin-top:32px;color:#888;font-size:12px;border-top:1px solid #eee;padding-top:12px;'>
+            Acciones recomendadas:<br/>
+            <b>SISTÉMICO</b> (≥2 users): añadir feeds RSS específicos en <code>data/sources.json</code>
+            o revisar si el topic se aliasa a bucket genérico en ingesta.<br/>
+            <b>Per-usuario</b>: revisar el campo <code>topic</code> del usuario en Firestore
+            (mal redactado, sin contexto, o subtopics demasiado niche).
+          </p>
+        </div>
+        """
         try:
             self.email_service.send_email(admin, subject, html)
-            self.logger.info(f"📨 Alerta low-coverage enviada a {admin} ({len(low_topics)} topics)")
+            self.logger.info(
+                f"📨 Alerta consolidada enviada a {admin}: "
+                f"{len(systemic_topics)} sistémicos + {len(per_user_topics)} per-user "
+                f"({total_users} usuario(s), {total_topics} registros)"
+            )
         except Exception as e:
-            self.logger.warning(f"Email low-coverage alert falló: {e}")
+            self.logger.warning(f"Email consolidated low-coverage alert falló: {e}")
+        finally:
+            self.pending_low_coverage_by_user.clear()
 
     async def _generate_topic_keywords(
         self, topic: str, user_context: str = "",
@@ -2633,6 +2925,30 @@ JSON only: {{"keywords": ["kw1", "kw2", ...]}}"""
             k: _sanitize_ctx(v) for k, v in _user_topic_map_raw.items()
             if isinstance(k, str)
         }
+
+        # --- Pre-compute subtopic rules per topic (necesario para scoring boost) ---
+        # Antes esto se hacía DESPUÉS del scoring loop (línea ~3000), por lo que
+        # las entidades preferidas extraídas de "preferir Alcaraz/Jódar" no
+        # influían en el score. Resultado: artículos de Jódar nunca ganaban a
+        # Djokovic. Adelantarlo permite inyectar esas entidades en el boost.
+        topic_subtopics: dict = {}
+        topic_subtopic_rules: dict = {}
+        topic_extra_pref_entities: dict = {}  # entidades derivadas de "preferir X" rules
+        for t in topics:
+            ctx = _user_topic_map.get(t, "")
+            if not ctx:
+                continue
+            subs_structured = await _parse_subtopics_llm(t, ctx, self.processor)
+            if subs_structured:
+                topic_subtopics[t] = [s["name"] for s in subs_structured]
+                topic_subtopic_rules[t] = subs_structured
+                extra_ents = _entities_from_subtopic_rules(subs_structured)
+                if extra_ents:
+                    topic_extra_pref_entities[t] = extra_ents
+                    self.logger.info(f"🎯 Entidades extra de subtopic rules para '{t}': {extra_ents}")
+                self.logger.info(f"🔀 Subtopics para '{t}': {subs_structured}")
+            elif ctx:
+                self.logger.info(f"ℹ️ Topic '{t}' tiene contexto pero no subtopics: '{ctx[:80]}'")
 
         for idx, topic in enumerate(topics):
             print(f"\n--- [{idx+1}/{len(topics)}] Procesando alias: '{topic}' ---")
@@ -2891,6 +3207,11 @@ JSON only: {{"keywords": ["kw1", "kw2", ...]}}"""
             _user_ctx_for_topic = _user_topic_map.get(topic, "")
             _preferred_domains = _resolve_preferred_domains(_user_ctx_for_topic)
             _preferred_entities = _resolve_preferred_entities(_user_ctx_for_topic)
+            # Merge entidades derivadas de subtopic rules "preferir X y Y" para
+            # que también disparen boost (caso real: "tenis de Alcaraz y Jódar"
+            # → el LLM parsea rule "preferir Alcaraz y Jódar" pero el detector
+            # de _resolve_preferred_entities no captura "tenis de X" sin verbo).
+            _preferred_entities = _preferred_entities | topic_extra_pref_entities.get(topic, set())
 
             # Re-sort with preferred-source and preferred-entity boosts
             if _preferred_domains or _preferred_entities:
@@ -2927,18 +3248,9 @@ JSON only: {{"keywords": ["kw1", "kw2", ...]}}"""
             topic_fresh_news[topic] = (fresh_news, cached_data)
 
         # --- FASE 1b: BALANCEO DE SECCIONES ---
-        # Pre-compute subtopics per topic using LLM (structured with per-subtopic rules)
-        topic_subtopics: dict = {}       # {"Deporte": ["tenis", "fútbol"]} — name strings for matching
-        topic_subtopic_rules: dict = {}  # {"Deporte": [{"name":"tenis","rule":""},{"name":"fútbol","rule":"solo masculino"}]}
-        for t in topics:
-            ctx = _user_topic_map.get(t, "")
-            subs_structured = await _parse_subtopics_llm(t, ctx, self.processor)
-            if subs_structured:
-                topic_subtopics[t] = [s["name"] for s in subs_structured]
-                topic_subtopic_rules[t] = subs_structured
-                self.logger.info(f"🔀 Subtopics para '{t}': {subs_structured}")
-            elif ctx:
-                self.logger.info(f"ℹ️ Topic '{t}' tiene contexto pero no subtopics: '{ctx[:80]}'")
+        # NOTA: el parseo de subtopics se hizo arriba (antes del scoring) para
+        # que las entidades derivadas de "preferir X" influyan en el boost.
+        # topic_subtopics / topic_subtopic_rules ya están poblados.
 
         # --- Auto-subtopics for broad topics without Firestore context ---
         # When user has a broad topic like "deporte" with no context, auto-detect
@@ -3827,13 +4139,11 @@ JSON only: {{"keywords": ["kw1", "kw2", ...]}}"""
             self.email_service.send_email(user_email, subject, final_html)
             print(f"   ✅ Email enviado correctamente!")
 
-            # 📨 Alerta admin si algún topic quedó con <MIN_PER_TOPIC noticias.
-            # Permite ajustar feeds/prompts sin esperar feedback del usuario final.
+            # 📨 Acumular para alerta CONSOLIDADA al final del send job
+            # (evita N emails — uno por usuario). El caller debe llamar
+            # send_consolidated_low_coverage_alert() tras procesar a todos.
             if _low_coverage_topics:
-                try:
-                    self._send_low_coverage_alert(user_email, _low_coverage_topics)
-                except Exception as e:
-                    self.logger.warning(f"Low-coverage alert falló: {e}")
+                self.pending_low_coverage_by_user[user_email] = list(_low_coverage_topics)
 
             # 💰 Cost tracking embeddings: append a archivo en GCS.
             # Permite ver coste diario de OpenAI embeddings sin entrar a la consola.
