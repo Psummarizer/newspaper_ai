@@ -460,15 +460,23 @@ async def llm_strict_yes_no_filter(
                 )
         if adjacency_lines:
             subtopics_block += (
-                "\nDISCIPLINAS ADYACENTES — CRITERIO ESTRICTO POR SUBTOPIC:\n"
+                "\nDISCIPLINAS ADYACENTES — CRITERIO POR SUBTOPIC:\n"
                 + "\n".join(adjacency_lines)
-                + "\nREGLA CRÍTICA:\n"
-                + "  1. El artículo debe tratar DIRECTAMENTE sobre el ámbito deportivo del subtopic.\n"
-                + "     Lifestyle (coches personales, moda, fiestas, vida sentimental) → NO.\n"
-                + "     Aunque mencione al deportista por nombre, si no es noticia de competición → NO.\n"
-                + "  2. Si la noticia es de OTRA disciplina/equipo (rally, MotoGP cuando subtopic=F1; Spurs/Knicks cuando subtopic=Lakers; Champions/Barça cuando subtopic=Real Madrid),\n"
-                + "     SOLO se acepta si la disciplina/equipo del subtopic aparece EXPLÍCITAMENTE en el titular o resumen.\n"
-                + "  3. Ante la duda → NO (mejor cobertura baja que cross-leak).\n"
+                + "\nORDEN DE EVALUACIÓN (aplica en este orden — no saltes pasos):\n"
+                + "  1. ¿El TITULAR o RESUMEN del artículo MENCIONA EXPLÍCITAMENTE el subtopic\n"
+                + "     (nombre del club/disciplina/atleta del subtopic)? → SI.\n"
+                + "     Ejemplos:\n"
+                + "       'Real Madrid 2 - Granada 0' (con subtopic=Real Madrid) → SI.\n"
+                + "       'Horarios del Gran Premio de Mónaco F1 2026' (con subtopic=F1) → SI.\n"
+                + "       'Alcaraz pasa a cuartos en Roland Garros' (con subtopic=tenis) → SI.\n"
+                + "  2. ¿Es noticia del dominio amplio del subtopic, aunque no nombre la entidad\n"
+                + "     concreta (ej: 'Cambios en el reglamento ATP' para subtopic=tenis;\n"
+                + "     'FIA sanciona a Red Bull' para subtopic=F1)? → SI.\n"
+                + "  3. ¿Es de una disciplina LISTADA como ❌ NO arriba (cross-leak claro)? → NO.\n"
+                + "  4. ¿Es lifestyle/celebrity/vida personal del atleta SIN contexto deportivo\n"
+                + "     (colección de coches, moda, fiestas, vida sentimental)? → NO.\n"
+                + "  5. Ante la duda → SI. Mejor incluir y dejar que el selector final filtre,\n"
+                + "     que perder cobertura por sobre-restricción.\n"
             )
 
     kept = []

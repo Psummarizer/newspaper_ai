@@ -2435,26 +2435,48 @@ JSON only: {{"invalid_ids": [1, 3], "reasons": {{"1": "...", "3": "..."}}}}
                 news_copy = dict(news)
                 trans = next((t for t in translated_data if t.get("id") == i), None)
                 if trans:
-                    fields_changed = trans.get("translated_fields") or []
-                    # Backward-compat: si el modelo no devolvió translated_fields,
-                    # comparamos cada campo y solo overrideamos si difiere.
+                    # Estrategia ROBUSTA: para cada campo decidir override basándonos
+                    # en MÚLTIPLES señales (translated_fields, *_lang del LLM, y
+                    # heurístico final). Si CUALQUIERA indica que el campo no está
+                    # en target_lang, hacemos override con el valor del LLM.
+                    fields_changed = set(trans.get("translated_fields") or [])
+                    actually_translated = []
                     for field in ("titulo", "resumen", "noticia"):
                         new_val = trans.get(field)
                         if not new_val:
-                            continue
-                        # Aceptamos override solo si LLM marcó el campo como traducido
-                        # o si el modelo devolvió translated_fields vacío (modo legacy)
-                        # y el valor es distinto al original.
-                        if fields_changed:
-                            if field in fields_changed:
-                                news_copy[field] = new_val
-                        else:
-                            if new_val != news.get(field):
-                                news_copy[field] = new_val
-                    if fields_changed:
+                            continue  # LLM no devolvió ese campo
+                        original_val = news.get(field, "")
+                        # Señal 1: el LLM lo declaró en translated_fields
+                        in_changed_list = field in fields_changed
+                        # Señal 2: el LLM declaró el lang del campo y no es target
+                        detected_lang = (trans.get(f"{field}_lang") or "").lower()
+                        lang_mismatch = (
+                            bool(detected_lang)
+                            and detected_lang != target_lang.lower()
+                        )
+                        # Señal 3: heurístico final post-LLM sobre el ORIGINAL
+                        # (si el original ya está en target_lang, el LLM no debería
+                        # estar "traduciéndolo"; pero por seguridad confirmamos).
+                        original_in_target = self._looks_like_lang(
+                            original_val[:300], target_lang
+                        ) if len(original_val) >= 12 else True
+
+                        # Override si: el LLM lo marcó como traducido, O el lang
+                        # detectado del original no es target, O el original parece
+                        # estar en otro idioma según el heurístico Y el LLM devolvió
+                        # algo distinto.
+                        should_override = (
+                            in_changed_list
+                            or lang_mismatch
+                            or (not original_in_target and new_val != original_val)
+                        )
+                        if should_override:
+                            news_copy[field] = new_val
+                            actually_translated.append(field)
+                    if actually_translated:
                         translated_count += 1
                         self.logger.info(
-                            f"   🌐 Traducido campos {fields_changed} → {target_lang}: "
+                            f"   🌐 Traducido campos {actually_translated} → {target_lang}: "
                             f"{(news_copy.get('titulo') or '')[:60]}..."
                         )
                 translated_list.append(news_copy)

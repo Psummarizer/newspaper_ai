@@ -865,15 +865,31 @@ class HourlyProcessor:
         {json.dumps(topics_list, ensure_ascii=False, indent=2)}
 
         REGLAS:
+        - SOLO se matchea si son SINÓNIMOS EXACTOS o variaciones léxicas obvias
+          (mayúsculas, acentos, traducción).
         - IA = Inteligencia Artificial = AI = Artificial Intelligence → SINÓNIMOS
         - genAI ≠ IA (relacionados pero NO sinónimos, crear topic nuevo)
         - Geopolítica = geopolitica = Geopolitics → SINÓNIMOS
         - Macroeconomía = macroeconomia = Macro = Economía Global → SINÓNIMOS
 
-        ¿Este alias es SINÓNIMO de algún topic existente?
-        
+        ⚠️ NO MATCHEAR (crear topic nuevo) si:
+        1. El alias del usuario es MULTI-PALABRA y específico (ej "Institutional
+           blockchain networks", "Market Infrastructure & Clearing", "Tokenización
+           de activos", "Urbanismo Madrid", "Premier Padel"). Aunque comparta UNA
+           palabra con un topic existente, NO es sinónimo si el resto difiere.
+           Ejemplo: "Institutional blockchain networks" ≠ "Tecnología IA Cloud
+           Blockchain Quantum" — son temas distintos aunque compartan "blockchain".
+        2. El alias nombra una entidad PROPIA concreta (marca, persona, lugar,
+           franquicia: "Assassins Creed", "Señor de los anillos", "Arabia Saudí",
+           "Lakers", "Real Madrid") y el topic existente es genérico.
+        3. El alias es un sub-dominio especializado de un topic existente
+           (ej "freight" ≠ "Economía"; "soy oil" ≠ "Agricultura").
+        4. Hay duda razonable. Ante la duda → null (crear nuevo).
+
+        ¿Este alias es SINÓNIMO EXACTO de algún topic existente?
+
         Responde JSON:
-        {{"match": "nombre_del_topic" o null}}
+        {{"match": "nombre_del_topic" o null, "razon": "<1 línea>"}}
         """
         
         try:
@@ -2007,6 +2023,17 @@ class HourlyProcessor:
              enfrenta. NO añadas dramatismo que no esté.
            - Tu trabajo es REFORMULAR con otras palabras (evitar copia textual),
              NO reinterpretar ni completar con información externa.
+           - 🚫 NUNCA HABLES DE LO QUE EL ARTÍCULO NO DICE. Está PROHIBIDO escribir
+             frases tipo: "el artículo no detalla", "no se explican las razones",
+             "sin aportar datos adicionales", "el contenido no profundiza",
+             "aunque no se especifican los motivos", "sin que se conozcan más
+             detalles", "no se ha confirmado", "no se mencionan fuentes".
+             Esto es FAKE MODESTY que confunde al lector — sugiere que el artículo
+             es incompleto cuando puede que SÍ tenga la info y tú no la hayas
+             extraído. Tu redacción debe sonar AFIRMATIVA y centrada SOLO en lo
+             que el texto sí dice. Si el contenido es escaso, hace una redacción
+             corta y enfática sobre los hechos disponibles — NO una redacción
+             larga llena de disclaimers sobre lo ausente.
         6. 🛡️ FILTRO — DESCARTAR (responder null) si la noticia es:
            - Ambigua (no nombra sujetos concretos) o depende de contexto externo
            - Contenido promocional, publirreportaje o patrocinado
