@@ -525,10 +525,17 @@ ANTE LA DUDA → SI **salvo** disciplinas adyacentes a un topic específico (reg
 ahí preferimos rechazar para evitar cross-leak entre F1/rally, NBA/NCAA, etc.
 
 JSON only: {{"results": ["SI","NO","SI","NO",...]}}"""
+        # Stage 2 usa gpt-5-nano (OpenAI) en lugar de Mistral. Razón:
+        # mistral-small rechazaba ~90% de artículos válidos en topics nicho
+        # (caso 2026-05-28: alex con Institutional blockchain / Tokenización).
+        # gpt-5-nano es 10x más barato que Gemini Flash y mejor en semántica.
+        # Fallback a Mistral via call_quality_llm si OpenAI no está disponible
+        # o falla (evita romper el pipeline si OPENAI_API_KEY falta).
         try:
-            from src.utils.llm_quality import call_quality_llm
-            response = await call_quality_llm(
-                processor,
+            from src.utils.openai_nano import call_openai_nano, OpenAINanoTracker
+            if not OpenAINanoTracker().is_available:
+                raise RuntimeError("openai_unavailable")
+            response = await call_openai_nano(
                 messages=[{"role": "user", "content": prompt}],
                 response_format={"type": "json_object"},
                 label="stage2_yes_no",
@@ -542,6 +549,24 @@ JSON only: {{"results": ["SI","NO","SI","NO",...]}}"""
                 else:
                     logger.info(f"      🚫 Stage 2 LLM-strict: descarta '{(art.get('titulo','') or '')[:60]}'")
         except Exception as e:
-            logger.warning(f"LLM strict filter falló (batch {start}): {e}")
-            kept.extend(batch)  # fail-open
+            logger.warning(f"Stage 2 gpt-5-nano falló (batch {start}): {e}. Fallback a Mistral.")
+            try:
+                from src.utils.llm_quality import call_quality_llm
+                response = await call_quality_llm(
+                    processor,
+                    messages=[{"role": "user", "content": prompt}],
+                    response_format={"type": "json_object"},
+                    label="stage2_yes_no_fallback",
+                )
+                data = json.loads(response.choices[0].message.content)
+                results = data.get("results", [])
+                for i, art in enumerate(batch):
+                    verdict = (results[i] if i < len(results) else "SI").strip().upper()
+                    if verdict.startswith("S"):
+                        kept.append(art)
+                    else:
+                        logger.info(f"      🚫 Stage 2 LLM-strict (fallback): descarta '{(art.get('titulo','') or '')[:60]}'")
+            except Exception as e2:
+                logger.warning(f"Stage 2 fallback Mistral también falló (batch {start}): {e2}")
+                kept.extend(batch)  # fail-open: deja pasar el batch entero
     return kept

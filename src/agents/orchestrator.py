@@ -855,6 +855,16 @@ class Orchestrator:
         # Estructura: {user_email: [low_topic_dict, ...]}
         self.pending_low_coverage_by_user: Dict[str, list] = {}
 
+        # Reset tracker de coste OpenAI gpt-5-nano (Stage 2 strict filter).
+        # El singleton sobrevive entre instancias en el mismo proceso, así
+        # que reseteamos aquí para que el email de cobertura solo refleje
+        # el coste de ESTE run del send job.
+        try:
+            from src.utils.openai_nano import OpenAINanoTracker
+            OpenAINanoTracker().reset_run_stats()
+        except Exception:
+            pass
+
         # Build domain → country lookup from sources.json for country filtering
         self._domain_country_map: Dict[str, str] = {}
         try:
@@ -1392,25 +1402,62 @@ Return JSON only:
                 -(_parse_date(a).timestamp() if _parse_date(a) else 0),
             ),
         )
+        def _title_kws(title: str) -> set:
+            """Keywords del título SIN los tokens del propio topic.
+
+            Quitar 'real'/'madrid' es crítico: si no, dos titulares distintos del
+            mismo equipo comparten el nombre del equipo e inflan el solapamiento,
+            haciendo que historias diferentes parezcan el mismo evento."""
+            norm = re.sub(r'[^\w\s]', '', (title or "").lower())
+            return {w for w in norm.split() if len(w) > 3 and w not in topic_tokens}
+
         kept = []
-        kept_data = []  # [(entities, date, title)]
+        kept_data = []  # [(entities, date, title_kws, is_post_event)]
         for art in sorted_arts:
             text = f"{art.get('titulo', '')} {art.get('resumen', '')[:300]}"
             ents = self._extract_event_entities(text) - topic_tokens
             art_date = _parse_date(art)
+            art_title_kws = _title_kws(art.get("titulo", ""))
+            art_post = _is_post_event(art)
             is_dup = False
             matched = set()
-            for seen_ents, seen_date, seen_title in kept_data:
+            for seen_ents, seen_date, seen_title_kws, seen_post in kept_data:
                 shared = ents & seen_ents
-                # Capa A: mismo topic + >18h diff → umbral ≥1 entidad compartida
+                # GUARD DE CONTENCIÓN (fix Real Madrid: pool 11 → 1 selected).
+                # Para topics que son un equipo/persona concreta, muchos
+                # artículos DISTINTOS comparten el reparto recurrente (Mbappé,
+                # Vinicius, Bellingham...) sin ser el mismo evento. Exigimos que
+                # las entidades compartidas sean una FRACCIÓN significativa del
+                # artículo más pequeño (≥50%), no solo un par de nombres sueltos
+                # dentro de dos artículos ricos en entidades. Dos piezas sobre el
+                # MISMO evento tienen alta contención; dos historias diferentes
+                # que solo citan a las estrellas, baja.
+                min_set = min(len(ents), len(seen_ents))
+                containment = (len(shared) / min_set) if min_set else 0.0
+                # Solapamiento de títulos (sin tokens del topic): señal extra de
+                # "mismo hecho". Un partido contado como previa y como resultado
+                # comparte casi todo el título salvo el verbo; dos historias
+                # distintas del mismo equipo, casi nada.
+                tkw_union = max(len(art_title_kws), len(seen_title_kws))
+                title_overlap = (
+                    len(art_title_kws & seen_title_kws) / tkw_union
+                ) if tkw_union else 0.0
+                # Capa A (temporal, preview↔resultado de G4): >18h de diff +
+                # ≥1 entidad + contención alta. La diferencia temporal y la
+                # contención ya acotan; es el caso "jugará ayer / ganó hoy".
                 if art_date and seen_date:
                     diff_hours = abs((seen_date - art_date).total_seconds()) / 3600
-                    if diff_hours > 18 and len(shared) >= 1:
+                    if diff_hours > 18 and len(shared) >= 1 and containment >= 0.5:
                         is_dup = True
                         matched = shared
                         break
-                # Capa B: umbral ≥2 entidades (genérico, cualquier fecha)
-                if len(shared) >= 2:
+                # Capa B (genérico, cualquier fecha): ≥2 entidades + contención
+                # alta + (títulos solapados O previa-vs-resultado). El gate de
+                # título evita colapsar historias del mismo día que solo
+                # comparten al dúo estrella pero hablan de cosas distintas.
+                preview_vs_result = (art_post != seen_post)
+                if (len(shared) >= 2 and containment >= 0.5
+                        and (title_overlap >= 0.4 or preview_vs_result)):
                     is_dup = True
                     matched = shared
                     break
@@ -1418,7 +1465,7 @@ Return JSON only:
                 print(f"      ⏭️ Mismo evento: '{art.get('titulo', '')[:50]}' (shared={matched})")
                 continue
             kept.append(art)
-            kept_data.append((ents, art_date, art.get("titulo", "")))
+            kept_data.append((ents, art_date, art_title_kws, art_post))
         return kept
 
     async def _dedup_briefing_llm(self, category_map: dict) -> int:
@@ -2279,18 +2326,21 @@ JSON only: {{"invalid_ids": [1, 3], "reasons": {{"1": "...", "3": "..."}}}}
         return selected
 
     @staticmethod
-    def _looks_like_lang(text: str, lang: str) -> bool:
-        """Heurístico cheap (sin LLM) para detectar si `text` está en `lang`.
+    def _detect_lang_heuristic(text: str):
+        """Heurístico cheap (sin LLM): devuelve el idioma detectado o None.
 
-        Devuelve True si hay marcadores fuertes del idioma. Devuelve False si
-        hay marcadores fuertes de OTRO idioma o si no hay señal clara.
+        Devuelve el código ISO ('es'/'en'/'fr') SOLO si hay una señal clara
+        e inequívoca. Devuelve None cuando el texto es demasiado corto, no hay
+        marcadores fuertes, o dos idiomas empatan (ambigüedad).
 
-        Pensado como pre-filtro: si todos los títulos de un briefing pasan
-        `_looks_like_lang(title, user_lang)`, podemos saltarnos la llamada
-        LLM de detect+translate.
+        Usado por:
+        - `_looks_like_lang` (pre-filtro de traducción).
+        - El guard determinista post-LLM en `_translate_news_list`, que SOLO
+          fuerza re-traducción cuando este método afirma con certeza que el
+          campo quedó en un idioma ≠ target (None nunca dispara reintento).
         """
         if not text or len(text) < 6:
-            return False
+            return None
         import re as _re
         t = text.lower()
         # Tokens-palabra (mínimo 2 chars). Filtramos puntuación.
@@ -2320,12 +2370,26 @@ JSON only: {{"invalid_ids": [1, 3], "reasons": {{"1": "...", "3": "..."}}}}
         scores = {"es": (3 if es_chars else 0) + es_hits * 2,
                   "en": en_hits * 2,
                   "fr": fr_hits * 2}
-        best_lang = max(scores, key=scores.get)
-        best_score = scores[best_lang]
-        # Si no hay señal clara (≤1), no podemos afirmar nada → False.
-        if best_score < 2:
-            return False
-        return best_lang == lang
+        ordered = sorted(scores.items(), key=lambda kv: kv[1], reverse=True)
+        best_lang, best_score = ordered[0]
+        second_score = ordered[1][1]
+        # Sin señal clara (≤1) o empate con otro idioma → ambiguo → None.
+        if best_score < 2 or best_score == second_score:
+            return None
+        return best_lang
+
+    @classmethod
+    def _looks_like_lang(cls, text: str, lang: str) -> bool:
+        """Heurístico cheap (sin LLM) para detectar si `text` está en `lang`.
+
+        Devuelve True si hay marcadores fuertes del idioma. Devuelve False si
+        hay marcadores fuertes de OTRO idioma o si no hay señal clara.
+
+        Pensado como pre-filtro: si todos los títulos de un briefing pasan
+        `_looks_like_lang(title, user_lang)`, podemos saltarnos la llamada
+        LLM de detect+translate.
+        """
+        return cls._detect_lang_heuristic(text) == lang
 
     async def _translate_news_list(self, news_list: List[Dict], target_lang: str) -> List[Dict]:
         """Traduce campos no-target_lang a target_lang, evaluando CADA CAMPO independientemente.
@@ -2483,11 +2547,97 @@ JSON only: {{"invalid_ids": [1, 3], "reasons": {{"1": "...", "3": "..."}}}}
 
             if translated_count:
                 self.logger.info(f"   ✅ {translated_count}/{len(news_list)} noticias con campos traducidos a {target_lang}")
+
+            # GUARD DETERMINISTA POST-LLM (fix bug esporádico título en inglés):
+            # el LLM a veces deja un campo SIN traducir (devuelve el original o
+            # reporta mal el idioma) y la lógica de override basada en su
+            # self-report no lo corrige. Verificamos cada campo final con el
+            # heurístico; si SIGUE claramente en otro idioma, forzamos una
+            # segunda traducción con un prompt simple (solo traducir, sin
+            # detección ambigua). Cubre el caso título EN + cuerpo ES.
+            translated_list = await self._force_translate_residual(
+                translated_list, target_lang
+            )
             return translated_list
 
         except Exception as e:
             self.logger.error(f"Error traduciendo noticias a {target_lang}: {e}")
             return news_list # Fallback to original
+
+    async def _force_translate_residual(self, news_list: List[Dict], target_lang: str) -> List[Dict]:
+        """Segunda pasada determinista: re-traduce campos que el heurístico
+        afirma con CERTEZA que quedaron en un idioma ≠ target_lang.
+
+        Prompt minimalista (solo traducir, sin paso de detección) para eliminar
+        la ambigüedad que hace que el LLM principal a veces deje el campo en el
+        idioma fuente. Solo se invoca si hay residuo real → coste 0 en el caso
+        normal (todo bien traducido en la primera pasada).
+        """
+        # Recolectar (índice, campo, texto) de campos que siguen foráneos.
+        residual = []
+        for idx, news in enumerate(news_list):
+            for field in ("titulo", "resumen", "noticia"):
+                val = news.get(field) or ""
+                if len(val) < 12:
+                    continue
+                detected = self._detect_lang_heuristic(val)
+                # Solo reintentamos si el heurístico está SEGURO de que es otro
+                # idioma (detected no None y ≠ target). Ambigüedad (None) no
+                # dispara reintento para no malgastar llamadas.
+                if detected is not None and detected != target_lang.lower():
+                    residual.append((idx, field, val))
+
+        if not residual:
+            return news_list
+
+        self.logger.warning(
+            f"   ⚠️ Guard idioma: {len(residual)} campo(s) quedaron fuera de "
+            f"{target_lang} tras la 1ª pasada → forzando re-traducción"
+        )
+
+        # Prompt simple: traducir cada fragmento, preservando HTML.
+        items_txt = ""
+        for n, (idx, field, val) in enumerate(residual):
+            items_txt += f"\n--- ITEM {n} ---\n{val}\n"
+        prompt = f"""Traduce CADA item a "{target_lang}". Si ya está en ese idioma, devuélvelo igual.
+Preserva etiquetas HTML (<b>, <p>, <a>...) y el sentido literal. NO añadas ni quites información.
+
+{items_txt}
+
+Devuelve SOLO JSON válido:
+{{"items": [{{"id": 0, "texto": "..."}}]}}"""
+
+        try:
+            response = await self.processor.client_quality.chat.completions.create(
+                model=self.processor.model_quality,
+                messages=[{"role": "user", "content": prompt}],
+                response_format={"type": "json_object"}
+            )
+            data = json.loads(response.choices[0].message.content)
+            items = data.get("items", []) or []
+            by_id = {it.get("id"): (it.get("texto") or "") for it in items}
+            for n, (idx, field, original_val) in enumerate(residual):
+                new_val = by_id.get(n, "")
+                if not new_val:
+                    continue
+                # Solo aceptamos el resultado si el heurístico ya NO lo marca
+                # como foráneo (o pasa a ambiguo/target). Evita empeorar.
+                redetected = self._detect_lang_heuristic(new_val)
+                if redetected is None or redetected == target_lang.lower():
+                    news_list[idx][field] = new_val
+                    self.logger.info(
+                        f"   🌐 Guard re-tradujo '{field}' → {target_lang}: "
+                        f"{new_val[:60]}..."
+                    )
+                else:
+                    self.logger.warning(
+                        f"   ⚠️ Guard: campo '{field}' SIGUE en {redetected} tras "
+                        f"reintento — se deja como estaba: {original_val[:60]}..."
+                    )
+            return news_list
+        except Exception as e:
+            self.logger.error(f"Error en guard de re-traducción a {target_lang}: {e}")
+            return news_list
 
     def _append_embeddings_cost(self, user_email: str, stats: dict) -> None:
         """Append a `embeddings_costs.json` en GCS con tokens/cost del run.
@@ -2701,10 +2851,31 @@ Devuelve JSON con la MISMA estructura, las listas reordenadas:
             f"⚠️ Cobertura baja: {len(systemic_topics)} topic(s) sistémicos + "
             f"{len(per_user_topics)} per-usuario ({total_users} usuario/s)"
         )
+
+        # Coste OpenAI del run (Stage 2 strict filter usa gpt-5-nano).
+        # Singleton: leemos el acumulador sin resetear (el run sigue activo
+        # para otros usuarios potencialmente; se reseteará al inicio del próximo).
+        openai_cost_block = ""
+        try:
+            from src.utils.openai_nano import OpenAINanoTracker
+            stats = OpenAINanoTracker().get_run_stats()
+            if stats.get("calls", 0) > 0:
+                openai_cost_block = (
+                    f"<p style='color:#666;font-size:13px;margin-top:8px;'>"
+                    f"💰 Coste OpenAI ({stats['model']}) del run: "
+                    f"<b>${stats['cost_usd']:.4f}</b> "
+                    f"({stats['calls']} llamadas, "
+                    f"{stats['input_tokens']:,} tok in / {stats['output_tokens']:,} tok out)"
+                    f"</p>"
+                )
+        except Exception as e:
+            self.logger.warning(f"No se pudo leer coste OpenAI para email: {e}")
+
         html = f"""
         <div style='font-family:sans-serif;'>
           <h2 style='color:#e74c3c;'>⚠️ Cobertura baja del briefing diario</h2>
           <p style='color:#555;'>Run de hoy: <b>{total_users}</b> usuario(s) procesado(s), <b>{total_topics}</b> registros de topics con &lt;3 noticias.</p>
+          {openai_cost_block}
 
           <h3 style='color:#2c3e50;margin-top:24px;'>📊 Resumen GLOBAL (cross-usuarios)</h3>
           <p style='color:#888;font-size:13px;margin-top:0;'>
@@ -3080,6 +3251,13 @@ JSON only: {{"keywords": ["kw1", "kw2", ...]}}"""
 
             if not fresh_news:
                 print(f"   ❌ Sin artículos de ingestas recientes para '{topic}' [{_tier}]. Saltando.")
+                _low_coverage_topics.append({
+                    "topic": topic,
+                    "selected": 0,
+                    "fresh_pool": 0,
+                    "keywords": [],
+                    "reason": "no-fresh-news-in-window",
+                })
                 continue
 
             # Ordenar: más reciente primero. fecha_inventariado como primario.
@@ -3446,6 +3624,7 @@ JSON only: {{"keywords": ["kw1", "kw2", ...]}}"""
             # 🧠 STAGE 1 (recall alto): embeddings OpenAI + topic expansion.
             # 🎯 STAGE 2 (precision alta): LLM YES/NO estricto.
             # Fail-open en ambos: si APIs fallan, fresh_news pasa al filter de stage 3.
+            _pool_before_strict = len(fresh_news)
             try:
                 # Topic expansion (cacheada por (topic, context)). Mejora separación.
                 _exp_key = f"{topic}|{_this_user_ctx}"
@@ -3504,10 +3683,21 @@ JSON only: {{"keywords": ["kw1", "kw2", ...]}}"""
             #    rellenar con noticias que el filter excluyó por buena razón.
             # Si <MIN, registramos para alerta admin al final del run.
             if len(selected_news) < MIN_PER_TOPIC:
+                # Distinguir causa: el filtro estricto vació el pool vs el
+                # selector descartó por similitud / max_count. Esto facilita
+                # decidir si hace falta más feeds (stage2-empty) o tunear el
+                # selector (selector-dropped).
+                if _pool_before_strict > 0 and len(fresh_news) == 0:
+                    _reason = "stage2-strict-filter-empty"
+                elif len(fresh_news) > 0 and len(selected_news) < len(fresh_news):
+                    _reason = "selector-dropped"
+                else:
+                    _reason = "low-pool"
                 _low_coverage_topics.append({
                     "topic": topic,
                     "selected": len(selected_news),
                     "fresh_pool": len(fresh_news),
+                    "reason": _reason,
                 })
             print(f"   ✅ [{topic}] Seleccionadas Top {len(selected_news)} para el boletín.")
             

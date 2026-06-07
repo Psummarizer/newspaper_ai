@@ -109,8 +109,9 @@ Estas garantías deben respetarse en todo desarrollo nuevo. Si un cambio las rom
 
 ### G4 — Sin duplicados: mismo tema en momentos distintos (ej: "jugará" vs "ganó")
 - `_dedup_same_event` en `orchestrator.py` tiene 2 capas:
-  - **Capa A** (temporal): si 2 artículos tienen >18h de diferencia y comparten ≥1 entidad propia → descarta el más viejo.
-  - **Capa B** (genérica): ≥2 entidades propias compartidas → mismo evento, descarta el más viejo.
+  - **Capa A** (temporal): si 2 artículos tienen >18h de diferencia, comparten ≥1 entidad propia **y** la contención de entidades ≥0.5 → descarta el más viejo (caso preview↔resultado de G4).
+  - **Capa B** (genérica): ≥2 entidades propias compartidas **y** contención ≥0.5 **y** (solapamiento de títulos ≥0.4 — sin tokens del topic — **o** uno es previa y otro resultado) → mismo evento, descarta el más viejo.
+- **Guard de contención** (fix v0.98, Real Madrid pool 11→1): las entidades compartidas deben ser ≥50% del artículo con menos entidades. Evita colapsar historias DISTINTAS de un mismo equipo/persona que solo comparten el reparto recurrente (Mbappé, Vinicius...) sin ser el mismo hecho. El gate de título refuerza Capa B: quita los tokens del topic ('real', 'madrid') antes de medir solapamiento, porque el nombre del equipo aparece en todos los titulares e infla la coincidencia.
 - Siempre conserva el artículo más reciente por `published_at`.
 - Se aplica en `_select_top_3_cached` antes del LLM de selección.
 
