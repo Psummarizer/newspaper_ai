@@ -137,6 +137,7 @@ notebooks/
 crawled_data/
 generated_newsletters/
 delivery_logs/
+briefing.txt
 
 # Claude local settings (not shared)
 .claude/settings.local.json
