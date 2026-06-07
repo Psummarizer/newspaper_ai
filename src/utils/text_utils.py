@@ -1,3 +1,30 @@
+# Nombres en español para no depender del locale del contenedor (C/inglés →
+# %B daba "June" dentro de textos españoles, ej. "06 de June de 2026").
+_MESES_ES = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio",
+             "agosto", "septiembre", "octubre", "noviembre", "diciembre"]
+_DIAS_ES = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"]
+
+
+def format_date_es(dt=None, with_weekday=True, with_time=True, tz_label="zona Madrid"):
+    """Fecha en español SIN depender del locale del sistema.
+
+    Reemplaza `strftime("%A, %d de %B de %Y, %H:%M")`, que producía nombres en
+    inglés porque el contenedor no tiene locale es_ES. Este string se inyecta
+    como fecha actual en los prompts del LLM; un mes en inglés ("June") se
+    filtraba a la redacción ("celebrada el 06 de June de 2026").
+    """
+    from datetime import datetime as _dt
+    if dt is None:
+        dt = _dt.now()
+    s = f"{_DIAS_ES[dt.weekday()]}, " if with_weekday else ""
+    s += f"{dt.day:02d} de {_MESES_ES[dt.month - 1]} de {dt.year}"
+    if with_time:
+        s += f", {dt.hour:02d}:{dt.minute:02d}"
+        if tz_label:
+            s += f" ({tz_label})"
+    return s
+
+
 def is_obvious_icon_url(img_url: str) -> bool:
     """Pre-check rápido (sin red) para descartar URLs que SON claramente
     iconos/logos/thumbnails por su patrón. Conservador: solo rechaza si hay

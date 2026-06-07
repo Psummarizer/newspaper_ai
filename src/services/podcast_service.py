@@ -16,6 +16,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 from src.services.llm_factory import LLMFactory
+from src.utils.text_utils import format_date_es
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -651,7 +652,7 @@ class NewsPodcastService:
             upload_result = episode_uploader.upload_episode(
                 podcast_name=podcast_title,
                 episode_title=episode_title,
-                episode_description=f"Tu resumen de noticias del {datetime.now().strftime('%d de %B de %Y')}",
+                episode_description=f"Tu resumen de noticias del {format_date_es(with_weekday=False, with_time=False)}",
                 audio_file_path=audio_path,
                 market="es",
                 episode_image_path=episode_image_path

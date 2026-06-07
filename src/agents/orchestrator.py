@@ -18,7 +18,7 @@ from src.services.firebase_service import FirebaseService
 from src.services.gcs_service import GCSService
 from src.services.podcast_service import NewsPodcastService
 from src.utils.constants import CATEGORIES_LIST, CATEGORY_KEYWORDS, FRESHNESS_URGENTE_STEPS, FRESHNESS_NORMAL_STEPS, FRESHNESS_EVERGREEN_STEPS
-from src.utils.text_utils import is_obvious_icon_url
+from src.utils.text_utils import is_obvious_icon_url, format_date_es
 
 # ---------------------------------------------------------------------------
 # MEDIA DOMAIN MAP — fuente única para reconocimiento de fuentes preferidas.
@@ -427,7 +427,7 @@ async def _filter_obsolete_with_llm(articles: List[Dict], processor) -> List[Dic
     if not articles:
         return articles
 
-    _now = datetime.now().strftime("%A, %d de %B de %Y, %H:%M (zona Madrid)")
+    _now = format_date_es()  # español sin depender del locale (evita "June")
     BATCH_SIZE = 25
     valid_articles = []
 
@@ -1783,7 +1783,7 @@ JSON only: {{"classifications": {{"0": "F1", "1": "Lakers", "2": "", "3": "padel
             subtopics_list = ", ".join(subtopics)
             rules_section = f"SUBTOPICS: [{subtopics_list}]\nTODA noticia de cualquiera de estos subtopics es válida.\n"
 
-        _now = datetime.now().strftime("%A, %d de %B de %Y, %H:%M (zona Madrid)")
+        _now = format_date_es()  # español sin depender del locale (evita "June")
         prompt = f"""FECHA Y HORA ACTUAL: {_now}
 
 Eres un filtro PERMISIVO de noticias para el topic "{topic}".
@@ -2367,9 +2367,21 @@ JSON only: {{"invalid_ids": [1, 3], "reasons": {{"1": "...", "3": "..."}}}}
                     "cette", "après", "avant", "vers", "chez"}
         fr_hits = len(tokens & fr_words)
 
+        # Marcadores fuertes ITALIANOS: palabras función NO compartidas con
+        # español (per/che/come/della... — el español usa por/que/como/de la).
+        # Sin esto, el italiano daba None y se colaban titulares (it.motorsport,
+        # moto.it, gamberorosso.it...) en briefings con Language=es.
+        it_words = {"per", "che", "come", "anche", "più", "sono", "gli", "della",
+                    "delle", "degli", "dei", "nel", "nella", "negli", "questo",
+                    "questa", "perché", "invece", "tra", "fra", "dello", "sulla",
+                    "col", "dopo", "senza", "essere", "viene", "molto", "fa",
+                    "ed", "non", "alla", "allo"}
+        it_hits = len(tokens & it_words)
+
         scores = {"es": (3 if es_chars else 0) + es_hits * 2,
                   "en": en_hits * 2,
-                  "fr": fr_hits * 2}
+                  "fr": fr_hits * 2,
+                  "it": it_hits * 2}
         ordered = sorted(scores.items(), key=lambda kv: kv[1], reverse=True)
         best_lang, best_score = ordered[0]
         second_score = ordered[1][1]
@@ -2390,6 +2402,51 @@ JSON only: {{"invalid_ids": [1, 3], "reasons": {{"1": "...", "3": "..."}}}}
         LLM de detect+translate.
         """
         return cls._detect_lang_heuristic(text) == lang
+
+    @classmethod
+    def _is_foreign_for_target(cls, text: str, target_lang: str) -> bool:
+        """¿`text` está claramente en un idioma DISTINTO de target_lang?
+
+        Usado por el guard de re-traducción (más agresivo que
+        `_detect_lang_heuristic`, que solo conoce es/en/fr y devuelve None ante
+        idiomas como italiano/alemán/portugués → los dejaba pasar).
+
+        Para target='es' aplica dos señales de "no es español" que cubren
+        cualquier idioma latino:
+          1. Diacríticos que el español NO usa: grave/circunflejo (à è ì ò ù â ê
+             î ô û → italiano/francés), diéresis no-española (ä ë ö ÿ → alemán),
+             tilde portuguesa (ã õ), ß. (El español solo usa á é í ó ú ü ñ.)
+          2. Ausencia de señal española: texto latino largo sin caracteres
+             exclusivos del español y con <2 palabras función españolas.
+        Solo se usa para decidir un reintento de traducción barato, así que el
+        sesgo es hacia detectar foráneo (un falso positivo = 1 llamada extra que
+        devuelve el texto igual si ya estaba en target).
+        """
+        if not text or len(text) < 12:
+            return False
+        detected = cls._detect_lang_heuristic(text)
+        if detected is not None and detected != target_lang.lower():
+            return True
+        if target_lang.lower() != "es":
+            return False
+        import re as _re
+        t = text.lower()
+        # 1. Diacríticos no españoles.
+        if _re.search(r"[àèìòùâêîôûäëöÿãõ]", t) or "ß" in t:
+            return True
+        # 2. ¿Tiene señal mínima de español?
+        es_chars = bool(_re.search(r"[ñ¿¡áéíóú]", t))
+        if es_chars:
+            return False
+        es_words = {"el", "la", "los", "las", "que", "del", "de", "en", "con",
+                    "por", "para", "sobre", "según", "una", "uno", "y", "es",
+                    "se", "su", "sus", "este", "esta", "más", "tras", "ante",
+                    "al", "lo", "le", "les", "han", "ha", "no", "sí", "como",
+                    "pero", "ya", "tiene", "será", "hasta", "desde"}
+        tokens = set(_re.findall(r"\b[\w\xc0-\xff]+\b", t))
+        if len(tokens & es_words) < 2:
+            return True  # latino largo sin señal española → foráneo
+        return False
 
     async def _translate_news_list(self, news_list: List[Dict], target_lang: str) -> List[Dict]:
         """Traduce campos no-target_lang a target_lang, evaluando CADA CAMPO independientemente.
@@ -2437,7 +2494,11 @@ JSON only: {{"invalid_ids": [1, 3], "reasons": {{"1": "...", "3": "..."}}}}
                     and _field_in_target(n.get("noticia", "")))
 
         if all(_all_fields_ok(n) for n in news_list):
-            return news_list
+            # Aun saltándonos la 1ª pasada LLM, pasamos por el guard determinista:
+            # el pre-filtro puede equivocarse con idiomas que comparten palabras
+            # con el target (p.ej. italiano vs español: "con", "una"...), dejando
+            # un título foráneo. El guard re-verifica con criterio más estricto.
+            return await self._force_translate_residual(news_list, target_lang)
 
         prompt_text = ""
         for i, news in enumerate(news_list):
@@ -2580,11 +2641,9 @@ JSON only: {{"invalid_ids": [1, 3], "reasons": {{"1": "...", "3": "..."}}}}
                 val = news.get(field) or ""
                 if len(val) < 12:
                     continue
-                detected = self._detect_lang_heuristic(val)
-                # Solo reintentamos si el heurístico está SEGURO de que es otro
-                # idioma (detected no None y ≠ target). Ambigüedad (None) no
-                # dispara reintento para no malgastar llamadas.
-                if detected is not None and detected != target_lang.lower():
+                # Detector robusto (cubre italiano/alemán/portugués además de
+                # en/fr): cualquier idioma ≠ target dispara reintento.
+                if self._is_foreign_for_target(val, target_lang):
                     residual.append((idx, field, val))
 
         if not residual:
@@ -2620,10 +2679,9 @@ Devuelve SOLO JSON válido:
                 new_val = by_id.get(n, "")
                 if not new_val:
                     continue
-                # Solo aceptamos el resultado si el heurístico ya NO lo marca
-                # como foráneo (o pasa a ambiguo/target). Evita empeorar.
-                redetected = self._detect_lang_heuristic(new_val)
-                if redetected is None or redetected == target_lang.lower():
+                # Solo aceptamos el resultado si ya NO se detecta como foráneo.
+                # Evita empeorar si el LLM devolvió algo raro.
+                if not self._is_foreign_for_target(new_val, target_lang):
                     news_list[idx][field] = new_val
                     self.logger.info(
                         f"   🌐 Guard re-tradujo '{field}' → {target_lang}: "
@@ -2631,7 +2689,7 @@ Devuelve SOLO JSON válido:
                     )
                 else:
                     self.logger.warning(
-                        f"   ⚠️ Guard: campo '{field}' SIGUE en {redetected} tras "
+                        f"   ⚠️ Guard: campo '{field}' SIGUE foráneo tras "
                         f"reintento — se deja como estaba: {original_val[:60]}..."
                     )
             return news_list

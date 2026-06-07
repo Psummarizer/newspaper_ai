@@ -304,8 +304,8 @@ async def llm_strict_yes_no_filter(
     if not articles:
         return articles
 
-    from datetime import datetime as _dt
-    now_str = _dt.now().strftime("%A, %d de %B de %Y, %H:%M (zona Madrid)")
+    from src.utils.text_utils import format_date_es
+    now_str = format_date_es()  # español sin depender del locale (evita "June")
     base = topic + (f". {context}" if context else "")
 
     # Stage 2: pasa SUBTOPICS POSITIVOS (entidades preferidas) + reglas de
