@@ -26,7 +26,6 @@ import json
 import logging
 import asyncio
 import argparse
-import tempfile
 from datetime import datetime, timedelta
 from typing import List, Dict, Optional, Tuple
 from urllib.parse import urlparse
@@ -38,14 +37,14 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from dotenv import load_dotenv
 load_dotenv()
 
-# Para uso CLI local: cargar credenciales GCP desde FIREBASE_CREDENTIALS_JSON
-if not os.getenv("GOOGLE_APPLICATION_CREDENTIALS"):
-    creds_json = os.getenv("FIREBASE_CREDENTIALS_JSON")
-    if creds_json:
-        _tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False, encoding="utf-8")
-        _tmp.write(creds_json)
-        _tmp.close()
-        os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = _tmp.name
+# NOTA CREDENCIALES (fix 2026-06-07): NO sobrescribir GOOGLE_APPLICATION_CREDENTIALS
+# con FIREBASE_CREDENTIALS_JSON. Ese service-account (firebase-adminsdk@podsummarizer-1)
+# NO tiene acceso al bucket `newsletter-ai-data` (vive en pod-summarizer-ai-agent), así
+# que fijarlo rompía la conexión GCS del discoverer → `is_connected()`=False → discovery
+# abortaba en producción (log GCS vacío crónico). En Cloud Run el GCSService usa ADC vía
+# metadata server (el SA del Job sí tiene acceso). Para uso CLI local: ejecutar antes
+# `gcloud auth application-default login` (ADC). Además, al invocarse desde la ingesta se
+# le pasa el GCSService ya conectado (ver __init__), evitando crear uno nuevo.
 
 from src.services.gcs_service import GCSService
 from src.services.llm_factory import LLMFactory
@@ -64,8 +63,12 @@ MAX_TOTAL_RUNTIME_SECONDS = 240  # safety cap when invoked from ingest
 
 
 class RSSAutoDiscoverer:
-    def __init__(self, max_runtime_seconds: int = MAX_TOTAL_RUNTIME_SECONDS):
-        self.gcs = GCSService()
+    def __init__(self, max_runtime_seconds: int = MAX_TOTAL_RUNTIME_SECONDS,
+                 gcs_service: "GCSService" = None):
+        # Reutiliza el GCSService ya conectado del caller (la ingesta) si se pasa.
+        # Crear uno nuevo es frágil: depende del estado de credenciales del proceso
+        # (ver NOTA CREDENCIALES arriba). El de la ingesta usa ADC y está conectado.
+        self.gcs = gcs_service or GCSService()
         self.client_q, self.model_q = LLMFactory.get_client("quality")
         self.client_f, self.model_f = LLMFactory.get_client("fast")
         self.max_runtime_seconds = max_runtime_seconds

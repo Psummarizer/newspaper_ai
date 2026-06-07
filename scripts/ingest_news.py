@@ -1046,7 +1046,9 @@ class HourlyProcessor:
         # Runtime cap más generoso para el path proactivo (5 min first-sight,
         # 25 min weekly) porque corre fuera del ciclo de alerta.
         cap = 1500 if is_weekly_window else 300
-        discoverer = RSSAutoDiscoverer(max_runtime_seconds=cap)
+        # Pasar el GCSService ya conectado: crear uno nuevo daba 403 en prod
+        # (fix 2026-06-07, ver NOTA CREDENCIALES en auto_discover_rss.py).
+        discoverer = RSSAutoDiscoverer(max_runtime_seconds=cap, gcs_service=self.gcs)
 
         if first_sight:
             logger.info(f"🌱 First-sight discovery: {len(first_sight)} topics nuevos ({first_sight[:5]}{'...' if len(first_sight) > 5 else ''})")
@@ -1262,7 +1264,8 @@ class HourlyProcessor:
                 logger.info("🔎 Auto-discovery: sin topics ACTIVE para procesar (todos niche o cubiertos)")
                 return
             logger.info(f"🔎 Auto-discovery de feeds RSS para {len(active_low_names)} topics ACTIVE")
-            discoverer = RSSAutoDiscoverer()
+            # GCSService conectado (fix 2026-06-07): evita el 403 que abortaba discovery.
+            discoverer = RSSAutoDiscoverer(gcs_service=self.gcs)
             disc_summary = await discoverer.discover(active_low_names)
             added = disc_summary.get("added", 0)
             skipped = disc_summary.get("skipped_rate_limit", 0)
