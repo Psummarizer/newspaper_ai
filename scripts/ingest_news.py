@@ -808,8 +808,11 @@ class HourlyProcessor:
                 continue
             
             # NEW SCHEMA: 'topic' is a Map<Alias, Description>
-            # Check 'topic' OR 'topics' in case the user named it either way (Map preference)
-            topic_map = data.get("topic") or data.get("topics")
+            # Incluye 'Topics' (mayúscula) por si queda algún doc legacy sin migrar:
+            # antes un `Topics`-map (mayúscula) caía al fallback list/string y se
+            # descartaba en silencio → los topics de ese usuario eran INVISIBLES para
+            # la ingesta y el discovery de RSS (bug: topics de Elena sin feeds).
+            topic_map = data.get("topic") or data.get("topics") or data.get("Topics")
             if isinstance(topic_map, dict):
                 for alias, desc in topic_map.items():
                     if alias and alias.strip():
@@ -820,9 +823,6 @@ class HourlyProcessor:
             user_topics = data.get("Topics") or data.get("topics", [])
             if isinstance(user_topics, str):
                 user_topics = [t.strip() for t in user_topics.replace("[", "").replace("]", "").replace("'", "").replace('"', "").split(",")]
-            elif isinstance(user_topics, dict): 
-                # Should have been caught above, but if it came from explicit 'Topics' dict
-                pass
 
             if isinstance(user_topics, list):
                 for t in user_topics:
