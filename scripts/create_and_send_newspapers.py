@@ -94,8 +94,19 @@ async def generate_and_send(test_user: str = None, skip_idempotency: bool = Fals
             continue
             
         # 3. Check Credits (from 'users' collection)
+        # Firestore doc IDs son case-sensitive: el doc de AINewspaper puede estar
+        # en minusculas y el de 'users' con otra capitalizacion (ej: elena.Ortega...).
+        # Probamos match exacto y, si falla, reintentamos con el email en minusculas
+        # para no dejar sin correo a usuarios por un desajuste de mayusculas.
         user_ref = fb_service.db.collection("users").document(email)
         user_doc = user_ref.get()
+
+        if not user_doc.exists and email != email.lower():
+            alt_ref = fb_service.db.collection("users").document(email.lower())
+            alt_doc = alt_ref.get()
+            if alt_doc.exists:
+                logger.warning(f"Usuario {email}: doc de 'users' encontrado con casing distinto ({email.lower()}).")
+                user_ref, user_doc = alt_ref, alt_doc
 
         if not user_doc.exists:
              logger.warning(f"Usuario {email} no tiene documento de creditos en 'users'. Saltando.")
@@ -134,7 +145,9 @@ async def generate_and_send(test_user: str = None, skip_idempotency: bool = Fals
         # 4. Run Orchestrator
         # 4. Run Orchestrator
         # Include 'topic' map so orchestrator can extract user context & preferred sources
-        raw_topic_map = sub_data.get("topic") or sub_data.get("topics", {})
+        # Incluye 'Topics' (mayuscula) por si queda algun doc legacy sin migrar:
+        # el contexto por topic (fuentes preferidas, exclusiones) vive aqui.
+        raw_topic_map = sub_data.get("topic") or sub_data.get("Topics") or sub_data.get("topics", {})
         user_input = {
             "email": email,
             "Topics": user_topics_list,

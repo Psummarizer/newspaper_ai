@@ -27,7 +27,7 @@ from src.utils.text_utils import is_obvious_icon_url, format_date_es
 # ---------------------------------------------------------------------------
 MEDIA_DOMAIN_MAP: Dict[str, str] = {
     # España — generalistas
-    "el país": "elpais.com", "elpais": "elpais.com",
+    "el país": "elpais.com", "el pais": "elpais.com", "elpais": "elpais.com",
     "el mundo": "elmundo.es", "elmundo": "elmundo.es",
     "el debate": "eldebate.com", "eldebate": "eldebate.com",
     "el confidencial": "elconfidencial.com", "elconfidencial": "elconfidencial.com",
@@ -38,7 +38,7 @@ MEDIA_DOMAIN_MAP: Dict[str, str] = {
     "el español": "elespanol.com", "elespanol": "elespanol.com",
     "eldiario": "eldiario.es", "eldiario.es": "eldiario.es",
     "abc": "abc.es",
-    "la razón": "larazon.es", "la razon": "larazon.es",
+    "la razón": "larazon.es", "la razon": "larazon.es", "larazon": "larazon.es",
     "público": "publico.es", "publico": "publico.es",
     "infolibre": "infolibre.es",
     "la vanguardia": "lavanguardia.com", "lavanguardia": "lavanguardia.com",
@@ -82,7 +82,7 @@ MEDIA_DOMAIN_MAP: Dict[str, str] = {
     "cope": "cope.es",
     "cadena ser": "cadenaser.com", "ser": "cadenaser.com",
     "onda cero": "ondacero.es",
-    "rtve": "rtve.es",
+    "rtve": "rtve.es", "tve": "rtve.es", "televisión española": "rtve.es", "television española": "rtve.es",
     "la sexta": "lasexta.com",
     "antena 3": "antena3.com",
     # Internacional — generalistas
@@ -284,8 +284,8 @@ def _resolve_preferred_domains(context: str) -> set:
             domains.add(domain)
 
     # Paso 2: parseo de "fuentes preferidas: X, Y, Z"
-    patterns = [r'fuentes preferidas[:\s]+([^\.]+)', r'preferred sources[:\s]+([^\.]+)',
-                r'prefiero[:\s]+([^\.]+)']
+    patterns = [r'fuentes preferidas[:\s]+([^\.]+)', r'fuentes principales[:\s]+([^\.]+)',
+                r'preferred sources[:\s]+([^\.]+)', r'prefiero[:\s]+([^\.]+)']
     for pattern in patterns:
         m = re.search(pattern, ctx_lower)
         if m:
@@ -304,6 +304,47 @@ def _resolve_preferred_domains(context: str) -> set:
                 inferred = re.sub(r'\s+', '', inferred).lower()
                 if inferred:
                     domains.add(inferred + '.com')
+    return domains
+
+
+def _resolve_forbidden_domains(raw) -> set:
+    """Normaliza `forbidden_sources` a un set de DOMINIOS.
+
+    Los usuarios escriben NOMBRES ('Elpais', 'la sexta', 'tve'), no dominios,
+    así que hay que resolverlos vía MEDIA_DOMAIN_MAP. Antes se exigía un '.' en
+    la entrada, lo que descartaba silenciosamente todos los nombres → el filtro
+    de fuentes prohibidas nunca bloqueaba nada (bug: elpais.com colándose pese a
+    estar prohibido).
+
+    Acepta lista o string separado por comas/;. Cada entrada se resuelve así:
+      1. Dominio/URL explícito ('elpais.com', 'https://elpais.com/x') → dominio.
+      2. Nombre conocido en MEDIA_DOMAIN_MAP ('elpais', 'la sexta') → su dominio.
+      3. Nombre no reconocido → inferencia simple (quita artículos + '.com').
+    """
+    if not raw:
+        return set()
+    if isinstance(raw, str):
+        items = [f.strip() for f in re.split(r'[,;]', raw) if f.strip()]
+    else:
+        items = [str(f).strip() for f in raw if str(f).strip()]
+    domains = set()
+    for item in items:
+        clean = item.lower().strip()
+        if clean.startswith("http"):
+            try:
+                clean = urlparse(clean).netloc.lower()
+            except Exception:
+                pass
+        clean = clean.split("/")[0].replace("www.", "")
+        if clean in MEDIA_DOMAIN_MAP:
+            domains.add(MEDIA_DOMAIN_MAP[clean])
+        elif "." in clean:
+            domains.add(clean)
+        else:
+            inferred = re.sub(r'\b(el|la|los|las|the|le|de)\b', '', clean)
+            inferred = re.sub(r'\s+', '', inferred)
+            if inferred:
+                domains.add(inferred + ".com")
     return domains
 
 
@@ -3092,15 +3133,10 @@ JSON only: {{"keywords": ["kw1", "kw2", ...]}}"""
         # Se muta in-place en _format_cached_news_to_html y build_section_html.
         briefing_used_images: set = set()
 
-        # Pre-compute forbidden domains ONCE so _select_top_3_cached can filter early
-        _raw_forbidden = user_data.get('forbidden_sources', []) or []
-        if isinstance(_raw_forbidden, str):
-            _raw_forbidden = [f.strip() for f in _raw_forbidden.split(',') if f.strip()]
-        _forbidden_domains: set = set()
-        for f in _raw_forbidden:
-            f_clean = str(f).lower().strip()
-            if '.' in f_clean:
-                _forbidden_domains.add(f_clean.replace('www.', ''))
+        # Pre-compute forbidden domains ONCE so _select_top_3_cached can filter early.
+        # Resuelve NOMBRES ('Elpais', 'la sexta', 'tve') a dominios vía MEDIA_DOMAIN_MAP;
+        # antes se exigía un '.' y los nombres se descartaban → no bloqueaba nada.
+        _forbidden_domains: set = _resolve_forbidden_domains(user_data.get('forbidden_sources'))
         if _forbidden_domains:
             self.logger.info(f"⛔ Fuentes prohibidas: {_forbidden_domains}")
 
@@ -3839,23 +3875,8 @@ JSON only: {{"keywords": ["kw1", "kw2", ...]}}"""
                 sources = news.get("fuentes", [])
                 is_forbidden = False
 
-                # Pre-normalizar la lista de forbidden domains una sola vez
-                forbidden_domains = set()
-                for f in (forbidden or []):
-                    if not f:
-                        continue
-                    f_clean = str(f).lower().strip()
-                    # Extraer dominio si viene como URL completa
-                    if f_clean.startswith("http"):
-                        try:
-                            f_clean = urlparse(f_clean).netloc.lower().replace("www.", "")
-                        except Exception:
-                            pass
-                    else:
-                        # Quitar path si viene como "elpais.com/algo"
-                        f_clean = f_clean.split("/")[0].replace("www.", "")
-                    if f_clean:
-                        forbidden_domains.add(f_clean)
+                # Resuelve nombres ('Elpais', 'la sexta', 'tve') → dominios vía MEDIA_DOMAIN_MAP
+                forbidden_domains = _resolve_forbidden_domains(forbidden)
 
                 for src in sources:
                     try:
