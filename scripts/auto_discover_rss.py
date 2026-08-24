@@ -167,6 +167,21 @@ class RSSAutoDiscoverer:
                     )
                     added.append(cand)
 
+                # FALLBACK GARANTIZADO (Google News search): si el LLM no aportó
+                # ninguna fuente válida para el topic (caso crónico de nicho, donde
+                # el LLM alucina las URLs RSS), añade un feed de Google News search.
+                # Google News siempre devuelve noticias frescas y relevantes de la
+                # query. La ingesta ya decodifica la URL real (googlenewsdecoder),
+                # así que NO rompe forbidden_sources ni el scraping de og:image.
+                if not added:
+                    gn = await self._build_google_news_fallback(topic, candidates)
+                    if gn and gn["rss_url"].lower() not in existing_urls:
+                        raw_sources.append(gn)
+                        existing_urls.add(gn["rss_url"].lower())
+                        added.append(gn)
+                        summary["gnews_fallback"] = summary.get("gnews_fallback", 0) + 1
+                        logger.info(f"[{topic!r}] 📰 fallback Google News añadido ({gn['category']}, {gn['language']})")
+
                 summary["added"] += len(added)
                 summary["per_topic"][topic] = [
                     {"name": c.get("name"), "rss_url": c.get("rss_url"), "category": c.get("category")}
@@ -302,6 +317,65 @@ Responde JSON: {{"relevant": true|false, "matches": <int>, "reason": "breve"}}
         except Exception as e:
             logger.debug(f"_check_relevance({topic!r}): {e}")
             return True  # fail-open
+
+    @staticmethod
+    def _google_news_url(query: str, lang: str) -> str:
+        """URL de Google News RSS search para la query dada."""
+        from urllib.parse import quote
+        q = quote(query)
+        if lang == "en":
+            return f"https://news.google.com/rss/search?q={q}&hl=en-US&gl=US&ceid=US:en"
+        return f"https://news.google.com/rss/search?q={q}&hl=es-ES&gl=ES&ceid=ES:es"
+
+    async def _build_google_news_fallback(self, topic: str, candidates: List[Dict]) -> Optional[Dict]:
+        """Construye un feed de Google News search para `topic`, validado.
+
+        Idioma y categoría se infieren por mayoría de los candidatos del LLM:
+        aunque sus URLs fueran inválidas, el idioma/categoría suelen ser correctos.
+        Solo devuelve el feed si Google News realmente da titulares frescos (evita
+        queries vacías tipo argot 'fontaneria monetaria').
+        """
+        from collections import Counter
+        langs = Counter((c.get("language") or "").lower() for c in candidates if c.get("language"))
+        lang = "en" if langs and langs.most_common(1)[0][0] == "en" else "es"
+        cats = Counter(c.get("category") for c in candidates if c.get("category") in CATEGORIES_LIST)
+        category = cats.most_common(1)[0][0] if cats else self._coerce_category(topic)
+
+        # Intento 1: query completa. Intento 2: query simplificada (quita texto
+        # tras la coma y conectores) para topics verbosos tipo "Proyectos de
+        # urbanismo en Madrid" → "urbanismo Madrid" que no matchean literal.
+        query = topic
+        url = self._google_news_url(query, lang)
+        titles = await self._validate_feed(url)
+        if not titles:
+            simplified = self._simplify_query(topic)
+            if simplified and simplified.lower() != topic.lower():
+                query = simplified
+                url = self._google_news_url(query, lang)
+                titles = await self._validate_feed(url)
+        if not titles:
+            return None
+        return {
+            "name": f"Google News: {query}",
+            "domain": "news.google.com",
+            "rss_url": url,
+            "base_url": "https://news.google.com",
+            "language": lang,
+            "country": "ES" if lang == "es" else "",
+            "category": category,
+            "is_active": True,
+            "google_news_query": query,
+        }
+
+    @staticmethod
+    def _simplify_query(topic: str) -> str:
+        """Reduce un topic verboso a sus palabras clave para Google News search."""
+        import re as _re
+        base = topic.split(",")[0]  # descarta lo que va tras la coma
+        stop = {"de", "del", "la", "el", "los", "las", "en", "y", "e", "sobre",
+                "proyectos", "novedades", "and", "the", "new", "of", "for", "&"}
+        words = [w for w in _re.split(r"[\s/]+", base) if w and w.lower() not in stop]
+        return " ".join(words[:4]).strip()
 
     def _coerce_category(self, raw: str) -> str:
         """Mapea categorías no estándar a la lista válida."""
