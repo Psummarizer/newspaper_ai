@@ -40,8 +40,23 @@ topics.json en GCS               Build HTML → Email
 
 **Mínimo por categoría**: cada sección del email debe tener ≥ 3 artículos. Si una categoría recibe menos, se rellena con artículos adicionales de los topics que mapean a ella.
 
-**Providers LLM**: Mistral (fast) → Gemini (quality). Config en `src/config/model_config.json`.
-**Fallback 429**: `MISTRAL_API_KEY2` en `.env` → si vacío, usa Gemini.
+**Providers LLM**: Mistral free (fast + quality) con failover automático (ver G10). Config en `src/config/model_config.json`.
+
+**⚠️ Modelo Mistral: usar la familia `ministral`, NO `mistral-small`.**
+Verificado el 06/09/2026: en el free tier, `mistral-small-*` (las 7 versiones fijadas, de `2402` a
+`2603`), `mistral-medium-*`, `magistral-small` y `open-mixtral-*` devuelven **429 con
+`x-ratelimit-limit-req-minute: 0`** — cupo cero, o sea de pago. No es cuota consumida ni clave
+caducada (`/v1/models` responde 200 y la cuenta marca uso cero). Lo que sí sirve el free tier:
+`ministral-8b-latest` (188 rpm, el que usamos), `ministral-14b-latest` (30 rpm),
+`ministral-3b-latest` (750 rpm). Los alias antiguos (`mistral-tiny`, `open-mistral-7b`,
+`open-mistral-nemo`) redirigen en silencio a `ministral-8b`.
+
+**Calidad del filtro**: el modelo del filtro de INGESTA importa poco — medido sobre el mismo pool,
+`ministral-8b` y `gpt-5-nano` producen listas casi idénticas. La precisión temática la pone el
+**Stage 2** (`llm_strict_yes_no_filter`, gpt-5-nano) en el orchestrator al enviar: sobre un caso real
+descartó ciclismo, sucesos, meteorología y religión de "Política Española" conservando todas las
+políticas, por ~$0.0012 por lote de 12 (~$0.26/mes). No sustituir Stage 2 por un modelo free sin
+volver a medir: es la única capa que hace precisión, y solo puede descartar, no recuperar.
 
 ---
 
@@ -166,7 +181,67 @@ Estas garantías deben respetarse en todo desarrollo nuevo. Si un cambio las rom
 
 ---
 
+### G10 — Resiliencia LLM: el pipeline nunca depende de un solo proveedor
+- Todo cliente LLM sale de `LLMFactory.get_client()`, que devuelve un **`FailoverClient`**
+  (`src/services/llm_factory.py`): misma API que `AsyncOpenAI` pero con un chain de
+  proveedores detrás. Orden: `mistral` → `mistral2` (MISTRAL_API_KEY2) → `openai` → `gemini` → `groq`,
+  filtrado por las claves presentes en el entorno.
+- Ante un error de cuota (429 / quota / resource_exhausted) reintenta **una vez** en el mismo
+  proveedor (pico puntual) y, si vuelve a fallar, marca ese proveedor **caído durante 30 min**
+  (`PROVIDER_DOWN_COOLDOWN_S`) y salta al siguiente. El resto del run ya no lo intenta.
+- **Bloqueo duro vs pico**: si el 429 trae `x-ratelimit-limit-req-minute: 0`, el cupo asignado a la
+  cuenta es cero (acceso deshabilitado: verificacion, pago o tier). Eso no se recupera esperando, asi
+  que `is_hard_block()` lo aparta 24h (`PROVIDER_HARD_BLOCK_COOLDOWN_S`) sin gastar el reintento, y
+  lo registra con un mensaje que apunta al panel del proveedor. Distinguirlo importa: un pico se
+  reintenta, una cuenta bloqueada hay que ir a arreglarla.
+- Los errores que NO son de cuota se propagan tal cual: un bug real no debe disfrazarse de failover.
+- `FailoverClient` ignora el `model=` del call-site y usa el modelo propio de cada proveedor,
+  y adapta los kwargs incompatibles (`max_tokens`→`max_completion_tokens` y `reasoning_effort=low`
+  en gpt-5/o-series; suelo de tokens en Gemini y OpenAI porque los *thinking tokens* vacían un
+  presupuesto pequeño y devuelven `content` vacío).
+- **Salvaguarda anti-vaciado**: `_save_topics_json` aborta el guardado si el run produjo 0 noticias
+  y el `topics.json` previo tenía alguna. Un run roto no puede publicar un topics.json vacío.
+- **Banner en la alerta de cobertura**: si algún proveedor quedó caído durante la ingesta, el email
+  de cobertura lo dice en cabecera. Sin esto, una cuota agotada se lee como "faltan feeds RSS".
+- **Orden por coste**: OpenAI (`gpt-5-nano`, $0.05/1M in) va antes que Gemini Flash ($0.30/1M in),
+  cuyo proyecto tiene billing activo y cobra los excesos en silencio.
+- **Regla crítica**: no volver a escribir un fallback que resuelva al mismo proveedor que acaba de
+  fallar, y no meter sleeps largos (>5s) en los reintentos de la ingesta: con ~300 llamadas LLM por
+  run, revientan el task-timeout del Cloud Run Job.
+
 ## Bugs Conocidos y Fixes Aplicados
+
+### v1.0 (2026-09-06) — Incidencia: 4 dias sin briefing
+**Sintoma**: el 06/09 no llego el briefing; los dias previos llegaban emails de "cobertura baja"
+con casi todos los topics a 0 noticias, pese a tener cientos de feeds RSS por categoria.
+
+**Cadena causal** (no era un problema de RSS):
+1. **Mistral dejo de servir inferencia el 03/09** → 429 en *todas* las llamadas, con ambas claves.
+   Diagnostico real (06/09): la cabecera del 429 trae `x-ratelimit-limit-req-minute: 0` — el cupo
+   ASIGNADO es cero, no consumido. `/v1/models` responde 200, o sea que las claves autentican bien
+   y lo bloqueado es solo la inferencia. Es un bloqueo **a nivel de cuenta/workspace** (verificacion,
+   pago o tier), no tokens agotados: no encaja con un reset mensual y explica que dos claves
+   distintas caigan a la vez. `MISTRAL_API_KEY2` NO es redundancia real frente a esto.
+2. El fallback documentado a Gemini **nunca se ejecutaba**: `get_fallback_client()` terminaba en
+   `get_client("quality")` y, desde v0.95, `quality` enruta a **mistral** → devolvia el mismo
+   proveedor agotado.
+3. `_llm_call_with_retry` dormia 10+30+60s por lote. Con ~300 llamadas por run, la ingesta pasaba
+   de ~30 min a >60 min y **Cloud Run la mataba por task-timeout de 3600s**.
+4. Como el filtro LLM devolvia 0 relevantes, el guardado incremental fue **sobrescribiendo
+   topics.json con 60 topics y 0 noticias**; el resto lo borro la retencion de 48h.
+5. El send-job del 06/09 encontro topics.json vacio → "No se envio email (sin noticias)".
+
+**Fixes** (ver G10):
+- `FailoverClient` + circuit breaker en `llm_factory.py`: chain real mistral→mistral2→openai→gemini.
+- Backoff de la ingesta reducido de 10/30/60s a 2/5s (el salto de proveedor ya no necesita esperas).
+- Salvaguarda en `_save_topics_json`: nunca publicar un topics.json vacio sobre uno con noticias.
+- Banner de salud LLM en el email de alerta de cobertura.
+- Adaptacion de kwargs por proveedor (reasoning tokens de Gemini/gpt-5-nano vaciaban la respuesta).
+- Cloud Run Job de ingesta: task-timeout 3600s → 7200s de margen.
+
+**Lo que NO era el problema**: los feeds RSS (986 fuentes activas, 20.759 articulos ingeridos ese
+mismo dia) ni el discovery dominical (corrio y respeto su rate-limit; anadia poco porque los
+fallbacks de Google News ya estaban dados de alta y la via LLM estaba caida por la misma cuota).
 
 ### v0.63 (2026-04-02)
 - **FIX**: Dockerfile: `ENV TZ=Europe/Madrid` → container ahora usa hora Madrid, no UTC

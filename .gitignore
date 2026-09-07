@@ -138,6 +138,9 @@ crawled_data/
 generated_newsletters/
 delivery_logs/
 briefing.txt
+# Espejo local de topics.json; la verdad de produccion vive en GCS.
+# El Dockerfile hace COPY data/, asi que un artefacto local acabaria en la imagen.
+data/topics.json
 
 # Claude local settings (not shared)
 .claude/settings.local.json

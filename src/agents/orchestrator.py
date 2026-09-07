@@ -2139,6 +2139,23 @@ JSON only: {{"invalid_ids": [1, 3], "reasons": {{"1": "...", "3": "..."}}}}
             result = json.loads(response.choices[0].message.content)
             ids = result.get("selected_ids", [])
             llm_selected = [remaining_articles[i] for i in ids if i < len(remaining_articles)]
+            # Salvaguarda anti-vaciado: si el LLM devuelve selected_ids=[] pese a
+            # haber candidatos disponibles, NO lo aceptamos como "ninguno es
+            # relevante" — modelos pequeños/gratuitos (ministral-8b) sobre-aplican
+            # el criterio de "breaking news" y devuelven [] ante noticias normales
+            # que ya pasaron los filtros de relevancia previos (Stage 1+2, reglas
+            # de usuario, dedup). Caso real (07/09/2026): Nutricion/Geopolitica/
+            # macroeconomia con 5-10 candidatos válidos → selected_ids=[] → sección
+            # completa desaparecía del briefing sin ningún error ni log.
+            # remaining_articles ya viene ordenado por score, así que el fallback
+            # determinista (top N por orden) es una degradación razonable.
+            if not llm_selected and remaining_articles:
+                self.logger.warning(
+                    f"⚠️ top_n_selector devolvió selected_ids=[] con "
+                    f"{len(remaining_articles)} candidatos disponibles para "
+                    f"'{topic}'; usando fallback determinista (top {llm_count} por score)."
+                )
+                llm_selected = remaining_articles[:llm_count]
             combined = (forced_articles + llm_selected)[:max_count]
         except Exception as e:
             self.logger.error(f"Error seleccionando top {max_count}: {e}")

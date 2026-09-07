@@ -10,6 +10,7 @@ Mejoras implementadas:
 import asyncio
 import sys
 import os
+import time
 import logging
 import json
 import re
@@ -23,13 +24,13 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import aiohttp
 import feedparser
-from src.services.llm_factory import LLMFactory
+from src.services.llm_factory import LLMFactory, is_quota_error
 from src.services.gcs_service import GCSService
 from src.services.firebase_service import FirebaseService
 from src.utils.html_builder import CATEGORY_IMAGES
 from src.utils.text_utils import validate_image_size
 from src.services.perspective_enricher import enrich_topics_with_perspectives
-from src.utils.constants import ARTICLES_RETENTION_HOURS, ARTICLES_INGEST_WINDOW_HOURS, TOPICS_RETENTION_DAYS, CATEGORIES_LIST, INGESTA_COVERAGE_HOURS
+from src.utils.constants import ARTICLES_RETENTION_HOURS, ARTICLES_INGEST_WINDOW_HOURS, TOPICS_RETENTION_DAYS, CATEGORIES_LIST, INGESTA_COVERAGE_HOURS, INGEST_TOPICS_BUDGET_S
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -42,9 +43,35 @@ def _extract_json(text: str) -> dict:
     text = text.strip()
     return json.loads(text)
 
-async def _llm_call_with_retry(client, model, messages, max_retries=3, **kwargs):
-    """Wrapper for LLM calls with exponential backoff on rate-limit (429) errors."""
-    delays = [10, 30, 60]  # seconds between retries (generous for Mistral free-tier)
+def _coerce_ids(raw) -> list:
+    """Normaliza `relevant_ids` a enteros.
+
+    Los modelos pequenos devuelven a veces ["0","2"] o [{"id":0}] en vez de
+    [0,2]. Sin esto, `batch[i]` compara str con int y revienta el lote entero
+    (TypeError), que es justo lo que hacia perder noticias con ministral.
+    """
+    out = []
+    for item in raw if isinstance(raw, (list, tuple)) else []:
+        if isinstance(item, dict):
+            item = item.get("id", item.get("index"))
+        try:
+            out.append(int(item))
+        except (TypeError, ValueError):
+            continue
+    return out
+
+
+async def _llm_call_with_retry(client, model, messages, max_retries=2, **kwargs):
+    """Wrapper for LLM calls with backoff on rate-limit (429) errors.
+
+    El failover ENTRE proveedores lo hace ya `FailoverClient` (llm_factory):
+    cuando un 429 llega hasta aquí significa que todo el chain está agotado.
+    Por eso los sleeps son cortos (2s/5s) en lugar de los 10/30/60s de antes:
+    con ~700 lotes por ingesta, aquellos sleeps consumían el task-timeout de
+    3600s del Cloud Run Job y el run moría sin guardar noticias (incidencia
+    2026-09-03 → 2026-09-06).
+    """
+    delays = [2, 5]
     for attempt in range(max_retries + 1):
         try:
             response = await client.chat.completions.create(
@@ -54,8 +81,7 @@ async def _llm_call_with_retry(client, model, messages, max_retries=3, **kwargs)
             )
             return response
         except Exception as e:
-            error_str = str(e)
-            is_rate_limit = '429' in error_str or 'rate_limit' in error_str.lower() or 'rate limit' in error_str.lower()
+            is_rate_limit = is_quota_error(e)
             if is_rate_limit and attempt < max_retries:
                 wait = delays[min(attempt, len(delays) - 1)]
                 logger.warning(f"⏳ Rate limit (intento {attempt + 1}/{max_retries}), esperando {wait}s...")
@@ -380,7 +406,14 @@ class HourlyProcessor:
         
         # 2. Cargar topics.json actual
         topics_data = self._load_topics_json()
-        logger.info(f"📦 Topics existentes: {len(topics_data)}")
+        # Baseline previo al cleanup: referencia para la salvaguarda de
+        # _save_topics_json (no publicar un topics.json vacío si el run falla).
+        self._baseline_noticias = self._count_noticias(topics_data)
+        self._save_aborted_empty = False
+        logger.info(
+            f"📦 Topics existentes: {len(topics_data)} "
+            f"({self._baseline_noticias} noticias)"
+        )
         
         # 2.1 Limpiar noticias antiguas de topics
         removed_news = self.gcs.cleanup_old_topic_news(topics_data, days=TOPICS_RETENTION_DAYS)
@@ -429,27 +462,59 @@ class HourlyProcessor:
             async with semaphore:
                 return await self._process_single_topic(topic_name, topics_data)
         
-        tasks = [process_topic_wrapper(topic) for topic in topic_names]
-        
+        tasks = [asyncio.create_task(process_topic_wrapper(topic)) for topic in topic_names]
+
         # PROCESAMIENTO INCREMENTAL Y GUARDADO
         # Usamos as_completed para ir guardando conforme terminan los topics
         # Esto previene que un timeout total nos deje sin NADA de datos.
+        #
+        # BUDGET DE RELOJ: si la fase de topics agota INGEST_TOPICS_BUDGET_S,
+        # cancelamos lo que queda y seguimos al guardado + alerta. Preferimos un
+        # briefing con 20 topics de 31 a que Cloud Run mate el job por
+        # task-timeout y no se guarde nada (incidencia 03→06/09/2026).
+        # Nota: se usa asyncio.wait con timeout en lugar de as_completed porque
+        # as_completed bloquea hasta el siguiente resultado — un topic colgado
+        # se comería el budget entero sin que llegásemos a comprobarlo.
+        deadline = time.monotonic() + INGEST_TOPICS_BUDGET_S
         msg_counter = 0
-        for future in asyncio.as_completed(tasks):
-            try:
-                result = await future
-                if isinstance(result, dict):
-                    topic_id = result.get("topic_id")
-                    if topic_id:
-                        topics_data[topic_id] = result.get("data")
-                        msg_counter += 1
+        pending = set(tasks)
+        while pending:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                done = set()
+            else:
+                done, pending = await asyncio.wait(
+                    pending, timeout=remaining, return_when=asyncio.FIRST_COMPLETED
+                )
+            if not done:
+                logger.error(
+                    f"⏱️ Budget de topics agotado ({INGEST_TOPICS_BUDGET_S}s): "
+                    f"cancelando {len(pending)} topics pendientes y pasando al "
+                    f"guardado. Procesados {msg_counter}/{len(topic_names)}. "
+                    f"Salud LLM: {LLMFactory.health_report()}"
+                )
+                for t in pending:
+                    t.cancel()
+                await asyncio.gather(*pending, return_exceptions=True)
+                break
 
-                        # Save every 5 topics to reduce GCS writes (was every 1)
-                        if msg_counter % 5 == 0 or msg_counter == len(topic_names):
-                            logger.info(f"💾 Guardado incremental ({msg_counter}/{len(topic_names)})")
-                            self._save_topics_json(topics_data)
-            except Exception as e:
-                logger.error(f"❌ Error en topic task: {e}")
+            for task in done:
+                try:
+                    result = task.result()
+                    if isinstance(result, dict):
+                        topic_id = result.get("topic_id")
+                        if topic_id:
+                            topics_data[topic_id] = result.get("data")
+                            msg_counter += 1
+
+                            # Save every 5 topics to reduce GCS writes (was every 1)
+                            if msg_counter % 5 == 0 or msg_counter == len(topic_names):
+                                logger.info(f"💾 Guardado incremental ({msg_counter}/{len(topic_names)})")
+                                self._save_topics_json(topics_data)
+                except asyncio.CancelledError:
+                    continue
+                except Exception as e:
+                    logger.error(f"❌ Error en topic task: {e}")
         
         # 4. Guardar topics.json
         self._save_topics_json(topics_data)
@@ -530,9 +595,21 @@ class HourlyProcessor:
         # Asignar categorías si no tiene, o re-evaluar si tiene 0 noticias
         if not topic_info.get("categories") or not topic_info.get("noticias"):
             categories = await self._assign_categories(topic_name)
-            topic_info["categories"] = categories
-            logger.info(f"📂 {topic_name} → {categories}")
-        
+            if categories:
+                topic_info["categories"] = categories
+                logger.info(f"📂 {topic_name} → {categories}")
+            elif not topic_info.get("categories"):
+                # Sin clasificación previa y el LLM ha fallado: cajón de sastre
+                # como último recurso, mejor que quedarse sin categorías.
+                topic_info["categories"] = ["General", "Sociedad"]
+                logger.warning(f"📂 {topic_name} → fallback General/Sociedad (LLM falló)")
+            else:
+                # Conserva la clasificación previa: un fallo puntual del LLM no
+                # debe degradar un topic ya bien clasificado a General/Sociedad.
+                logger.warning(
+                    f"📂 {topic_name}: LLM falló, conservando {topic_info['categories']}"
+                )
+
         categories = topic_info["categories"]
         logger.info(f"🔍 {topic_name}: buscando en categorías {categories}")
 
@@ -895,7 +972,8 @@ class HourlyProcessor:
         try:
             response = await _llm_call_with_retry(
                 self.client, self.model,
-                messages=[{"role": "user", "content": prompt}]
+                messages=[{"role": "user", "content": prompt}],
+                response_format={"type": "json_object"},
             )
             result = _extract_json(response.choices[0].message.content)
             return result.get("match")
@@ -997,8 +1075,33 @@ class HourlyProcessor:
                 return data
         return {}
     
+    @staticmethod
+    def _count_noticias(data: dict) -> int:
+        total = 0
+        for info in (data or {}).values():
+            if isinstance(info, dict):
+                total += len(info.get("noticias") or [])
+        return total
+
     def _save_topics_json(self, data: dict):
-        """Guarda topics.json en GCS y local"""
+        """Guarda topics.json en GCS y local.
+
+        SALVAGUARDA: si el run no ha producido NINGUNA noticia (típicamente
+        porque todos los proveedores LLM están agotados) pero el topics.json
+        previo sí tenía, no se sobrescribe. Sin esta guarda, un run roto
+        publica un topics.json vacío y el envío de la mañana siguiente sale
+        sin noticias — que es exactamente lo que pasó del 03 al 06/09/2026.
+        """
+        new_count = self._count_noticias(data)
+        if new_count == 0 and getattr(self, "_baseline_noticias", 0) > 0:
+            logger.error(
+                f"🛑 Guardado ABORTADO: el run generó 0 noticias y topics.json "
+                f"tenía {self._baseline_noticias}. No se sobrescribe para no "
+                f"dejar el briefing vacío. Salud LLM: {LLMFactory.health_report()}"
+            )
+            self._save_aborted_empty = True
+            return
+
         topics_list = list(data.values())
         json_str = json.dumps(topics_list, ensure_ascii=False, indent=2)
         local_path = os.path.join(os.path.dirname(__file__), "..", "data", "topics.json")
@@ -1234,9 +1337,27 @@ class HourlyProcessor:
               </table>
                 """
 
+            # BANNER DE SALUD LLM: sin esto, una cuota agotada de Mistral se lee
+            # como "faltan feeds RSS" y se pierde el tiempo añadiendo fuentes que
+            # no arreglan nada (pasó del 03 al 06/09/2026).
+            down = LLMFactory.health_report()
+            llm_block = ""
+            if down:
+                llm_block = f"""
+              <div style='background:#4a1010;border:1px solid #e74c3c;padding:12px;margin-bottom:16px;'>
+                <strong style='color:#e74c3c;'>🚫 Proveedores LLM agotados durante esta ingesta:
+                {', '.join(sorted(down))}</strong>
+                <p style='color:#ddd;font-size:13px;margin:6px 0 0;'>La cobertura baja de abajo
+                probablemente NO es un problema de feeds RSS: el filtro LLM no pudo evaluar los
+                artículos. Revisa la cuota de esos proveedores antes de tocar
+                <code>data/sources.json</code>.</p>
+              </div>
+                """
+
             html = f"""
             <div style='font-family:monospace;background:#1a1a2e;color:#eee;padding:24px;'>
               <h2 style='color:#e74c3c;'>⚠️ Alerta de cobertura RSS</h2>
+              {llm_block}
               <p>Estado de cobertura en la ingesta {now.strftime('%d/%m %H:%M')} (últimas {INGESTA_COVERAGE_HOURS}h):</p>
               {active_block}
               {niche_block}
@@ -1282,8 +1403,24 @@ class HourlyProcessor:
         except Exception as e:
             logger.error(f"Auto-discovery RSS falló: {e}")
 
+    # Overrides duros para topics genéricos de una sola palabra que el LLM
+    # (sin contexto, solo el nombre) clasifica mal de forma reproducible.
+    # Caso real (07/09/2026): "deporte" → LLM devolvía ['Tecnología y Digital',
+    # 'Cultura y Entretenimiento'] en vez de ['Deporte'], y como _process_single_topic
+    # reintenta la clasificación en cada run mientras el topic tenga 0 noticias,
+    # quedaba atrapado buscando en la categoría equivocada indefinidamente.
+    _HARDCODED_TOPIC_CATEGORIES = {
+        "deporte": ["Deporte", "Cultura y Entretenimiento"],
+        "deportes": ["Deporte", "Cultura y Entretenimiento"],
+        "sport": ["Deporte", "Cultura y Entretenimiento"],
+        "sports": ["Deporte", "Cultura y Entretenimiento"],
+    }
+
     async def _assign_categories(self, topic_name: str) -> list:
         """Usa LLM rápido para asignar 2 categorías"""
+        override = self._HARDCODED_TOPIC_CATEGORIES.get(topic_name.strip().lower())
+        if override:
+            return override
         categories_str = ", ".join(VALID_CATEGORIES)
         prompt = f"""
         Eres un clasificador. Dado el topic "{topic_name}", elige exactamente 2 categorías de esta lista:
@@ -1295,13 +1432,20 @@ class HourlyProcessor:
             response = await _llm_call_with_retry(
                 self.client, self.model,
                 messages=[{"role": "user", "content": prompt}],
+                response_format={"type": "json_object"},
             )
             result = _extract_json(response.choices[0].message.content)
-            cats = result.get("categories", [])[:2]
-            return [c for c in cats if c in VALID_CATEGORIES][:2] or ["General", "Sociedad"]
+            cats = [c for c in result.get("categories", [])[:2] if c in VALID_CATEGORIES][:2]
+            if cats:
+                return cats
+            logger.error(f"Clasificación inválida para '{topic_name}': {result}")
         except Exception as e:
-            logger.error(f"Error asignando categorías: {e}")
-            return ["General", "Sociedad"]
+            logger.error(f"Error asignando categorías para '{topic_name}': {e}")
+        # Devolvemos [] (no ["General","Sociedad"]) para que el caller sepa que
+        # esto es un FALLO, no una clasificación: 'General/Sociedad' es un cajón
+        # de sastre y dejaba topics como 'Nutricion' o 'Viajes de ocio' tirando
+        # de un pool genérico (caso elena.ortega, 09/2026).
+        return []
     
     def _get_articles_for_categories(self, categories: list) -> list:
         """Busca artículos en GCS dinámicamente según la última ejecución"""
@@ -1718,28 +1862,34 @@ class HourlyProcessor:
             """
 
             try:
+                # response_format: la redacción ya lo pedía y el filtrado no. Sin él,
+                # los modelos pequeños (familia ministral) devuelven texto alrededor
+                # del JSON y el lote entero se pierde con "Expecting value"/"Extra data".
                 response = await _llm_call_with_retry(
                     self.client, self.model,
                     messages=[{"role": "user", "content": prompt}],
+                    response_format={"type": "json_object"},
                 )
                 result = _extract_json(response.choices[0].message.content)
-                ids = result.get("relevant_ids", [])
+                ids = _coerce_ids(result.get("relevant_ids", []))
                 batch_relevant = [batch[i] for i in ids if i < len(batch)]
                 all_relevant.extend(batch_relevant)
                 logger.info(f"   📊 Lote {batch_start//batch_size + 1}: {len(batch_relevant)}/{len(batch)} relevantes")
             except Exception as e:
                 logger.error(f"Error filtrando lote: {e}")
                 # Si es rate limit (429), intentar con clave secundaria o proveedor alternativo
-                if "429" in str(e) or "rate_limited" in str(e).lower() or "rate limit" in str(e).lower():
+                if is_quota_error(e):
                     try:
                         logger.warning("🔄 Rate limit detectado, usando fallback...")
-                        fallback_client, fallback_model = LLMFactory.get_fallback_client("mistral")
+                        fallback_client, fallback_model = LLMFactory.get_fallback_client(
+                            self.client.primary_provider if hasattr(self.client, "primary_provider") else "mistral"
+                        )
                         response = await fallback_client.chat.completions.create(
                             model=fallback_model,
                             messages=[{"role": "user", "content": prompt}],
                         )
                         result = _extract_json(response.choices[0].message.content)
-                        ids = result.get("relevant_ids", [])
+                        ids = _coerce_ids(result.get("relevant_ids", []))
                         batch_relevant = [batch[i] for i in ids if i < len(batch)]
                         all_relevant.extend(batch_relevant)
                         logger.info(f"   📊 [FALLBACK] Lote {batch_start//batch_size + 1}: {len(batch_relevant)}/{len(batch)} relevantes")
@@ -2060,25 +2210,19 @@ class HourlyProcessor:
         }}
         """
 
-        # PRIMARIO: Gemini quality (más estricto con "solo usa el texto").
-        # FALLBACK: Mistral fast si Gemini falla por cuota (429) o error JSON.
+        # Cliente "quality" para redacción (más estricto con "solo usa el texto").
+        # El failover entre proveedores va dentro del propio cliente (ver G10).
         primary_client = self.client_quality if getattr(self, "client_quality", None) else self.client
         primary_model = self.model_quality if getattr(self, "client_quality", None) else self.model
-        is_gemini_primary = primary_client is not self.client
 
         try:
-            if is_gemini_primary:
-                response = await primary_client.chat.completions.create(
-                    model=primary_model,
-                    messages=[{"role": "user", "content": prompt}],
-                    response_format={"type": "json_object"},
-                )
-            else:
-                response = await _llm_call_with_retry(
-                    primary_client, primary_model,
-                    messages=[{"role": "user", "content": prompt}],
-                    response_format={"type": "json_object"},
-                )
+            # El salto de proveedor ante cuota agotada lo resuelve FailoverClient;
+            # aquí solo queda el backoff corto por picos puntuales.
+            response = await _llm_call_with_retry(
+                primary_client, primary_model,
+                messages=[{"role": "user", "content": prompt}],
+                response_format={"type": "json_object"},
+            )
             result = _extract_json(response.choices[0].message.content)
             items = result.get("articles", [])
 
@@ -2149,16 +2293,14 @@ class HourlyProcessor:
             return results
         except Exception as e:
             logger.error(f"Error redactando batch: {e}")
-            error_str = str(e)
-            is_rate_limit = "429" in error_str or "rate_limited" in error_str.lower() or "rate limit" in error_str.lower() or "resource_exhausted" in error_str.lower() or "quota" in error_str.lower()
+            is_rate_limit = is_quota_error(e)
             is_json_error = isinstance(e, (json.JSONDecodeError, ValueError, KeyError))
-            # Si Gemini era primario y falla → usa Mistral fast como fallback.
-            # Si Mistral era primario (sin client_quality) → mantiene el fallback original (MISTRAL_API_KEY2 o Gemini).
-            if is_gemini_primary:
-                fallback_client, fallback_model = self.client, self.model
-                logger.warning("🔄 Gemini falló en redacción, usando Mistral fast como fallback...")
-            else:
-                fallback_client, fallback_model = LLMFactory.get_fallback_client("mistral")
+            # Último intento en otro proveedor: cubre sobre todo el caso de JSON
+            # inválido (el de cuota ya lo agotó FailoverClient recorriendo el chain).
+            fallback_client, fallback_model = LLMFactory.get_fallback_client(
+                primary_client.primary_provider if hasattr(primary_client, "primary_provider") else "mistral",
+                task_type="quality",
+            )
             if is_rate_limit or is_json_error:
                 try:
                     if is_rate_limit:

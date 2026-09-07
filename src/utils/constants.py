@@ -13,6 +13,13 @@ ARTICLES_INGEST_WINDOW_HOURS = 20   # ventana dinámica máx para get_articles_b
 # topics.json (artículos procesados + redactados)
 TOPICS_RETENTION_DAYS = 2           # cleanup_old_topic_news: 48h de artículos procesados
 
+# Presupuesto de reloj para la fase de topics de la ingesta (scripts/ingest_news.py).
+# El Cloud Run Job tiene task-timeout=7200s; este budget corta ANTES para que el run
+# siempre llegue a guardar topics.json y a emitir la alerta de cobertura, en lugar de
+# morir a medias como del 03 al 06/09/2026. También acota el coste del peor caso: un
+# run colgado no puede consumir las 2h completas de 4 vCPU + 8 GiB.
+INGEST_TOPICS_BUDGET_S = 3300       # 55 min para procesar topics (deja ~20 min de cierre)
+
 # Orchestrator: ventana para cubrir las 2 últimas ingestas (5:30am y 20:30pm Madrid)
 # Gap máximo entre runs = 15h (5:30→20:30). 20h cubre holgadamente current + previous.
 INGESTA_COVERAGE_HOURS = 20

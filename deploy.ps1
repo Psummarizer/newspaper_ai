@@ -60,7 +60,13 @@ if ($LASTEXITCODE -ne 0) { Write-Error "Fallo en deploy Cloud Run Service"; exit
 function Deploy-CloudRunJob {
     param(
         [string]$JobName,
-        [string]$JobMode
+        [string]$JobMode,
+        # Cloud Run Jobs factura tiempo de ejecucion REAL, no el limite: subir
+        # este valor no encarece un run normal, solo acota el peor caso.
+        # Ingesta: 7200s tras la incidencia del 03-06/09/2026, en la que el job
+        # moria a los 3600s y dejaba topics.json a medias. El corte efectivo lo
+        # pone INGEST_TOPICS_BUDGET_S (55 min) dentro del propio script.
+        [int]$TimeoutSeconds = 3600
     )
     Write-Host "[INFO] Configurando Cloud Run Job '$JobName' (JOB_MODE=$JobMode)..."
     gcloud run jobs describe $JobName --region=$REGION --project=$PROJECT_ID 2>$null
@@ -70,7 +76,7 @@ function Deploy-CloudRunJob {
             --region $REGION `
             --memory 8Gi `
             --cpu 4 `
-            --task-timeout 3600s `
+            --task-timeout "${TimeoutSeconds}s" `
             --max-retries 1 `
             --service-account $SERVICE_ACCOUNT `
             --set-env-vars "JOB_MODE=$JobMode" `
@@ -81,7 +87,7 @@ function Deploy-CloudRunJob {
             --region $REGION `
             --memory 8Gi `
             --cpu 4 `
-            --task-timeout 3600s `
+            --task-timeout "${TimeoutSeconds}s" `
             --max-retries 1 `
             --service-account $SERVICE_ACCOUNT `
             --set-env-vars "JOB_MODE=$JobMode" `
@@ -90,8 +96,8 @@ function Deploy-CloudRunJob {
     if ($LASTEXITCODE -ne 0) { Write-Error "Fallo al desplegar Cloud Run Job '$JobName'"; exit 1 }
 }
 
-Deploy-CloudRunJob -JobName $INGEST_JOB_NAME -JobMode "ingest"
-Deploy-CloudRunJob -JobName $SEND_JOB_NAME   -JobMode "send"
+Deploy-CloudRunJob -JobName $INGEST_JOB_NAME -JobMode "ingest" -TimeoutSeconds 7200
+Deploy-CloudRunJob -JobName $SEND_JOB_NAME   -JobMode "send"   -TimeoutSeconds 3600
 
 # --- 5. CLOUD SCHEDULER → Cloud Run Jobs ---
 # Los schedulers ya NO apuntan a endpoints HTTP del Service. Ahora invocan
