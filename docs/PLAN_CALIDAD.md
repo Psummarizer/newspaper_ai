@@ -352,3 +352,130 @@ nadie vigila **feeds**, que es la causa. 938 feeds sin saber cuáles están muer
 | 6 — Preferencias y salud de fuentes | ⬜ | | |
 | 7 — Curaduría editorial | ⬜ | | |
 | 8 — Audio + Spotify | ⬜ | | Adquisición |
+
+---
+
+# ANEXO A — Sonda de la Parte 1 contra feeds reales (20/09/2026)
+
+Ejecutada sin LLM, sin escrituras en GCS/Firestore. 20 feeds reales
+(14 de Google News + 6 de control), 80 articulos, 25 pasados por
+`_prepare_article_for_redaction` con scraping real.
+
+**Lo que confirma:**
+- 0 articulos salen con URL de Google.
+- 0 titulos con sufijo de medio (la limpieza funciona sobre feeds reales).
+- 0 articulos aceptados cuyo contenido sea solo el titular.
+- 0 avisos de cookies aceptados.
+- Longitud del contenido aceptado: min 186 / mediana 2.648 / max 3.000 chars.
+
+**Lo que NO confirma — importante:**
+- **Fallo del decoder de Google News: 0% sobre 180 entradas.** La sonda no
+  reproduce la hipotesis de "el decoder falla". Posibles explicaciones: en
+  produccion las llamadas van masivamente en paralelo (~300+ por run) y Google
+  limita por tasa, mientras que la sonda va casi secuencial. La evidencia de
+  que en produccion SI fallaba sigue siendo solida (articulos con
+  `Fuentes: news.google.com`, que solo ocurre si la URL nunca se decodifico),
+  pero **no esta reproducida en laboratorio**. No darlo por cerrado.
+
+**Lo que confirma de forma inesperada — y es la mitad importante del bug:**
+- **10 de 25 articulos (40%) se descartan por no tener contenido real scrapeable.**
+  Con el codigo anterior, esos 10 pasaban a `content = title` y se le pedia al
+  redactor escribir tres parrafos desde una linea. **El 40% del briefing se
+  estaba escribiendo a partir del titular.** Esto es independiente del decoder
+  y explica las alucinaciones mejor que la hipotesis original.
+
+**Hallazgo colateral para la PARTE 6 (salud de feeds):**
+De 20 feeds muestreados, 7 no produjeron ni un articulo (35%):
+`parse_failed` en MIT Technology Review, El Confidencial - Sociedad y tres
+feeds de Frontiers; `no_entries` en dos feeds de padel. **5 de los 6 feeds de
+control fallaron.** Sin campos de salud por feed, esto es invisible.
+
+**Coste de pool:** ~40% de descarte en la muestra. Es el precio de fallar en
+cerrado y refuerza la Parte 3: antes de anadir feeds hay que saber cuanto
+material util se esta tirando en cada etapa.
+
+---
+
+# ANEXO B — Auditoria de topics en Firestore (solo lectura, 20/09/2026)
+
+8 documentos en `AINewspaper` (4 activos), **57 topics declarados**, ninguno en
+el formato legacy. Responde a: *los usuarios ponen bien sus topics, o es ambiguo
+y lleva a error?* **Es ambiguo, y de seis maneras distintas.**
+
+### B1 · El contexto describe el tema en vez de dar instrucciones
+- 18/57 topics con valor **vacio**.
+- 39/57 con texto, pero solo **9/57 con instrucciones accionables**.
+
+La mayoria del texto es una **definicion enciclopedica** del tema
+(*"Descripcion: Transformacion del post-trade: clearing, CCPs, netting,
+settlement..."*), no una regla para el sistema. Pero G6 usa ese campo para
+exclusiones, fuentes preferidas y contexto del LLM. Resultado: **la capa de
+personalizacion esta mayoritariamente inerte**, y no por un bug, sino porque el
+producto no le dice al usuario que se espera de ese campo.
+
+Cuando el usuario SI escribe una regla, funciona: `deporte` →
+*"Real Madrid solo masculino. Tenis: preferir Alcaraz y Rafael Jodar"* forzo la
+entrada del articulo de Jodar. Lo que fallo despues fue la redaccion, que
+inventó que Jodar era Carreño Busta (ver Parte 1).
+
+### B2 · Topics del mismo usuario que compiten por el mismo material
+- `alex.colmenarejo`: **crypto + Institutional blockchain networks + Tokenizacion de activos**
+- `diondijkshoorn`: **soy oil + palm oil + biofuels/biodiesel**
+- `alex.colmenarejo` y `9733alex`: **macroeconomia + Politica monetaria y liquidez**
+
+**Son exactamente los topics que salian a 0/0 y 1/1 en el email de cobertura del
+13/09.** El dedup cross-topic hace que el primer topic que llega se lleve el
+articulo y los demas se queden sin nada. No falta cobertura: los topics del
+propio usuario se canibalizan entre si.
+
+### B3 · Idioma del topic distinto al del briefing
+9/57 en ingles. Para `diondijkshoorn` (Language=en) es correcto. Para
+`alex.colmenarejo` (Language=es) no: *crypto*, *Institutional blockchain
+networks* son topics en ingles en un pipeline cuyo `_topic_cat_map` matchea por
+keywords en español. Candidato claro al *"aliasing erroneo"* que el propio email
+de alerta sospechaba.
+
+### B4 · Granularidad en los dos extremos
+- **Demasiado vagos**: `macro`, `IA`, `M&A`, `freight`, `Moda`, `Vinos`,
+  `España`, `Religion`, `Economia`. `macro` e `IA` son especialmente peligrosos:
+  cadenas de 2-5 letras que hacen match dentro de otras palabras.
+- **Demasiado nicho**: `Clearing y camaras de compensacion`,
+  `Politica monetaria y liquidez`, `tariffs & trade flows`. No hay flujo RSS
+  diario que sostenga ≥3 noticias sobre eso.
+
+### B5 · Formato inconsistente
+- 18 empiezan en minuscula, 39 en mayuscula.
+- El mismo tema escrito de tres formas entre usuarios: `geopolitica` /
+  `Geopolitica` / `Geopolitica` (con y sin tilde).
+- Separadores sin semantica definida: `biofuels/biodiesel`, `salud/nutricion`.
+  No esta claro si la barra significa "o", "y" o forma parte del nombre.
+
+### B6 · Solo 6/57 topics mapean literalmente a una categoria del sistema
+Los otros **51 dependen de `_topic_cat_map` y del matching por keywords**. Es la
+superficie donde ya se han documentado errores de enrutado ("IA en Geopolitica",
+fix v0.60.1). A mas topics libres, mas probabilidad de misrouting silencioso.
+
+### B7 · Conflicto estructural: G5 contra la promesa de 90 segundos
+Los usuarios activos tienen **10, 10 y 11 topics**. Con G5 (minimo 3 noticias
+por topic), el suelo es **30-33 articulos por briefing**. Eso son los 16-17
+minutos que estamos viendo. **La garantia G5 y el presupuesto de atencion de la
+Parte 5 son matematicamente incompatibles con 10 topics.**
+
+Hay que elegir, y es una decision de producto, no tecnica:
+- Limitar el numero de topics (p.ej. 5), o
+- Convertir G5 de "minimo 3 por topic" a "reparto de un presupuesto global",
+  aceptando que un topic pueda salir con 1 noticia o con ninguna ese dia.
+
+La segunda encaja mejor con la promesa de vender **brevedad y novedad** en vez
+de exhaustividad.
+
+### Acciones derivadas (entran en la Parte 6, no antes)
+- [ ] Reescribir el copy del campo de contexto: pedir **reglas**, no
+      descripciones. Ejemplos en linea: *"solo masculino"*, *"fuentes
+      preferidas: X, Y"*, *"nada de fichajes"*.
+- [ ] Avisar en el alta cuando dos topics del usuario se solapan semanticamente.
+- [ ] Avisar cuando el topic esta en un idioma distinto al del briefing.
+- [ ] Validar granularidad: rechazar topics de <4 caracteres y avisar en los de
+      ≥4 palabras ("puede que no haya noticias diarias de esto").
+- [ ] Normalizar el formato al guardar (capitalizacion, tildes, separadores).
+- [ ] Decidir B7 antes de implementar la Parte 5.
