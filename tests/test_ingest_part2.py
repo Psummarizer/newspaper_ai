@@ -348,3 +348,96 @@ def test_revisa_titulo_resumen_y_cuerpo():
 def test_entrada_vacia_no_se_delata():
     assert _se_delata_sin_contenido() == ""
     assert _se_delata_sin_contenido("", None) == ""
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 2.4 — Autocontencion: el gancho se permite, el misterio sin resolver no
+#
+# Decision del owner (20/09): el titular PUEDE ser clickbait sin precisar el
+# sujeto. Lo que no puede es que la descripcion tampoco lo cuente.
+# ─────────────────────────────────────────────────────────────────────────────
+
+from scripts.ingest_news import (  # noqa: E402
+    _nombra_algo_concreto,
+    _titular_sin_resolver,
+)
+
+# Casos reales del corpus del 20/09, con su resumen real.
+SE_PUBLICAN_PORQUE_EL_RESUMEN_RESUELVE = [
+    ("El alimento que deberias tener siempre en la nevera para comer saludable",
+     "El nutricionista Pablo Ojeda recomienda el huevo cocido como opcion practica."),
+    ("El truco que miles de conductores estan usando para descubrir quien les ha "
+     "rayado el coche",
+     "Dispositivo que graba y alerta sobre impactos en el vehiculo, con precio "
+     "actualizado a 28,49 euros."),
+    ("SkyShowtime estrena el lunes la nueva temporada de una serie sobre el mundo "
+     "del hampa",
+     "SkyShowtime lanza la segunda temporada de MobLand el 21 de septiembre."),
+    ("Viajar solo ya no es raro: asi lo hacen los espanoles",
+     "El 49% de los espanoles opta por escapadas de 4 a 7 dias."),
+]
+
+# Tambien reales. Aqui el lector no llega a saber de que va la noticia.
+SE_DESCARTAN = [
+    ("Un insolito protocolo de seguridad hace que los robots humanoides se acobarden",
+     "Nuevo sistema de deteccion y esquiva en robots para compartir espacios laborales."),
+    ("La otra cara de los servicios sociales",
+     "Critica a la falta de estabilidad y reconocimiento para profesionales que "
+     "trabajan en inclusion."),
+]
+
+
+@pytest.mark.parametrize("titulo,resumen", SE_PUBLICAN_PORQUE_EL_RESUMEN_RESUELVE)
+def test_el_gancho_vale_si_la_descripcion_lo_resuelve(titulo, resumen):
+    assert not _titular_sin_resolver(titulo, resumen)
+
+
+@pytest.mark.parametrize("titulo,resumen", SE_DESCARTAN)
+def test_descarta_cuando_nadie_nombra_el_sujeto(titulo, resumen):
+    assert _titular_sin_resolver(titulo, resumen)
+
+
+def test_el_mismo_titular_se_publica_o_no_segun_el_resumen():
+    """La regla no juzga el titular: juzga si el par titular+resumen informa."""
+    titulo = "El alimento que causa millones de muertes al ano"
+    assert _titular_sin_resolver(titulo, "Un estudio alerta sobre su consumo.")
+    assert not _titular_sin_resolver(
+        titulo, "La OMS senala los ultraprocesados en un informe de 2026.")
+
+
+def test_un_titular_que_ya_nombra_el_sujeto_no_se_toca():
+    """Si el titular dice de que va, no hay misterio que resolver."""
+    assert not _titular_sin_resolver(
+        "Sanchez defiende el decreto del mercado electrico", "")
+    assert not _titular_sin_resolver(
+        "El Real Madrid gana 2-0 en el derbi", "")
+
+
+def test_titular_normal_sin_deictico_no_se_marca():
+    """Sin nucleo generico escondiendo el sujeto, la regla no aplica."""
+    assert not _titular_sin_resolver(
+        "Inflacion y desequilibrios del crecimiento", "Analisis de los precios.")
+    assert not _titular_sin_resolver(
+        "Fuel cost spike hits carrier margins", "Impacto en costes operativos.")
+
+
+@pytest.mark.parametrize("texto,esperado", [
+    ("El nutricionista Pablo Ojeda recomienda el huevo", True),   # nombre propio
+    ("Precio actualizado a 28,49 euros", True),                   # cifra
+    ("Salto de agua en Paterna del Madera (Albacete)", True),
+    ("Nuevo sistema de deteccion y esquiva en robots", False),
+    ("Critica a la falta de estabilidad y reconocimiento", False),
+    ("", False),
+])
+def test_deteccion_de_referente_concreto(texto, esperado):
+    assert _nombra_algo_concreto(texto) is esperado
+
+
+def test_la_mayuscula_de_inicio_de_frase_no_cuenta_como_nombre_propio():
+    """Si contara, cualquier resumen resolveria el misterio y la regla no haria nada."""
+    assert not _nombra_algo_concreto("Nuevo sistema. Permite esquivar obstaculos.")
+
+
+def test_entrada_vacia_no_rompe():
+    assert _titular_sin_resolver("", "") == ""
+    assert _titular_sin_resolver(None, None) == ""

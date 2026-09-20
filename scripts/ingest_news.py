@@ -520,6 +520,90 @@ def _se_delata_sin_contenido(*textos) -> str:
     return ""
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# PLAN DE CALIDAD — PARTE 2.4: el gancho se permite, el misterio no
+#
+# "El truco que miles de conductores estan usando para descubrir quien les ha
+# rayado el coche" es un titular legitimo: el medio tiene derecho a su gancho.
+# Lo que no se puede publicar es un briefing donde el lector NUNCA llega a saber
+# de que se trata.
+#
+# Por eso la regla no toca el titular: comprueba que la DESCRIPCION lo resuelve.
+# En el caso real de arriba el resumen decia "Dispositivo que graba y alerta
+# sobre impactos en el vehiculo, con precio actualizado a 28,49 euros" — el
+# lector ya sabe que es. Se publica.
+#
+# Lo que se descarta es la combinacion de las dos: titular que esconde el sujeto
+# Y descripcion que tampoco lo nombra ("La otra cara de los servicios sociales"
+# + "Critica a la falta de estabilidad y reconocimiento para profesionales").
+# Ahi no hay noticia, hay una insinuacion.
+#
+# Medido sobre los 334 titulares unicos del corpus del 20/09: 29 no nombran
+# ninguna entidad, y de esos solo 6 esconden el sujeto tras un deictico.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Sustantivos genericos con los que se esconde el sujeto de la noticia.
+_NUCLEO_GENERICO = (
+    r"(?:truco|error|factor|detalle|secreto|clave|raz[oó]n|motivo|se[nñ]al|"
+    r"h[aá]bito|gesto|alimento|producto|objeto|aparato|dispositivo|remedio|"
+    r"ejercicio|enfermedad|s[ií]ntoma|pa[ií]s|ciudad|pueblo|lugar|rinc[oó]n|"
+    r"empresa|compa[nñ][ií]a|hombre|mujer|persona|experto|cient[ií]fico|"
+    r"serie|pel[ií]cula|libro|cancion|canci[oó]n|app|aplicaci[oó]n|m[eé]todo|"
+    r"t[eé]cnica|protocolo|sistema|cara|historia)"
+)
+
+_TITULAR_MISTERIOSO = re.compile(
+    # "el truco que...", "esta serie de...", "una serie sobre..."
+    r"\b(?:el|la|los|las|este|esta|estos|estas|ese|esa|un|una)\s+"
+    r"(?:\w+\s+){0,2}" + _NUCLEO_GENERICO + r"\b[^,]{0,30}?\b(?:que|de|del|sobre|para|con)\b"
+    # o el formato de reclamo puro: "asi es como...", "lo que nadie te cuenta"
+    r"|\b(?:as[ií] es c[oó]mo|as[ií] lo hacen|esto es lo que|lo que (?:nadie|nunca|no) )",
+    re.IGNORECASE,
+)
+
+
+def _nombra_algo_concreto(texto: str) -> bool:
+    """True si el texto nombra una entidad propia o da una cifra.
+
+    Heuristica deliberadamente tosca: un nombre propio (mayuscula que no abre
+    la frase) o un numero. Es lo que separa "MobLand, el 21 de septiembre" y
+    "Paterna del Madera (Albacete)" de "Nuevo sistema de deteccion en robots".
+    """
+    if not texto:
+        return False
+    limpio = re.sub(r'<[^>]+>', ' ', texto)
+    limpio = re.sub(r'^[^\w]+', '', limpio.strip())  # emoji inicial
+    if re.search(r'\d', limpio):
+        return True
+    tokens = re.findall(r"[\w'\u00c0-\u024f]+", limpio)
+    # Se salta el primer token de cada frase: esa mayuscula es ortografia.
+    inicios = {0}
+    for m in re.finditer(r'[.!?:]\s+', limpio):
+        pos = len(re.findall(r"[\w'\u00c0-\u024f]+", limpio[:m.end()]))
+        inicios.add(pos)
+    return any(t[0].isupper() for i, t in enumerate(tokens) if i not in inicios)
+
+
+def _titular_sin_resolver(titulo: str, resumen: str) -> str:
+    """Devuelve el motivo si el titular esconde el sujeto y el resumen tampoco
+    lo nombra. Cadena vacia si la noticia se puede publicar.
+
+    Se mira el RESUMEN y no el cuerpo a proposito: es lo que el lector ve al
+    lado del titular. Si hay que abrir la noticia para saber de que va, el
+    briefing no ha hecho su trabajo.
+    """
+    if not titulo:
+        return ""
+    if _nombra_algo_concreto(titulo):
+        return ""  # el titular ya dice de que va: no hay misterio que resolver
+    m = _TITULAR_MISTERIOSO.search(titulo)
+    if not m:
+        return ""
+    if _nombra_algo_concreto(resumen):
+        return ""  # el gancho esta permitido: la descripcion lo resuelve
+    return m.group(0).strip()
+
+
 def _extraer_texto_principal(html: str) -> str:
     """Texto del articulo, sin menus, pies, comentarios ni reclamos.
 
@@ -733,6 +817,8 @@ class HourlyProcessor:
         self._dropped_consent_page = 0
         # Telemetria PARTE 2.3: redacciones que admitian no tener material.
         self._dropped_autodelacion = 0
+        # Telemetria PARTE 2.4: titulares que escondian el sujeto sin resolverlo.
+        self._dropped_titular_misterioso = 0
         
     async def run(self):
         logger.info("🚀 Inicio Pipeline Horario (OPTIMIZADO)")
@@ -919,11 +1005,12 @@ class HourlyProcessor:
         #    _prepare_article_for_redaction corre en la fase de topics: en el
         #    fetch los contadores valen siempre 0.
         if (self._dropped_no_content or self._dropped_consent_page
-                or self._dropped_autodelacion):
+                or self._dropped_autodelacion or self._dropped_titular_misterioso):
             logger.info(
                 f"🧹 Descartados sin contenido real: {self._dropped_no_content} · "
                 f"páginas de consentimiento: {self._dropped_consent_page} · "
-                f"se delataban sin contenido: {self._dropped_autodelacion}"
+                f"se delataban sin contenido: {self._dropped_autodelacion} · "
+                f"titular sin resolver: {self._dropped_titular_misterioso}"
             )
 
         # 8. ALERTA DE COBERTURA: avisar si algún topic activo tiene <3 noticias recientes
@@ -2660,6 +2747,20 @@ class HourlyProcessor:
                         f"SE DELATA SIN CONTENIDO: '{delator[:70]}'"
                     )
                     self._dropped_autodelacion += 1
+                    results.append(None)
+                    continue
+
+                # PARTE 2.4: el gancho del titular se permite; el misterio sin
+                # resolver no. Si el titular esconde el sujeto y la descripcion
+                # tampoco lo nombra, el lector nunca sabe de que va la noticia.
+                misterio = _titular_sin_resolver(final_title, final_resumen)
+                if misterio:
+                    logger.info(
+                        f"⏭️ Descartando '{prep['title'][:40]}...' - "
+                        f"TITULAR SIN RESOLVER: '{misterio[:50]}' y el resumen "
+                        f"tampoco nombra nada concreto"
+                    )
+                    self._dropped_titular_misterioso += 1
                     results.append(None)
                     continue
 
