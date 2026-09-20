@@ -674,7 +674,16 @@ class HourlyProcessor:
         })
         logger.info("💾 Estado guardado (ingest_state.json)")
 
-        # 7. ALERTA DE COBERTURA: avisar si algún topic activo tiene <3 noticias recientes
+        # 7. Telemetría PARTE 1 — se emite AQUÍ y no tras el fetch porque
+        #    _prepare_article_for_redaction corre en la fase de topics: en el
+        #    fetch los contadores valen siempre 0.
+        if self._dropped_no_content or self._dropped_consent_page:
+            logger.info(
+                f"🧹 Descartados sin contenido real: {self._dropped_no_content} · "
+                f"páginas de consentimiento: {self._dropped_consent_page}"
+            )
+
+        # 8. ALERTA DE COBERTURA: avisar si algún topic activo tiene <3 noticias recientes
         await self._check_coverage_and_alert(topics_data, topic_names)
         
     def _load_existing_news(self, topics_data: dict):
@@ -2668,11 +2677,6 @@ class HourlyProcessor:
                     "⚠️ Más del 40% de las entradas de Google News no resuelven a "
                     "una URL real. El fallback está aportando poco pool utilizable."
                 )
-        if self._dropped_no_content or self._dropped_consent_page:
-            logger.info(
-                f"🧹 Descartados sin contenido real: {self._dropped_no_content} · "
-                f"páginas de consentimiento: {self._dropped_consent_page}"
-            )
 
         # merge_new_articles devuelve (added, full_list_in_memory).
         # Usamos full_list_in_memory para evitar el race read-after-write de GCS.

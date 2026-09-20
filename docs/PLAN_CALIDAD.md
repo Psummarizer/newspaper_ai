@@ -774,3 +774,107 @@ producción. Enlaces en el hilo de la sesión.
 - [ ] **Parte 0**: formalizar el banco de replay como golden dataset versionado,
       con los 17 defectos del catálogo como primeros casos.
 - [ ] Adoptar la regla de ~80 líneas por función para código nuevo.
+
+---
+
+# ANEXO E — Run real de ingesta con el fix de la Parte 1 (20/09/2026, 14:49-15:47)
+
+Ingesta completa contra producción. 1.015 fuentes, 58 minutos, exit 0.
+1.634 artículos nuevos en GCS, 319 noticias redactadas.
+
+## E.1 · El fallo del decoder SÍ ocurre en producción: 66,1%
+
+```
+🔗 Google News: 1120 resueltos / 2186 descartados (66.1% fallo del decoder)
+```
+
+La sonda de laboratorio (Anexo A) daba **0% sobre 180 entradas** y no reprodujo
+el fallo. Con **3.306 entradas y concurrencia real, falla el 66%**. Queda
+confirmado que la causa es la carga/concurrencia, y que la hipótesis de la
+causa raíz era correcta: **bajo el código anterior esos 2.186 artículos entraban
+con URL de `news.google.com`**, y de ahí salían los avisos de cookies y las
+alucinaciones por contenido-igual-a-titular.
+
+## E.2 · Criterios de aceptación: medidos antes y después sobre el mismo corpus
+
+`articles.json` es acumulativo (retención 72h), así que se separa por
+`fecha_ingesta`:
+
+```
+articles.json: 18.041 total = 1.634 de este run + 16.407 anteriores
+
+  ANTERIORES al fix    URLs Google: 2117 (12,9%)   titulos sucios: 725 (4,4%)
+  DE ESTE RUN          URLs Google:    0 ( 0,0%)   titulos sucios:   0 (0,0%)
+```
+
+Sobre las **319 noticias redactadas en este run**:
+
+| Criterio | Resultado |
+|---|---|
+| Avisos de cookies publicados | **0** ✅ |
+| Fuentes `news.google.com` | **0** ✅ |
+| URLs de Google en el corpus nuevo | **0** ✅ |
+| Títulos sucios en el corpus nuevo | **0** ✅ |
+
+**La Parte 1 cumple sus criterios.** Queda pendiente la verificación final sobre
+un briefing generado y enviado.
+
+## E.3 · Lo que sigue fallando, y a qué parte pertenece
+
+| Defecto | Cuántos | Parte |
+|---|---|---|
+| **Markdown crudo** (`**$17,34**`, `**40 millones**`) | **25 / 319 (7,8%)** | **2** |
+| Textos que admiten no tener contenido | 14 / 319 | **2** |
+| Títulos con sufijo de medio en lo redactado | 3 / 319 | **2** |
+
+**Sobre el markdown:** el fix de 2 líneas de la Parte 1 (aplicar los
+sanitizadores en la rama de fallback) **no era suficiente**, y ahora se sabe por
+qué: `_sanitize_redacted_text` **no elimina markdown en absoluto** — solo limpia
+caracteres de control y basura JSON. El LLM produce `**negritas**` y nadie las
+convierte a HTML. Es trabajo de la Parte 2, ahora con una medición de partida:
+**7,8%**.
+
+**Sobre los 3 títulos sucios en lo redactado con 0 en el corpus nuevo:** vienen
+de artículos ingeridos ANTES del fix que se han redactado ahora. Ver E.5.
+
+## E.4 · Coste de pool: 2.186 artículos descartados
+
+Los feeds de Google News son el **19,3% de las fuentes** (167 de 866 locales,
+más en GCS). Con un 66% de fallo del decoder, están rindiendo un tercio de lo
+que prometen.
+
+**Hipótesis a verificar en la Parte 3:** el 66% huele a limitación por tasa.
+`new_decoderv1` hace una petición a Google por artículo, y en el run van
+masivamente en paralelo. Un **semáforo que limite la concurrencia del decoder
+más un reintento con espera** debería recuperar buena parte de esos 2.186 sin
+tocar nada más. Es barato y es el mayor recuperador de pool identificado hasta
+ahora.
+
+## E.5 · Aviso operativo: la basura antigua sigue en el corpus 72h
+
+El corpus conserva **16.407 artículos anteriores al fix, con 2.117 URLs de
+Google y 725 títulos sucios**, durante `ARTICLES_RETENTION_HOURS = 72`.
+
+**Los briefings de los próximos 2-3 días pueden seguir mostrando defectos de la
+Parte 1 sin que eso signifique que el fix ha fallado.** Opciones:
+
+- Esperar a que la retención los limpie sola (72h).
+- Purgar de `articles.json` los artículos con URL de Google anteriores al fix.
+  Es una escritura acotada en producción; **requiere decisión explícita.**
+
+## E.6 · Otros hallazgos del run
+
+- **4 errores de parseo JSON del LLM**: 3 en `_redact_batch` (uno de ellos
+  también en la rama de fallback) y 1 en `_filter_relevant`. Preexistentes, no
+  introducidos por la Parte 1. Refuerzan D.1: el parseo debe ser una función
+  aparte y testeable.
+- **Clustering de perspectivas funcionando**: 22 clusters, 42 de 572 artículos
+  con perspectivas. Confirma que el material para la Parte 4 ya se está
+  calculando. `[Arabia Saudí] 1 cluster (tamaño 5)` es exactamente el caso de
+  los hutíes: **el sistema ya sabe que cinco medios cubren el mismo hecho**, y
+  aun así los publica por separado.
+- **Cobertura al final del run: 0 active-low, 0 niche.** El run anterior alertaba
+  de 15 registros con <3 noticias.
+- **Corregido un fallo de la propia instrumentación**: el log de descartes se
+  emitía tras la fase de fetch, cuando `_prepare_article_for_redaction` todavía
+  no ha corrido y los contadores valen 0. Movido al final de `run()`.
