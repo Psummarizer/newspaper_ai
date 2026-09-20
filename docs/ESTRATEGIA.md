@@ -1,5 +1,7 @@
 # ESTRATEGIA — Briefing News / SaveTimeLab
 
+> **Empieza por `docs/HANDOFF.md`** si retomas el trabajo en otra sesión.
+>
 > Documento de continuidad. Recoge el análisis estratégico, las decisiones tomadas
 > y las preguntas abiertas. Si retomas el trabajo en otra sesión, **empieza por aquí**
 > y por `docs/PLAN_CALIDAD.md`.

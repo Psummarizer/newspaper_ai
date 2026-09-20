@@ -1,5 +1,7 @@
 # PLAN DE CALIDAD — Briefing News
 
+> **Empieza por `docs/HANDOFF.md`** si retomas el trabajo en otra sesión.
+>
 > Plan por partes, de menos a más. **Cada parte se cierra con un criterio de aceptación
 > verificable sobre briefings reales.** No se pasa a la siguiente sin verificar la anterior.
 >
