@@ -567,3 +567,75 @@ de solapamiento, ni el enrutado a categorías.
       diarias de esto"*.
 - [ ] Recompilar los 57 topics existentes una vez, como migración.
 - [ ] Preferencias que cierran el bucle hasta la ingesta (ver Parte 6).
+
+---
+
+# ANEXO C — Prueba dura para la PARTE 3: el material existe y el pipeline lo pierde
+
+Medido el 20/09/2026 sobre `articles.json` en GCS (**18.570 artículos**), con
+coincidencia por **titular** y límites de palabra (sin falsos positivos por
+subcadena). Comparado contra lo que el usuario recibió segun el email de alerta
+del 13/09.
+
+| Topic (usuario) | En el corpus | Recibió | Veredicto |
+|---|---|---|---|
+| Política monetaria y liquidez | **175** | **0** | el matching lo pierde |
+| Tokenización de activos | **80** | **0** | el matching lo pierde |
+| biofuels/biodiesel | **46** | 1 | el matching lo pierde |
+| palm oil | **39** | 1 | el matching lo pierde |
+| soy oil | **28** | **0** | el matching lo pierde |
+| Clearing y cámaras de compensación | 3 | 0 | cobertura baja + matching |
+| Institutional blockchain networks | 2 | 0 | cobertura baja + matching |
+
+Titulares reales que estaban en el corpus y **no llegaron al usuario**:
+
+```
+soy oil        Soybean Oil Is No Longer a Byproduct as Soybean Meal Prices Surge
+               Soybean oil prices in Argentina and Brazil nearly converge
+               Understanding the South Asia Soybean Oil vs. Soybean Oil Futures Spread (CME)
+
+palm oil       Palm Oil Rallies on Tighter Supply, Firm India Demand
+               El aceite de palma retrocede tras máximo de 21 meses
+               Palm Oil Monthly Report — September 2026 (CME Group)
+
+tokenización   US securities regulator rolls out five-year exemption for tokenized stock trading
+               WisdomTree, MoonPay team up to expand US access to tokenized money market fund
+               S&P Global acquires OpenZeppelin in tokenized finance risk push
+
+blockchain     TreasurySpring becomes super validator on Canton Network
+inst.          Canton Network Raises $355M From a16z and Abu Dhabi Fund
+```
+
+El usuario había escrito *"Canton Network"* literalmente en el contexto de su
+topic. Los dos únicos artículos del corpus que mencionan Canton Network en el
+titular **no le llegaron**.
+
+## Qué invalida esto
+
+1. **La hipótesis de canibalización entre topics era incorrecta.** Se propuso
+   fusionar `soy oil` + `palm oil` + `biofuels` y `crypto` + `tokenización` +
+   `institutional blockchain`. **Habría sido un error**: no compiten por un pool
+   escaso, es que el pool nunca les llega. Fusionar habría destruido una
+   configuración bien escrita y habría tapado el bug real.
+2. **La recomendación del email de alerta ("añadir más feeds") es errónea para
+   estos casos.** Los feeds existen y funcionan: CME Group, AgroLatam,
+   UkrAgroConsult, Barchart, Securities Finance Times, Reuters, TradingView ya
+   están dando el material.
+3. **Los topics de estos usuarios están BIEN especificados**, mejor que la media
+   (`CBOT soy oil futures, WASDE report, US crush margins, palm-soy spread`).
+   El problema no está en cómo los escriben.
+
+## Caso de prueba para cerrar la Parte 3
+
+> **Con `soy oil` y el corpus del 20/09, el pipeline debe entregar ≥3 de los 28
+> artículos disponibles.** Hoy entrega 0. Hay que instrumentar cada etapa
+> (freshness → dedup evento → Stage 1 → Stage 2 → selector) y localizar en cuál
+> de ellas desaparecen los 28.
+
+## Aviso sobre siglas cortas (refuerza B4)
+
+Una de las 3 coincidencias de "Clearing y CCPs" era
+*"Pottinger urges Taiwan to focus skepticism on **CCP** promises"* — Partido
+Comunista Chino, no cámara de compensación. Es exactamente el riesgo de los
+topics de 2-5 letras (`IA`, `M&A`, `macro`, `CCP`). El compilador del Anexo B8
+debe desambiguar las siglas al compilar, no en cada run.
