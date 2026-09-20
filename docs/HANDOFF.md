@@ -83,7 +83,8 @@ docs/{HANDOFF,ESTRATEGIA,PLAN_CALIDAD}.md
 
 Comprobar que todo sigue bien:
 ```bash
-python -m pytest tests/ -q     # esperado: 34 passed
+python -m pytest tests/ -q                  # esperado: 34 passed
+python scripts/verify_part1.py              # criterios contra GCS (solo lectura)
 ```
 
 ### Excepción a recordar
@@ -104,9 +105,20 @@ El último cambio (semáforo + reintento en el decoder) **está implementado y
 testeado pero NO verificado en un run real**. Hay que:
 
 ```bash
+# 1. Lanzar la ingesta (escribe en GCS de produccion; ~60 min)
 python -u scripts/ingest_news.py > /tmp/ingest.log 2>&1
+
+# 2. El numero que decide si el semaforo funciona
 grep "Google News:" /tmp/ingest.log
+
+# 3. Todos los criterios de aceptacion, de una vez (SOLO LECTURA)
+python scripts/verify_part1.py --since 2026-09-20T20:30
 ```
+
+`scripts/verify_part1.py` reproduce todas las mediciones de los anexos: separa el
+corpus nuevo del anterior por `fecha_ingesta`, comprueba los 4 criterios de la
+Parte 1 y muestra las 3 líneas de partida de la Parte 2. Devuelve exit code 0 si
+la Parte 1 cumple. **No escribe nada.**
 
 Esperado: la tasa de fallo baja claramente del **66,1%** de referencia. Si no
 baja, el problema no era limitación por tasa y hay que replantear el fallback de
