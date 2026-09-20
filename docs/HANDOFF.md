@@ -81,7 +81,9 @@ docs/{HANDOFF,ESTRATEGIA,PLAN_CALIDAD}.md
 ```
 
 **Parte 2: hechas 2.1, 2.2, 2.3 y 2.4.** Pendientes **2.5** (anclaje por
-entidades) y **2.6** (normalizacion e idioma). 122 tests en verde.
+entidades) y **2.6** (normalizacion e idioma). 125 tests en verde.
+
+**Nada de esto esta desplegado.** Ver el run de las 20:30 mas abajo.
 
 `src/agents/orchestrator.py`, `src/utils/html_builder.py` y el resto de `src/`
 **sin tocar**. **Ninguna escritura en Firestore.**
@@ -168,6 +170,44 @@ quema la IP para el brazo siguiente — medir el acotado primero, o no medir):
 grep "Google News:" <log del run>          # tras un deploy con el semáforo
 python scripts/verify_part1.py             # criterios sobre el corpus (solo lectura)
 ```
+
+
+#### Run de las 20:30 del 20/09: corrio, y confirma que NO hay nada desplegado
+
+`newsletter-ingest-job-r5dmz`, terminado 20:53 Madrid, `exit(0)`, 1.686
+artículos nuevos. Corrió con **la imagen del 7 de septiembre** — `latest` en
+Artifact Registry tiene esa fecha y no hay builds desde el 17/04. Es decir:
+**ni la Parte 1 ni la Parte 2 estaban dentro.**
+
+No hace falta fiarse del timestamp de la imagen: el corpus lo demuestra solo.
+
+| criterio de la Parte 1 | run de la mañana (con fix, local) | run 20:30 (imagen vieja) |
+|---|---|---|
+| URLs de Google en el corpus | 0,0% | **11,5%** (194/1.686) |
+| títulos sucios | 0,0% | **5,2%** (88/1.686) |
+| noticias publicadas con fuente `news.google.com` | 0/319 | **41/407 (10,1%)** |
+
+Y en el log del run **no aparece la línea `Google News:`**, que es telemetría
+añadida en la Parte 1. Tercera confirmación independiente.
+
+**Esto no es una regresión del código**: es que el código nunca llegó a
+producción. Mientras no haya build + deploy, cada ingesta vuelve a meter el
+vector de Google News en el corpus, y la retención de 72h lo arrastra.
+
+**Lo que sí dio el run, y es valioso**: 407 noticias nuevas redactadas con el
+pipeline viejo, o sea un **segundo corpus de control** que no se uso para
+disenar las reglas 2.1-2.4. Replay sobre él:
+
+| | corpus 20:30 (no visto) |
+|---|---|
+| 2.1 markdown crudo | 63/407 (15,5%) → **0** |
+| 2.3 autodelación | 31/407 (7,6%) descartadas |
+| 2.4 titular sin resolver | 1 marcado de 238 únicos → **0 descartes** |
+| G5 (topics por debajo de 3) | **0** |
+
+Ese corpus **encontró un falso positivo de 2.4** y forzó un refinamiento
+(`65f75dc`): la descripción también puede resolver el misterio con palabras
+llanas, sin nombre propio ni cifra. Ver la entrada de 2.4.
 
 ### Paso 1 — PARTE 2, contrato de publicación
 
