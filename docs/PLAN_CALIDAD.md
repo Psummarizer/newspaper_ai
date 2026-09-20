@@ -878,3 +878,41 @@ Parte 1 sin que eso signifique que el fix ha fallado.** Opciones:
 - **Corregido un fallo de la propia instrumentación**: el log de descartes se
   emitía tras la fase de fetch, cuando `_prepare_article_for_redaction` todavía
   no ha corrido y los contadores valen 0. Movido al final de `run()`.
+
+## E.7 · Alucinaciones: medido, con la incertidumbre que toca
+
+Ultimo criterio de la Parte 1. Muestra de 45 noticias del run, 42 con fuente
+accesible, comparando entidades del texto redactado contra el articulo original
+extraido con trafilatura.
+
+**Primer intento (todas las entidades propias): 61% de noticias con alguna
+entidad ausente.** Numero inutilizable: el detector cuenta traducciones
+(`Fuerza Aerea` de "Air Force", `Republica Checa` de "Czech Republic", `Japon`),
+palabras al inicio de frase (`Segun`, `Ademas`) y palabras del titular, que
+trafilatura no extrae porque solo saca el cuerpo.
+
+**Segundo intento, criterio estricto** (solo lo que no se traduce: nombres
+propios compuestos y cifras):
+
+| | |
+|---|---|
+| Con nombre compuesto ausente | 14/42 (33%) |
+| Con cifra ausente | **2/42 (5%)** |
+
+Revisados a mano los 14 casos de nombres: 12 son artefactos — traducciones,
+boilerplate del pie de pagina (`Hearst Magazines International`), descripciones
+tomadas por nombres (`Lider de Junts`) o el regex cruzando frases
+(`Memphis Familia`, `Faro de Ceuta Mourinho`).
+
+**Quedan 2 candidatos reales**, pendientes de revision manual:
+- `Donald Trump` en *"Nuevo ataque de EE.UU. a lancha en el Caribe"*
+- `Oriente Express` en la pieza sobre Arthur Laffer
+
+**Lectura honesta: ~5% residual, no 33%.** Y ninguno es de la clase catastrofica
+del bug original (inventar la identidad de una persona a partir de un articulo
+que solo era titular), porque esa clase **ya no es posible estructuralmente**:
+no quedan articulos con contenido-igual-a-titular, y los tests lo bloquean.
+
+**Limite de este metodo:** un detector por regex no distingue alucinacion de
+traduccion. La medicion limpia necesita anclaje por entidades con NER o LLM, que
+es justo lo que construye la **Parte 2**. Este 5% queda como linea de partida.
