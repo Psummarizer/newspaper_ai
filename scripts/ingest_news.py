@@ -221,6 +221,95 @@ def _clean_original_title(title: str) -> str:
     return cleaned.strip()
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# PLAN DE CALIDAD — PARTE 2.1: markdown crudo fuera del briefing
+#
+# Medido en el run del 20/09/2026: el 7,8% de las noticias publicadas (25 de
+# 319) llevaban markdown sin convertir — `**Donald Trump**`, `*status quo*` —
+# porque el email se renderiza como HTML y ahí `**` no es negrita: es `**`.
+#
+# `_sanitize_redacted_text` NO tocaba el markdown (solo caracteres de control y
+# basura JSON), por eso el fix de la Parte 1 no bastó.
+#
+# Dos destinos distintos, a propósito:
+#   - cuerpo de la noticia (HTML)  → `**x**` se convierte en `<b>x</b>`
+#   - título y resumen (texto)     → el marcador se quita y queda el texto
+# Un titular no lleva tags: además de renderizarse crudo en sitios donde no se
+# interpreta HTML, alimenta el dedup y el matching por keywords del selector.
+#
+# Regla de la parte: se valida la salida, no se confía en el prompt.
+# ─────────────────────────────────────────────────────────────────────────────
+
+_MD_TAG = re.compile(r'<[^>]+>')
+
+
+def _fuera_de_tags(s: str, fn) -> str:
+    """Aplica `fn` solo a los nodos de texto, nunca dentro de un tag.
+
+    Sin esto, un `_` de un atributo (`<a href="x_y_z">`) se comería como
+    cursiva y rompería el HTML.
+    """
+    trozos, ultimo = [], 0
+    for m in _MD_TAG.finditer(s):
+        trozos.append(fn(s[ultimo:m.start()]))
+        trozos.append(m.group(0))
+        ultimo = m.end()
+    trozos.append(fn(s[ultimo:]))
+    return "".join(trozos)
+
+
+def _convertir_markdown(s: str, html: bool) -> str:
+    """Convierte (html=True) o elimina (html=False) el markdown de un texto.
+
+    Determinista y sin dependencias: no interpreta markdown de verdad, solo
+    neutraliza los marcadores que el redactor deja escapar.
+    """
+    if not s:
+        return s
+
+    # Vallas de bloque de codigo: fuera las vallas, se conserva el contenido.
+    s = re.sub(r'^[ \t]*```[\w-]*[ \t]*$', '', s, flags=re.M)
+    # Imagenes antes que enlaces: `![alt](url)` no deja nada util en un email.
+    s = re.sub(r'!\[[^\]]*\]\([^)]*\)', '', s)
+    # Enlaces: se queda el texto. La URL de la fuente ya viaja en el articulo.
+    s = re.sub(r'\[([^\]]+)\]\([^)]*\)', r'\1', s)
+    # Codigo inline.
+    s = re.sub(r'`([^`\n]+)`', r'\1', s)
+    # Reglas horizontales.
+    s = re.sub(r'^[ \t]*([-*_])\1{2,}[ \t]*$', '', s, flags=re.M)
+    # Encabezados y citas: se quita el marcador, se conserva la linea.
+    s = re.sub(r'^[ \t]{0,3}#{1,6}[ \t]+', '', s, flags=re.M)
+    s = re.sub(r'^[ \t]{0,3}>[ \t]+', '', s, flags=re.M)
+    # Vinetas. Antes que las cursivas: `* texto` es vineta, `*texto*` no.
+    s = re.sub(r'^[ \t]{0,3}[-*+][ \t]+', '\u2022 ' if html else '', s, flags=re.M)
+
+    abre_b, cierra_b = ('<b>', '</b>') if html else ('', '')
+    abre_i, cierra_i = ('<i>', '</i>') if html else ('', '')
+    # Negrita antes que cursiva: si no, `**x**` se lee como `*` + `*x*` + `*`.
+    s = re.sub(r'\*\*(?=\S)(.+?)(?<=\S)\*\*',
+               lambda m: abre_b + m.group(1) + cierra_b, s, flags=re.S)
+    s = re.sub(r'(?<![\w_])__(?=\S)(.+?)(?<=\S)__(?![\w_])',
+               lambda m: abre_b + m.group(1) + cierra_b, s, flags=re.S)
+    s = re.sub(r'(?<![\w*])\*(?=\S)([^*\n]+?)(?<=\S)\*(?![\w*])',
+               lambda m: abre_i + m.group(1) + cierra_i, s)
+    s = re.sub(r'(?<![\w_])_(?=\S)([^_\n]+?)(?<=\S)_(?![\w_])',
+               lambda m: abre_i + m.group(1) + cierra_i, s)
+
+    # Marcadores sueltos: un `**` sin pareja es basura, no enfasis.
+    s = s.replace('**', '')
+    return s
+
+
+def _limpiar_markdown_texto(s: str) -> str:
+    """Titulares y resúmenes: markdown fuera, sin dejar tags."""
+    return _convertir_markdown(s, html=False)
+
+
+def _limpiar_markdown_html(s: str) -> str:
+    """Cuerpo de la noticia: markdown a HTML, preservando los tags que ya hay."""
+    return _fuera_de_tags(s, lambda t: _convertir_markdown(t, html=True))
+
+
 def _sanitize_redacted_text(text) -> str:
     """Sanea output del LLM redactor: strippea garbage repetitivo, JSON corrupto,
     caracteres invisibles BOM/zero-width, y tokens repetidos al final.
@@ -246,6 +335,8 @@ def _sanitize_redacted_text(text) -> str:
     m = _re.search(r'([^\w\s]{1,4})\1{2,}', s)
     if m:
         s = s[:m.start()].rstrip()
+    # 6. Markdown fuera (Parte 2.1): esto es texto plano, no admite tags.
+    s = _limpiar_markdown_texto(s)
     return s.strip()
 
 
@@ -267,6 +358,8 @@ def _sanitize_redacted_html(html) -> str:
     m = _re.search(r'([^\w\s<>/]{1,4})\1{2,}', s)
     if m:
         s = s[:m.start()].rstrip()
+    # Markdown a HTML (Parte 2.1), solo en los nodos de texto.
+    s = _limpiar_markdown_html(s)
     return s.strip()
 
 
