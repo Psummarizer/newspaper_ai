@@ -477,3 +477,102 @@ def test_la_mayuscula_de_inicio_de_frase_no_cuenta_como_nombre_propio():
 def test_entrada_vacia_no_rompe():
     assert _titular_sin_resolver("", "") == ""
     assert _titular_sin_resolver(None, None) == ""
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 2.5 — Anclaje por entidades: la CRIBA barata (no el veredicto)
+#
+# Esta pasada NO decide nada todavia: marca candidatos para el LLM juez. Por eso
+# lo que se le exige es recall, no precision — tiene que atrapar la invencion
+# aunque se traiga ruido detras. Ver docs/HANDOFF.md.
+# ─────────────────────────────────────────────────────────────────────────────
+
+from scripts.ingest_news import _entidades_sin_respaldo  # noqa: E402
+
+# El caso que abrio el plan de calidad: el redactor cambio un nombre por otro.
+FUENTE_JODAR = (
+    "El tenista espanol Jodar se impuso en tres sets en la primera ronda del "
+    "torneo, con un saque solido y 12 aces."
+)
+
+
+def test_atrapa_el_nombre_sustituido():
+    """'Jodar' -> 'Carreno Busta'. Es el defecto que abrio el plan."""
+    red = "Carreno Busta se impuso en tres sets en la primera ronda."
+    assert "Carreno Busta" in _entidades_sin_respaldo(red, FUENTE_JODAR)
+
+
+def test_no_marca_el_nombre_que_si_estaba():
+    red = "Jodar se impuso en tres sets en la primera ronda del torneo."
+    assert _entidades_sin_respaldo(red, FUENTE_JODAR) == []
+
+
+def test_un_apellido_suelto_respalda_el_nombre_completo():
+    """Si la fuente dice 'Trump', 'Donald Trump' no es una invencion."""
+    fuente = "Trump anuncio el sabado la creacion de una unidad tecnologica."
+    red = "Donald Trump anuncio la creacion de una unidad tecnologica."
+    assert _entidades_sin_respaldo(red, fuente) == []
+
+
+def test_atrapa_una_cifra_que_no_esta_en_la_fuente():
+    fuente = "La compania anuncio una inversion en su red de centros de datos."
+    red = "La compania anuncio una inversion de 4.500 millones de euros."
+    assert "4500" in _entidades_sin_respaldo(red, fuente)
+
+
+def test_no_marca_una_cifra_con_otro_formato():
+    """'34.180' y '34,180' son la misma cifra: separadores distintos, no invento."""
+    fuente = "The deal is worth 34,180 million dollars according to the filing."
+    red = "El acuerdo asciende a 34.180 millones de dolares."
+    assert "34180" not in _entidades_sin_respaldo(red, fuente)
+
+
+# --- El ruido que la criba NO sabe quitar, y por eso hace falta el juez ---
+
+def test_una_traduccion_se_marca_aunque_no_sea_invencion():
+    """Documenta la limitacion: el regex no distingue traducir de inventar.
+
+    'Fuerza Aerea' <- 'Air Force' se marca como candidato. Quien tiene que
+    decir que no es una invencion es el LLM juez. Si este test empieza a
+    fallar, alguien le ha dado a la criba un poder de decision que no tiene.
+    """
+    fuente = "The US Air Force replaced a section of the B-1B bomber."
+    assert _entidades_sin_respaldo("La Fuerza Aerea sustituyo una seccion.", fuente)
+
+
+# --- Ruido que la criba SI debe quitar (medido sobre el corpus real) ---
+
+def test_la_mayuscula_de_inicio_de_frase_no_es_una_entidad():
+    """'Actualmente', 'Ambas', 'Comparacion' abren frase, no identifican a nadie."""
+    fuente = "The airline operates a fleet of regional jets on island routes."
+    red = ("La aerolinea opera una flota regional. Actualmente cubre rutas "
+           "insulares. Ambas companias comparten el mercado.")
+    cand = _entidades_sin_respaldo(red, fuente)
+    for ruido in ("Actualmente", "Ambas"):
+        assert ruido not in cand, f"ruido no filtrado: {ruido}"
+
+
+def test_no_cruza_el_punto_al_juntar_un_nombre():
+    """Sin esto el regex enganchaba 'Mississippi. El' como un solo nombre."""
+    fuente = "The squadron flies weather reconnaissance missions."
+    red = "El escuadron vuela desde Biloxi. El avion despego al amanecer."
+    cand = _entidades_sin_respaldo(red, fuente)
+    assert not any("." in c and len(c.split(".")) > 1 and c.split(".")[1].strip()
+                   for c in cand), cand
+
+
+def test_respeta_el_tope_de_candidatos():
+    fuente = "Texto corto sin nombres."
+    red = " ".join(f"Entidad{i}bis Inventada{i}bis." for i in range(40))
+    assert len(_entidades_sin_respaldo(red, fuente, max_candidatos=5)) <= 5
+
+
+def test_sin_fuente_o_sin_redaccion_no_marca_nada():
+    """Sin material con que comparar no se puede acusar a nadie de inventar."""
+    assert _entidades_sin_respaldo("", "algo") == []
+    assert _entidades_sin_respaldo("algo", "") == []
+
+
+def test_ignora_los_tags_html():
+    fuente = "Trump anuncio el plan el sabado."
+    assert _entidades_sin_respaldo("<p><b>Trump</b> anuncio el plan.</p>", fuente) == []

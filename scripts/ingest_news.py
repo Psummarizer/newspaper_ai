@@ -95,6 +95,9 @@ VALID_CATEGORIES = CATEGORIES_LIST
 # Configuración de paralelismo
 MAX_CONCURRENT_TOPICS = 2  # Reduced from 5 to avoid Mistral rate limits
 BATCH_REDACTION_SIZE = 3  # Articles per LLM redaction call
+# PARTE 2.5: tope de la muestra de calibracion del anclaje por entidades.
+# No filtra nada todavia; solo deja el dato para decidir el umbral del juez.
+ANCLAJE_MUESTRA_MAX = 150
 
 
 # Subtopics conocidos por topic genérico — usado para diversificar la
@@ -649,6 +652,134 @@ def _titular_sin_resolver(titulo: str, resumen: str) -> str:
     return m.group(0).strip()
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# PLAN DE CALIDAD — PARTE 2.5: anclaje por entidades
+#
+# El defecto que mas dano hace: "Carney" -> "Philip Hammond", "Jodar" ->
+# "Carreno Busta". El redactor mete un nombre que NO esta en el material.
+#
+# Dos pasadas, y la cara es la segunda:
+#
+#   pasada barata (gratis, determinista)  ->  candidatos: nombres propios y
+#        │                                    cifras del texto redactado que no
+#        │                                    aparecen en el material de origen
+#        └─ solo si hay candidatos  ->  LLM juez: invencion o traduccion?
+#
+# El regex por si solo NO sirve como veredicto: confunde traduccion con
+# invencion ("Fuerza Aerea" <- "Air Force", "Republica Checa" <- "Czech
+# Republic"). Pero si sirve como CRIBA, que es para lo que se usa aqui: tiene
+# que tener recall alto y precision mala, porque quien decide es el juez.
+#
+# Por eso no se usa spaCy: solo mejoraria la precision de la criba, que es
+# justo lo que no importa. Ver docs/HANDOFF.md.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Palabras que abren frase o son de uso comun y no identifican a nadie.
+_NO_ES_ENTIDAD = {
+    "el", "la", "los", "las", "un", "una", "unos", "unas", "y", "o", "pero",
+    "este", "esta", "estos", "estas", "ese", "esa", "su", "sus", "del", "de",
+    "en", "con", "por", "para", "sin", "sobre", "tras", "entre", "desde",
+    "segun", "ademas", "tambien", "aunque", "mientras", "cuando", "donde",
+    "asi", "ahora", "hoy", "ayer", "manana", "lunes", "martes", "miercoles",
+    "jueves", "viernes", "sabado", "domingo", "enero", "febrero", "marzo",
+    "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre",
+    "noviembre", "diciembre", "the", "a", "an", "and", "of", "in", "on",
+    "no", "si", "al", "lo", "le", "se", "es", "son", "fue", "ha", "han",
+}
+
+_MAY = r"A-Z\u00c0-\u00dd\u0100-\u017f"
+_MIN = r"a-z\u00e0-\u00ff\u0100-\u017f"
+# Secuencia de palabras en mayuscula, permitiendo nexos ("Banco de Espana").
+_SEC_ENTIDAD = re.compile(
+    rf"[{_MAY}][{_MIN}{_MAY}'\u2019.-]+"
+    rf"(?:\s+(?:de|del|la|las|los|y|van|von|der|of|the|for)\s+[{_MAY}][{_MIN}{_MAY}'\u2019.-]+"
+    rf"|\s+[{_MAY}][{_MIN}{_MAY}'\u2019.-]+)*"
+)
+
+
+def _sin_tildes(s: str) -> str:
+    return "".join(c for c in unicodedata.normalize("NFKD", s or "")
+                   if not unicodedata.combining(c)).lower()
+
+
+def _cifras(texto: str) -> set:
+    """Cifras normalizadas: fuera separadores de miles y decimales.
+
+    "34.180 millones" y "34,180 million" tienen que contar como la misma cifra,
+    o cada traduccion de formato se leeria como un dato inventado.
+    """
+    return {re.sub(r"[.,\s]", "", m) for m in re.findall(r"\d[\d.,\s]{0,14}\d|\d", texto or "")}
+
+
+def _entidades_sin_respaldo(redactado: str, fuente: str, max_candidatos: int = 12) -> list:
+    """Nombres propios y cifras del texto redactado que no estan en el material.
+
+    Criba deliberadamente permisiva: basta con que UNA palabra significativa del
+    nombre aparezca en la fuente para darlo por respaldado. "Donald Trump" esta
+    respaldado si la fuente dice "Trump"; asi las flexiones, los apellidos
+    sueltos y los nombres parciales no generan ruido para el juez.
+
+    Dos filtros de ruido que salieron de medir sobre el corpus real, donde sin
+    ellos se marcaba el 75% de los articulos:
+
+    - **No se cruza el punto.** Sin esto el regex enganchaba "Mississippi. El"
+      o "Moscu. El" como si fueran un solo nombre.
+    - **La mayuscula de inicio de frase no cuenta.** "Actualmente", "Ambas",
+      "Comparacion" abren frase, no identifican a nadie. Solo cuentan si esa
+      misma palabra aparece tambien en mitad de una frase, que es la senal de
+      que si es un nombre propio.
+    """
+    if not redactado or not fuente:
+        return []
+    limpio = re.sub(r"<[^>]+>", " ", redactado)
+    limpio = re.sub(r"\s+", " ", limpio)
+    fuente_norm = _sin_tildes(re.sub(r"<[^>]+>", " ", fuente))
+    fuente_cifras = _cifras(fuente)
+
+    # Posiciones que abren frase: ahi la mayuscula es ortografia, no un nombre.
+    inicios = {0}
+    for m in re.finditer(r"[.!?:\u2026]\s+|\n", limpio):
+        inicios.add(m.end())
+
+    # Una palabra que aparece en mayuscula en mitad de una frase si es un nombre.
+    medio_frase = set()
+    for m in re.finditer(rf"[{_MAY}][{_MIN}{_MAY}'\u2019-]+", limpio):
+        if m.start() not in inicios:
+            medio_frase.add(_sin_tildes(m.group(0)))
+
+    candidatos, vistos = [], set()
+
+    for frase in re.split(r"(?<=[.!?\u2026])\s+|\n", limpio):
+        if not frase.strip():
+            continue
+        for m in _SEC_ENTIDAD.finditer(frase):
+            ent = m.group(0).strip(" .,:;-\u2014")
+            if len(ent) < 4:
+                continue
+            palabras = [p for p in re.findall(rf"[{_MAY}{_MIN}\w'\u2019-]+", ent)
+                        if len(p) >= 4 and _sin_tildes(p) not in _NO_ES_ENTIDAD]
+            if not palabras:
+                continue
+            # Abre frase y nunca aparece en mitad de otra: es ortografia.
+            if m.start() == 0 and len(palabras) == 1 and \
+                    _sin_tildes(palabras[0]) not in medio_frase:
+                continue
+            if any(_sin_tildes(p) in fuente_norm for p in palabras):
+                continue  # alguna parte del nombre si esta en el material
+            clave = _sin_tildes(ent)
+            if clave in vistos:
+                continue
+            vistos.add(clave)
+            candidatos.append(ent)
+
+    for c in sorted(_cifras(limpio) - fuente_cifras):
+        if len(c) >= 2 and c not in vistos:   # las cifras de un digito son ruido
+            vistos.add(c)
+            candidatos.append(c)
+
+    return candidatos[:max_candidatos]
+
+
 def _extraer_texto_principal(html: str) -> str:
     """Texto del articulo, sin menus, pies, comentarios ni reclamos.
 
@@ -864,6 +995,8 @@ class HourlyProcessor:
         self._dropped_autodelacion = 0
         # Telemetria PARTE 2.4: titulares que escondian el sujeto sin resolverlo.
         self._dropped_titular_misterioso = 0
+        # PARTE 2.5: muestra para calibrar el anclaje por entidades.
+        self._anclaje_muestra = []
         
     async def run(self):
         logger.info("🚀 Inicio Pipeline Horario (OPTIMIZADO)")
@@ -1049,6 +1182,21 @@ class HourlyProcessor:
         # 7. Telemetría PARTE 1 — se emite AQUÍ y no tras el fetch porque
         #    _prepare_article_for_redaction corre en la fase de topics: en el
         #    fetch los contadores valen siempre 0.
+        # PARTE 2.5: muestra de calibracion. Fichero aparte, nunca topics.json.
+        if self._anclaje_muestra:
+            try:
+                self.gcs.save_json_file("anclaje_muestra.json", {
+                    "generado": datetime.now().isoformat(),
+                    "articulos_con_candidatos": len(self._anclaje_muestra),
+                    "muestra": self._anclaje_muestra,
+                })
+                logger.info(
+                    f"🔬 Anclaje 2.5: muestra de {len(self._anclaje_muestra)} "
+                    f"articulos con candidatos -> anclaje_muestra.json"
+                )
+            except Exception as _e:
+                logger.warning(f"No se pudo guardar la muestra de anclaje: {_e}")
+
         if (self._dropped_no_content or self._dropped_consent_page
                 or self._dropped_autodelacion or self._dropped_titular_misterioso):
             logger.info(
@@ -2808,6 +2956,28 @@ class HourlyProcessor:
                     self._dropped_titular_misterioso += 1
                     results.append(None)
                     continue
+
+                # PARTE 2.5 (calibracion, NO filtra todavia): se anota que
+                # entidades de la redaccion no tienen respaldo en el material
+                # EXACTO que vio el redactor. Es el unico sitio del pipeline
+                # donde existen los dos textos a la vez; medirlo despues, desde
+                # articles.json, compara contra el snippet del RSS y marca como
+                # inventado lo que si estaba en el articulo.
+                try:
+                    if len(self._anclaje_muestra) < ANCLAJE_MUESTRA_MAX:
+                        _vistos = f"{prep.get('title','')} {str(prep.get('content',''))[:1500]}"
+                        _cand = _entidades_sin_respaldo(
+                            f"{final_title} {final_resumen} {final_noticia}", _vistos)
+                        if _cand:
+                            self._anclaje_muestra.append({
+                                "titulo": final_title[:160],
+                                "url": (prep.get("sources") or [""])[0],
+                                "candidatos": _cand,
+                                "fuente": _vistos[:1500],
+                                "redaccion": re.sub(r"<[^>]+>", " ", final_noticia)[:1200],
+                            })
+                except Exception:
+                    pass  # la calibracion jamas puede tumbar la ingesta
 
                 results.append({
                     "fecha_inventariado": datetime.now().isoformat(),
