@@ -135,22 +135,91 @@ Tunear sin tocar código: `GN_DECODER_CONCURRENCY` (por defecto 4) y
 
 ### Paso 1 — PARTE 2, contrato de publicación
 
-Ya tiene líneas de partida medidas:
+**Idea de la parte:** reglas duras y deterministas. Un artículo que las incumple
+**no se publica**. Nada de "mejorar el prompt": el prompt ya pide no inventar y
+aun así inventa. Se valida la salida, no se confía en ella.
 
-| Defecto | Hoy |
-|---|---|
-| Markdown crudo | **7,8%** (25/319) |
-| Textos que admiten no tener contenido | **14/319** |
-| Alucinaciones (regex, ruidoso) | **~5%** |
+#### Líneas de partida medidas (run del 20/09, 319 noticias)
 
-Incluye:
-- Sustituir `_fetch_article_content` por **trafilatura** (ya instalado, **no
-  está en `requirements.txt`**): +x1,81 de texto, −60 líneas de regex.
-- **Anclaje por entidades**: pasada barata (cifras + NER) y **LLM solo en lo que
-  marque**. Coste estimado: **~$4/mes**, y **no escala con usuarios** porque la
-  redacción es `O(artículos)`.
-- Autocontención (mata el clickbait tipo *"el alimento que…"*), autodelación,
-  saneamiento de markdown, traducción del titular, normalización de entidades.
+| Defecto | Hoy | Objetivo |
+|---|---|---|
+| Markdown crudo (`**negritas**`) | **7,8%** (25/319) | 0% |
+| Textos que admiten no tener contenido | **4,4%** (14/319) | 0% |
+| Títulos con sufijo de medio en lo redactado | **0,9%** (3/319) | 0% |
+| Alucinaciones de entidades | **~5%** (regex, ruidoso) | medir bien primero |
+
+Reverificar en cualquier momento: `python scripts/verify_part1.py`
+
+#### Orden de trabajo sugerido
+
+**2.1 · Markdown → HTML** *(el más barato, empieza por aquí)*
+
+`_sanitize_redacted_text` **no toca el markdown**: solo limpia caracteres de
+control y basura JSON. Por eso el fix de 2 líneas de la Parte 1 no bastó.
+Convertir `**x**` → `<b>x</b>`, `*x*` → `<i>x</i>`, y quitar el resto.
+Cuidado: `_sanitize_redacted_html` debe preservar los tags que ya existen.
+
+**2.2 · trafilatura** *(borra código, mejora el insumo)*
+
+Sustituir el cuerpo de `_fetch_article_content` (regex de `<p>` + lista de
+patrones de basura) por `trafilatura.extract(html, favor_recall=True)`.
+
+- Ya está instalado, **falta declararlo en `requirements.txt`**.
+- Medido sobre 40 URLs reales: **misma tasa de éxito (85%)**, pero **x1,81 de
+  texto**. No recupera artículos, mejora el insumo del redactor.
+- **Conservar** `_looks_like_consent_page` y el guard de URL de Google.
+- Permite borrar ~60 líneas.
+
+**2.3 · Autodelación** *(regla trivial, 14 casos)*
+
+Si el texto redactado dice *"no se detalla"*, *"el texto no especifica"*, *"aún
+no han sido detallados"* → **descartar el artículo**. Publicar algo que admite
+no tener contenido es peor que no publicar nada.
+
+**2.4 · Autocontención — mata el clickbait**
+
+Prohibido publicar un titular con deíctico sin referente: *"el alimento que
+causa millones de muertes"*, *"este producto"*, *"el factor que separa a…"*.
+**El titular debe nombrar el sujeto.** El cuerpo suele tenerlo (en el caso real
+decía "ultraprocesados"); el titular copiaba el gancho de la fuente en vez de
+resolverlo. Regenerar el titular desde el cuerpo.
+
+**2.5 · Anclaje por entidades** *(el importante, y el que mide de verdad)*
+
+Diseño en dos pasadas, no todo con LLM:
+
+```
+pasada barata (gratis, determinista)      →  cifras + NER (spaCy es/en)
+    │
+    └─ solo lo que marque  →  LLM juez (gpt-5-nano): ¿es invención o traducción?
+```
+
+- El regex por sí solo **no sirve**: confunde traducción con invención
+  (`Fuerza Aérea` ← "Air Force", `República Checa` ← "Czech Republic"). Ver E.7.
+- Coste del LLM juez: **~$0,0002 por artículo ≈ $4/mes** al volumen actual.
+- **No escala con usuarios**: la redacción es `O(artículos)`, no
+  `O(artículos × usuarios)`. Ese $4/mes sigue siendo $4/mes con 10.000 usuarios.
+- Acción ante entidad inventada: **re-redactar una vez**; si reincide, descartar.
+
+**2.6 · Normalización e idioma** *(cierra el catálogo D)*
+
+- Traducir también el **titular**, no solo el cuerpo (`Real Madrid announce
+  squad` salió en inglés a un usuario español).
+- Diccionario de grafías: `hutíes` / `houthistes` / `houthis`, `Riad` / `Riyadh`.
+  Aplicar **después** de traducir. Un mismo briefing traía tres grafías.
+- Mapeo correcto de emoji por deporte (tenis salió con 🏸 de bádminton).
+
+#### Criterio para cerrar la Parte 2
+
+`python scripts/verify_part1.py` con los tres contadores de P2 a **0**, más una
+medición de alucinaciones hecha con el anclaje de 2.5 (no con el regex) que
+sirva de nueva línea de partida.
+
+#### Lo que NO es la Parte 2
+
+- Colapsar duplicados (hutíes ×4, Gemini ×5) → **Parte 4**.
+- Arreglar por qué `soy oil` entrega 0 de 28 → **Parte 3**.
+- Tocar `orchestrator.py` → aún no. La Parte 2 vive en `ingest_news.py`.
 
 ### Paso 2 — PARTE 3, el selector
 
