@@ -359,6 +359,8 @@ def test_entrada_vacia_no_se_delata():
 
 from scripts.ingest_news import (  # noqa: E402
     _nombra_algo_concreto,
+    _resuelve_el_misterio,
+    _solo_caracteriza,
     _titular_sin_resolver,
 )
 
@@ -377,10 +379,17 @@ SE_PUBLICAN_PORQUE_EL_RESUMEN_RESUELVE = [
      "El 49% de los espanoles opta por escapadas de 4 a 7 dias."),
 ]
 
-# Tambien reales. Aqui el lector no llega a saber de que va la noticia.
+# Encontrado en el corpus de las 20:30, que NO se uso para disenar la regla:
+# el resumen resuelve el misterio con palabras llanas, sin nombre propio ni
+# cifra. La primera version lo descartaba. Es el caso que forzo el refinamiento.
+SE_PUBLICAN_PORQUE_EL_RESUMEN_RESUELVE.append(
+    ("Los cientificos le dan la razon a los cocineros en el truco profesional "
+     "para la hamburguesa perfecta",
+     "Congelar las hamburguesas antes de cocinarlas garantiza jugosidad y seguridad."),
+)
+
+# Tambien real. Aqui el resumen solo CALIFICA la noticia: no cuenta que paso.
 SE_DESCARTAN = [
-    ("Un insolito protocolo de seguridad hace que los robots humanoides se acobarden",
-     "Nuevo sistema de deteccion y esquiva en robots para compartir espacios laborales."),
     ("La otra cara de los servicios sociales",
      "Critica a la falta de estabilidad y reconocimiento para profesionales que "
      "trabajan en inclusion."),
@@ -400,9 +409,36 @@ def test_descarta_cuando_nadie_nombra_el_sujeto(titulo, resumen):
 def test_el_mismo_titular_se_publica_o_no_segun_el_resumen():
     """La regla no juzga el titular: juzga si el par titular+resumen informa."""
     titulo = "El alimento que causa millones de muertes al ano"
-    assert _titular_sin_resolver(titulo, "Un estudio alerta sobre su consumo.")
+    # Solo califica: no dice cual es el alimento ni que pasa.
+    assert _titular_sin_resolver(titulo, "Analisis del problema y su relevancia.")
+    # Nombre propio.
     assert not _titular_sin_resolver(
         titulo, "La OMS senala los ultraprocesados en un informe de 2026.")
+    # Sin nombre propio ni cifra, pero cuenta que pasa.
+    assert not _titular_sin_resolver(
+        titulo, "Los ultraprocesados elevan el riesgo cardiovascular segun el estudio.")
+
+
+def test_un_resumen_que_solo_califica_no_resuelve_nada():
+    """"Critica a la falta de..." dice que opina el articulo, no que paso."""
+    assert _solo_caracteriza("Critica a la falta de estabilidad y reconocimiento.")
+    assert _solo_caracteriza("Analisis del impacto en el sector.")
+    assert _solo_caracteriza("Reflexion sobre la importancia del asunto.")
+    assert not _solo_caracteriza("Congelar las hamburguesas garantiza jugosidad.")
+    assert not _solo_caracteriza("El nutricionista recomienda el huevo cocido.")
+
+
+def test_resuelve_con_palabras_llanas_sin_nombre_propio():
+    """El caso del corpus del 20/09 20:30 que rompio la primera version."""
+    assert _resuelve_el_misterio(
+        "Congelar las hamburguesas antes de cocinarlas garantiza jugosidad y seguridad.",
+        "Los cientificos le dan la razon a los cocineros en el truco profesional")
+
+
+def test_un_resumen_que_repite_el_titular_no_resuelve():
+    """Si no aporta nada que el titular no trajera, no ha contado nada."""
+    assert not _resuelve_el_misterio("El truco profesional de los cocineros",
+                                     "El truco profesional de los cocineros")
 
 
 def test_un_titular_que_ya_nombra_el_sujeto_no_se_toca():

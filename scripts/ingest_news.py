@@ -584,6 +584,51 @@ def _nombra_algo_concreto(texto: str) -> bool:
     return any(t[0].isupper() for i, t in enumerate(tokens) if i not in inicios)
 
 
+def _solo_caracteriza(texto: str) -> bool:
+    """True si el resumen se limita a CALIFICAR la noticia en vez de contarla.
+
+    "Critica a la falta de estabilidad y reconocimiento para profesionales" no
+    dice que paso: dice que opina el articulo. "Congelar las hamburguesas antes
+    de cocinarlas garantiza jugosidad" si lo dice, y no nombra a nadie ni da
+    una cifra — de ahi que no baste con buscar nombres propios.
+
+    El vocabulario evaluativo es un conjunto pequeno y cerrado; lo especifico
+    no lo es. Por eso se enumera este lado y no el otro.
+    """
+    if not texto:
+        return True
+    limpio = re.sub(r'<[^>]+>', ' ', texto).strip().lower()
+    return bool(re.match(
+        r"^(?:una?\s+|el\s+|la\s+)?"
+        r"(?:cr[ií]tica|an[aá]lisis|reflexi[oó]n|opini[oó]n|valoraci[oó]n|"
+        r"comentario|repaso|balance|resumen|panor[aá]mica|mirada|"
+        r"importancia|necesidad|falta|ausencia|impacto|relevancia)\b",
+        limpio))
+
+
+def _resuelve_el_misterio(resumen: str, titulo: str) -> bool:
+    """True si la descripcion cuenta de que va la noticia.
+
+    Dos formas validas de contarlo:
+      1. nombrando algo concreto — "el huevo cocido", "MobLand", "28,49 euros";
+      2. diciendo que pasa con palabras llanas — "congelar las hamburguesas
+         antes de cocinarlas". Aqui no hay nombre propio ni cifra, y el lector
+         sabe perfectamente cual era el truco.
+    Lo que no vale es limitarse a calificar la noticia sin contarla.
+    """
+    if not resumen:
+        return False
+    if _nombra_algo_concreto(resumen):
+        return True
+    if _solo_caracteriza(resumen):
+        return False
+    # Aporta sustancia que el titular no traia.
+    def _contenido(s):
+        s = re.sub(r'<[^>]+>', ' ', s or "").lower()
+        return {t for t in re.findall(r"[\w\u00c0-\u024f]{4,}", s)}
+    return len(_contenido(resumen) - _contenido(titulo)) >= 3
+
+
 def _titular_sin_resolver(titulo: str, resumen: str) -> str:
     """Devuelve el motivo si el titular esconde el sujeto y el resumen tampoco
     lo nombra. Cadena vacia si la noticia se puede publicar.
@@ -599,7 +644,7 @@ def _titular_sin_resolver(titulo: str, resumen: str) -> str:
     m = _TITULAR_MISTERIOSO.search(titulo)
     if not m:
         return ""
-    if _nombra_algo_concreto(resumen):
+    if _resuelve_el_misterio(resumen, titulo):
         return ""  # el gancho esta permitido: la descripcion lo resuelve
     return m.group(0).strip()
 
