@@ -269,3 +269,82 @@ def test_pagina_sin_articulo_no_inventa_contenido():
     """Un indice de portada no es un articulo: mejor vacio que un menu."""
     indice = "<html><body><nav><a href='/a'>A</a><a href='/b'>B</a></nav></body></html>"
     assert len(_extraer_texto_principal(indice)) < 180  # bajo MIN_CONTENT_FALLBACK
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 2.3 — Autodelacion: la redaccion no puede admitir que no tiene material
+# ─────────────────────────────────────────────────────────────────────────────
+
+from scripts.ingest_news import _se_delata_sin_contenido  # noqa: E402
+
+# Publicado tal cual en el briefing del 20/09. El lector no sabe que existe un
+# "contenido original": eso es el pipeline hablando de si mismo.
+SE_DELATAN = [
+    "Space Inventor destaca por su enfoque en tecnologias avanzadas, aunque el "
+    "contenido original no especifica detalles adicionales sobre sus aplicaciones.",
+    "La integracion con la infraestructura de Astroscale Japan, aunque el "
+    "contenido no detalla como funcionara exactamente este mecanismo.",
+    "La FSA publico un marco regulatorio para activos virtuales, aunque el "
+    "contenido completo no se detalla en el articulo.",
+    "El articulo no especifica si las autoridades han investigado estos hechos.",
+    "El texto no especifica detalles sobre las capacidades militares hutíes.",
+    "El presidente defendera su gestion, aunque el contenido especifico de su "
+    "discurso no se detalla en el articulo.",
+    "Este cambio ha reconfigurado dinamicas economicas, aunque el informe no "
+    "especifica detalles concretos sobre paises afectados.",
+    "Forma parte de un plan mas amplio, aunque no se detallan otros aspectos "
+    "tecnicos o plazos especificos en el contenido disponible.",
+    "Los detalles del descubrimiento no se especifican en el contenido disponible.",
+    "El enfoque se centra en el mercado existente, sin detalles adicionales sobre "
+    "las acciones concretas para lograrlo en el contenido proporcionado.",
+    "Los precios son mas bajos. Sin embargo, el contenido proporcionado no incluye "
+    "detalles concretos sobre las razones.",
+    "No se dispone de mas informacion sobre el acuerdo.",
+]
+
+# Periodismo legitimo. Si esto se descarta, el filtro esta roto.
+SE_PUBLICAN = [
+    # El anuncio real carecia de detalles: eso es un hecho de la noticia.
+    "Trump revela un plan para nombrar un 'zar de la IA' y formar una unidad de "
+    "vigilancia tecnologica sin detalles concretos.",
+    # "no facilita" sin contenedor: es una frase sobre una plataforma.
+    "El buen gusto requiere contemplacion y estudio, algo que la inmediatez de la "
+    "plataforma no facilita.",
+    # Un texto ajeno del que se informa, no el material de origen.
+    "El texto, escrito con un tono que vincula la soberania espanola con falacias, "
+    "circulo entre los diputados.",
+    "El Gobierno no ha detallado aun el calendario de aplicacion del decreto.",
+    "La empresa no especifico cuantos empleados se veran afectados por el cierre.",
+    "El club no ha confirmado la cifra del traspaso.",
+    "Sanchez comparecio el martes ante el Congreso para defender su gestion.",
+]
+
+
+@pytest.mark.parametrize("texto", SE_DELATAN)
+def test_detecta_la_autodelacion(texto):
+    assert _se_delata_sin_contenido(texto), f"no detectado: {texto[:60]}"
+
+
+@pytest.mark.parametrize("texto", SE_PUBLICAN)
+def test_no_descarta_periodismo_legitimo(texto):
+    delator = _se_delata_sin_contenido(texto)
+    assert not delator, f"falso positivo: {delator!r} en {texto[:60]}"
+
+
+def test_devuelve_el_fragmento_delator_no_un_bool():
+    """El descarte se registra con el motivo: si no, esto es una caja negra."""
+    d = _se_delata_sin_contenido("Aunque el contenido original no especifica mas.")
+    assert isinstance(d, str) and "contenido original no especifica" in d.lower()
+
+
+def test_revisa_titulo_resumen_y_cuerpo():
+    """Se pasa el articulo entero: la confesion puede estar en cualquiera."""
+    assert _se_delata_sin_contenido("Titulo limpio", "Resumen limpio",
+                                    "<p>El articulo no detalla las cifras.</p>")
+    assert not _se_delata_sin_contenido("Titulo limpio", "Resumen limpio",
+                                        "<p>Cuerpo limpio.</p>")
+
+
+def test_entrada_vacia_no_se_delata():
+    assert _se_delata_sin_contenido() == ""
+    assert _se_delata_sin_contenido("", None) == ""

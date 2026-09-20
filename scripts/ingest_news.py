@@ -459,6 +459,67 @@ async def _decode_google_news_url(link: str) -> tuple:
     return None, True
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# PLAN DE CALIDAD — PARTE 2.3: la redaccion no puede delatar que no tiene material
+#
+# 19 de las 572 noticias del corpus del 20/09 se publicaron diciendo cosas como
+# "aunque el contenido original no especifica detalles adicionales" o "no se
+# detalla en el articulo". El lector no sabe que existe un "contenido original":
+# eso es el pipeline hablando de si mismo. Y ademas confiesa que el articulo se
+# escribio sin material suficiente.
+#
+# El prompt del redactor YA lo prohibe, con seis lineas y ejemplos. Sigue
+# pasando. De ahi la regla de la parte: se valida la salida.
+#
+# La distincion que importa: solo se descarta cuando el texto se refiere al
+# MATERIAL DE ORIGEN como contenedor ("el contenido", "el texto", "el
+# articulo"). Que una noticia diga que un anuncio se hizo "sin detalles
+# concretos" es periodismo legitimo y se publica.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# El material de origen, nombrado como tal. Es la firma de la autodelacion.
+_CONTENEDOR = (
+    r"(?:el |este |dicho |su |the )?"
+    r"(?:contenido|texto|art[ií]culo|fragmento|resumen|informe|nota|comunicado)"
+    r"(?: original| completo| disponible| proporcionado| facilitado| espec[ií]fico)?"
+)
+_VERBO_DETALLE = (
+    r"(?:detalla|especifica|aporta|precisa|concreta|indica|menciona|incluye|"
+    r"profundiza|proporciona|facilita|ofrece|revela|explica|aclara|desglosa)"
+)
+
+_AUTODELACION = [
+    # "el contenido original no especifica", "el articulo no detalla"
+    re.compile(_CONTENEDOR + r"[^.]{0,40}?\bno\s+(?:se\s+)?" + _VERBO_DETALLE + r"n?\b",
+               re.IGNORECASE),
+    # "no se detallan ... en el contenido disponible"
+    re.compile(r"\bno\s+se\s+" + _VERBO_DETALLE + r"n?\b[^.]{0,70}?\ben\s+" + _CONTENEDOR,
+               re.IGNORECASE),
+    # "sin detalles adicionales ... en el contenido proporcionado"
+    re.compile(r"\bsin\s+(?:m[aá]s\s+)?(?:detalles|informaci[oó]n|datos)"
+               r"[^.]{0,70}?\ben\s+" + _CONTENEDOR, re.IGNORECASE),
+    # "no se dispone de mas informacion", "informacion no disponible"
+    re.compile(r"\bno\s+se\s+dispone\s+de\s+(?:m[aá]s\s+)?(?:detalles|informaci[oó]n|datos)",
+               re.IGNORECASE),
+]
+
+
+def _se_delata_sin_contenido(*textos) -> str:
+    """Devuelve el fragmento delator, o "" si el texto no se delata.
+
+    Devuelve el fragmento y no un bool a proposito: lo que se descarta se
+    registra en el log con el motivo, que si no esto es una caja negra.
+    """
+    unido = " ".join(t for t in textos if t)
+    if not unido:
+        return ""
+    for patron in _AUTODELACION:
+        m = patron.search(unido)
+        if m:
+            return m.group(0).strip()
+    return ""
+
+
 def _extraer_texto_principal(html: str) -> str:
     """Texto del articulo, sin menus, pies, comentarios ni reclamos.
 
@@ -670,6 +731,8 @@ class HourlyProcessor:
         self._gn_decode_retried = 0
         self._dropped_no_content = 0
         self._dropped_consent_page = 0
+        # Telemetria PARTE 2.3: redacciones que admitian no tener material.
+        self._dropped_autodelacion = 0
         
     async def run(self):
         logger.info("🚀 Inicio Pipeline Horario (OPTIMIZADO)")
@@ -855,10 +918,12 @@ class HourlyProcessor:
         # 7. Telemetría PARTE 1 — se emite AQUÍ y no tras el fetch porque
         #    _prepare_article_for_redaction corre en la fase de topics: en el
         #    fetch los contadores valen siempre 0.
-        if self._dropped_no_content or self._dropped_consent_page:
+        if (self._dropped_no_content or self._dropped_consent_page
+                or self._dropped_autodelacion):
             logger.info(
                 f"🧹 Descartados sin contenido real: {self._dropped_no_content} · "
-                f"páginas de consentimiento: {self._dropped_consent_page}"
+                f"páginas de consentimiento: {self._dropped_consent_page} · "
+                f"se delataban sin contenido: {self._dropped_autodelacion}"
             )
 
         # 8. ALERTA DE COBERTURA: avisar si algún topic activo tiene <3 noticias recientes
@@ -2582,12 +2647,28 @@ class HourlyProcessor:
                 else:
                     final_title = redacted_title
 
+                final_resumen = _sanitize_redacted_text(art_data.get("resumen", ""))
+                final_noticia = _sanitize_redacted_html(art_data.get("noticia", ""))
+
+                # PARTE 2.3: si la redaccion admite no tener material, no se
+                # publica. Publicar algo que confiesa estar vacio es peor que
+                # no publicar nada, y delata el pipeline ante el lector.
+                delator = _se_delata_sin_contenido(final_title, final_resumen, final_noticia)
+                if delator:
+                    logger.info(
+                        f"⏭️ Descartando '{prep['title'][:40]}...' - "
+                        f"SE DELATA SIN CONTENIDO: '{delator[:70]}'"
+                    )
+                    self._dropped_autodelacion += 1
+                    results.append(None)
+                    continue
+
                 results.append({
                     "fecha_inventariado": datetime.now().isoformat(),
                     "published_at": prep.get("published_at", ""),
                     "titulo": final_title,
-                    "resumen": _sanitize_redacted_text(art_data.get("resumen", "")),
-                    "noticia": _sanitize_redacted_html(art_data.get("noticia", "")),
+                    "resumen": final_resumen,
+                    "noticia": final_noticia,
                     "imagen_url": prep["image"],
                     "fuentes": prep["sources"],
                     "embedding": [],  # se rellena post-batch para cachear cross-runs
