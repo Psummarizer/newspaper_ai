@@ -639,3 +639,138 @@ Una de las 3 coincidencias de "Clearing y CCPs" era
 Comunista Chino, no cámara de compensación. Es exactamente el riesgo de los
 topics de 2-5 letras (`IA`, `M&A`, `macro`, `CCP`). El compilador del Anexo B8
 debe desambiguar las siglas al compilar, no en cada run.
+
+---
+
+# ANEXO D — Refactor, simplificación y práctica de la industria (20/09/2026)
+
+Investigación para responder a: *¿podemos simplificar el código para que sea más
+fácil encontrar errores, y cómo operan esto otras empresas?*
+
+## D.1 · El código es difícil de depurar por tamaño, no por complejidad esencial
+
+```
+src/agents/orchestrator.py    4.471 líneas   ← monolito
+scripts/ingest_news.py        2.700 líneas
+src/utils/html_builder.py       961 líneas
+```
+
+Funciones más largas de `ingest_news.py` (48 funciones en total):
+
+```
+420 líneas  _filter_relevant          ← una sola función
+325 líneas  _redact_batch
+229 líneas  _check_coverage_and_alert
+182 líneas  run
+157 líneas  _process_single_topic
+```
+
+**Cuatro funciones concentran ~1.250 líneas**, el 46% del fichero. Una función de
+420 líneas no se puede testear por partes, y por eso hasta ahora cada bug se ha
+arreglado con un guard específico en vez de con un cambio estructural (el propio
+`CLAUDE.md` documenta varios: guard determinista de Real Madrid, guard de
+contención de G4, floor de `max_per_cat`).
+
+**Propuesta de troceado, por orden de rentabilidad:**
+
+| Función | Trocear en | Beneficio |
+|---|---|---|
+| `_filter_relevant` (420) | pre-filtro por keywords · construcción de prompt · llamada LLM · parseo · post-filtro | Cada etapa testeable y **loggeable por separado** — es justo lo que pide la Parte 3 |
+| `_redact_batch` (325) | preparación del lote · prompt · llamada · parseo · saneamiento | El saneamiento ya demostró tener dos ramas divergentes (bug del markdown) |
+| `_check_coverage_and_alert` (229) | recolección de métricas · diagnóstico · render del email | El diagnóstico está mal (dice `stage2-strict-filter-empty` con pool 0) y no se puede testear sin mandar un email |
+
+**Regla propuesta:** ninguna función nueva por encima de ~80 líneas, y cualquier
+función que se toque para arreglar un bug se trocea antes de arreglarla.
+
+## D.2 · `trafilatura` está instalado, no se usa, y no está en requirements.txt
+
+El extractor actual (`_fetch_article_content`) es un regex de `<p>` hecho a mano
+más una lista de patrones de basura ("Noticia Relacionada", "Suscríbete").
+
+**Medición sobre 40 URLs reales del corpus:**
+
+| Extractor | Con contenido | Mediana de chars |
+|---|---|---|
+| actual (regex `<p>`) | 34/40 (85%) | 2.686 |
+| trafilatura | 34/40 (85%) | **3.851** |
+
+- **No recupera ni un artículo más.** Los fallos son las mismas URLs (paywall,
+  JS, 403). La hipótesis de que arreglaría el pool era **falsa**.
+- **Pero extrae x1,81 de texto** cuando ambos funcionan. Más contexto real para
+  el redactor = menos margen para inventar, que es justo el fallo de la Parte 1.
+- En benchmarks independientes trafilatura marca **F1 0,945**; un regex de `<p>`
+  no compite con eso, y además hay que mantenerlo.
+- Permite **borrar ~60 líneas** de regex y patrones de basura.
+
+**Acción:** sustituir el cuerpo de `_fetch_article_content` por trafilatura,
+declarar la dependencia, y conservar el detector de consentimiento como guard.
+Va en la **Parte 2** (contrato de publicación), no en la 1.
+
+## D.3 · Cómo opera esto la industria, y qué valida o invalida del plan
+
+Fuentes: benchmark de extracción de scrapinghub, documentación de trafilatura,
+guías de diseño de agregadores de noticias, y práctica de evaluación de LLM en
+producción. Enlaces en el hilo de la sesión.
+
+### Lo que VALIDA
+
+1. **"El dedup por coincidencia exacta se pierde el 90% de los duplicados."**
+   La capa 1 actual (`_check_duplicate_or_update`) es URL exacta + título
+   normalizado exacto + similitud de keywords >50%. Es exactamente el caso
+   descrito. Explica hutíes x4 y Gemini x5. El estándar de la industria es
+   **MinHash + LSH** para near-duplicates, o clustering por embeddings.
+2. **"La procedencia sobrevive al dedup: un artículo con varias observaciones de
+   fuente."** Es literalmente el **grafo de afirmaciones de la Parte 4**: una
+   afirmación con N fuentes. No es una idea original nuestra, es como se hace.
+   Buena noticia: reduce el riesgo del refactor.
+3. **"Ingesta, procesado y servicio deben poder fallar de forma independiente."**
+   Hoy están acoplados: cuando el filtro LLM devolvió 0 relevantes, el guardado
+   incremental sobrescribió `topics.json` con 60 topics y 0 noticias (incidencia
+   v1.0 del CLAUDE.md). La salvaguarda que se puso es un parche; el diseño
+   correcto es desacoplar.
+
+### Lo que AÑADE — lo más valioso del anexo
+
+4. **El ranking estándar combina: frescura (decaimiento exponencial) + autoridad
+   de la fuente + TAMAÑO DEL CLUSTER + vector de interés del usuario.**
+
+   Tenemos frescura (tiers), algo de autoridad (boost de preferidas) y algo de
+   interés. **No tenemos tamaño de cluster, y es la señal más fuerte que existe
+   de que una noticia importa.**
+
+   > Si 5 medios cubren el ataque de los hutíes, eso es la mejor prueba
+   > disponible de que es la noticia del día. **Hoy lo tratamos como un bug
+   > (duplicados) en lugar de como la señal de importancia que es.**
+
+   El mismo mecanismo que arregla C1/C2 regala el ranking de portada. Parte 4.
+
+5. **Golden dataset + evals en cada cambio de prompt.** Práctica estándar: un
+   conjunto versionado de entradas con salidas esperadas; cada PR que toca un
+   prompt, un modelo o la configuración de recuperación dispara una evaluación,
+   y si regresa por debajo del umbral **no se mergea**. Se empieza con 20-50
+   casos y se crece a 100-1.000. **La mejor fuente de casos son los fallos de
+   producción propios.**
+
+   Tenemos ~300 llamadas LLM por run y **cero evals**. Y ya tenemos un catálogo
+   de 17+ fallos reales documentados arriba: ese es el golden dataset, gratis.
+   Esto es la **Parte 0** (banco de replay) con el nombre y la forma que usa la
+   industria. Refuerza que la Parte 0 no es burocracia.
+
+6. **Muestreo del 5-10% del tráfico de producción con un evaluador automático**
+   para detectar deriva. Es la única capa que detecta los cambios que *te
+   ocurren* (un medio cambia su HTML, un modelo cambia de versión) en lugar de
+   los que *tú haces*. Con 4 usuarios no aplica todavía; a partir de ~100, sí.
+
+## D.4 · Acciones derivadas
+
+- [ ] **Parte 2**: sustituir `_fetch_article_content` por trafilatura (+x1,81 de
+      texto, -60 líneas) y declarar la dependencia.
+- [ ] **Parte 3**: trocear `_filter_relevant` ANTES de depurarlo. Es la condición
+      para poder instrumentar etapa por etapa.
+- [ ] **Parte 4**: usar el tamaño del cluster como señal de ranking, no solo como
+      criterio de dedup.
+- [ ] **Parte 4**: valorar MinHash+LSH para near-duplicates antes del clustering
+      por embeddings (más barato, corre sin LLM).
+- [ ] **Parte 0**: formalizar el banco de replay como golden dataset versionado,
+      con los 17 defectos del catálogo como primeros casos.
+- [ ] Adoptar la regla de ~80 líneas por función para código nuevo.
