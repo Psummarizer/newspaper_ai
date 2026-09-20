@@ -270,6 +270,124 @@ def _sanitize_redacted_html(html) -> str:
     return s.strip()
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# PLAN DE CALIDAD — PARTE 1: cierre del vector Google News
+#
+# Causa raíz documentada en docs/PLAN_CALIDAD.md: cuando el decoder de Google
+# News fallaba, el artículo seguía adelante con la URL de news.google.com. El
+# scraper visitaba esa URL, Google servía su página de consentimiento, y el
+# redactor acababa resumiendo el aviso de cookies. Y como para Google News se
+# usaba `contenido = titular`, al LLM se le pedía escribir tres párrafos a
+# partir de una línea — de ahí las entidades inventadas ("Carney" → "Philip
+# Hammond", "Jódar" → "Carreño Busta").
+#
+# Regla: fallar en cerrado. Sin URL real y sin contenido real, no hay artículo.
+# ─────────────────────────────────────────────────────────────────────────────
+
+_GOOGLE_HOSTS = (
+    "news.google.com", "consent.google.com", "policies.google.com",
+    "accounts.google.com", "support.google.com",
+)
+
+# Marcadores del aviso de consentimiento de Google (ES/EN/FR) y de muros de
+# cookies genéricos. Si el texto extraído contiene alguno, no es un artículo.
+_CONSENT_MARKERS = (
+    "g.co/privacytools", "privacytools",
+    "antes de continuar a google", "before you continue to google",
+    "avant d'accéder à google",
+    "usamos cookies y datos para", "utilizamos cookies y datos para",
+    "we use cookies and data to",
+    "mostrar contenido y anuncios personalizados",
+    "deliver and maintain google services",
+    "contenido y anuncios personalizados", "personalized content and ads",
+    "si eliges rechazar todo", "if you choose to reject all",
+)
+
+
+def _is_google_url(url: str) -> bool:
+    """True si la URL apunta a un dominio de Google en lugar de a un medio."""
+    if not url:
+        return True
+    low = url.lower()
+    return any(host in low for host in _GOOGLE_HOSTS)
+
+
+def _looks_like_consent_page(text: str) -> bool:
+    """True si el texto extraído es un aviso de cookies/consentimiento y no un
+    artículo. Evita publicar el banner de Google como si fuera una noticia."""
+    if not text:
+        return False
+    low = text.lower()
+    return any(marker in low for marker in _CONSENT_MARKERS)
+
+
+def _clean_feed_title(title: str, source_name: str = "", feed_name: str = "",
+                      domain: str = "") -> str:
+    """Limpia los titulares que llegan con formato de agregador.
+
+    Google News sirve los títulos como `Titular - Medio`, a veces con la fecha
+    embebida y a veces con el lead truncado detrás de dos puntos:
+
+        "…del puerto de Ceuta: La Audienc - El Debate"
+        "Injective: Actualización… - 24 Sep 2026 - TradingView"
+
+    Solo se recorta el sufijo cuando coincide con un nombre de medio conocido
+    (el del feed, el de la entrada RSS o el dominio) o cuando es una fecha.
+    Así no se mutilan titulares legítimos que contienen " - ".
+    """
+    if not title:
+        return title
+    import re as _re
+    t = title.strip()
+
+    # Candidatos de nombre de medio para el sufijo " - X"
+    candidates = {c.strip().lower() for c in (source_name, feed_name, domain) if c}
+    if domain:
+        # "eldebate.com" → también "eldebate" y "el debate"
+        base = domain.lower().replace("www.", "").split(".")[0]
+        candidates.add(base)
+        candidates.add(base.replace("-", " "))
+
+    # Sufijos de fecha: " - 24 Sep 2026", " - 24/09/2026"
+    date_suffix = _re.compile(
+        r"\s+[-–|]\s+\d{1,2}[\s/.-](?:\w{3,10})[\s/.-]\d{2,4}\s*$", _re.IGNORECASE)
+
+    def _norm(s: str) -> str:
+        return s.lower().replace(" ", "").replace("-", "").replace(".com", "").replace(".es", "").rstrip(".")
+
+    norm_candidates = {_norm(c) for c in candidates if c}
+
+    for _ in range(3):  # pueden encadenarse: " - 24 Sep 2026 - TradingView"
+        before = t
+        t = date_suffix.sub("", t).strip()
+        # Último separador " - " / " – " / " | " (con espacios: un guion sin
+        # espacios suele ser parte del propio nombre, como "levante-emv.com")
+        cut = max(t.rfind(sep) for sep in (" - ", " – ", " | "))
+        if cut > 0:
+            tail = t[cut + 3:].strip()
+            if 2 <= len(tail) <= 40:
+                tn = _norm(tail)
+                # Coincidencia exacta normalizada, o contención solo si el
+                # nombre es largo (evita que "as" o "efe" recorten cualquier cosa)
+                hit = any(
+                    tn == c or (len(c) >= 5 and (tn in c or c in tn))
+                    for c in norm_candidates if c
+                )
+                if hit:
+                    t = t[:cut].strip()
+        if t == before:
+            break
+
+    # Lead truncado repetido detrás de ":" → "Titular completo: Titular trunc"
+    if ":" in t:
+        head, _, tail = t.rpartition(":")
+        tail_s = tail.strip()
+        if 0 < len(tail_s) <= 60 and head.strip().lower().startswith(tail_s.lower()[:max(8, len(tail_s) // 2)]):
+            t = head.strip()
+
+    return t.strip(" -–|:").strip() or title
+
+
 def _detect_subtopic(article: dict, subtopic_specs: list) -> str:
     """Detecta el subtopic de un artículo según keywords. Devuelve el nombre
     del subtopic o '' si no matchea ninguno."""
@@ -367,6 +485,13 @@ class HourlyProcessor:
         self.existing_news = {}  # {normalized_title: {"news": news_dict, "topic_id": str}}
         self.existing_urls = set() # {url} para de-duplicación estricta
         self._articles_run_cache = None  # articles.json cargado una vez por run (evita N lecturas GCS)
+
+        # Telemetría PARTE 1 (docs/PLAN_CALIDAD.md): si la tasa de fallo del
+        # decoder de Google News es alta, el fallback necesita replantearse.
+        self._gn_decode_ok = 0
+        self._gn_decode_failed = 0
+        self._dropped_no_content = 0
+        self._dropped_consent_page = 0
         
     async def run(self):
         logger.info("🚀 Inicio Pipeline Horario (OPTIMIZADO)")
@@ -1940,7 +2065,13 @@ class HourlyProcessor:
                 async with session.get(url, timeout=aiohttp.ClientTimeout(total=10), headers=headers) as response:
                     if response.status != 200:
                         return ""
+                    # Si tras los redirects seguimos en Google, lo que viene es
+                    # la página de consentimiento, no un artículo (PARTE 1).
+                    if _is_google_url(str(response.url)):
+                        return ""
                     html = await response.text()
+                    if _looks_like_consent_page(html[:4000]):
+                        return ""
                     
                     # Extraer texto de párrafos <p>
                     paragraphs = re.findall(r'<p[^>]*>([^<]+(?:<[^/p][^>]*>[^<]*</[^p][^>]*>)*[^<]*)</p>', html, re.IGNORECASE | re.DOTALL)
@@ -1977,21 +2108,30 @@ class HourlyProcessor:
         content = article.get("content") or article.get("description") or ""
         url = article.get("url", article.get("link", ""))
 
+        # PARTE 1 (docs/PLAN_CALIDAD.md): fallar en cerrado.
+        # Antes, si el scraping fallaba se usaba `content = title` y después se
+        # le pedía al redactor escribir tres párrafos a partir de una línea. Eso
+        # no es un LLM alucinando: es el pipeline pidiéndole que invente. Ahora,
+        # sin contenido real suficiente, el artículo se descarta.
         MIN_CONTENT_LENGTH = 400
-        MIN_CONTENT_FALLBACK = 80
+        MIN_CONTENT_FALLBACK = 180  # suelo real: por debajo no hay qué resumir
+
+        if _is_google_url(url):
+            self._dropped_no_content += 1
+            return None
+
         if len(content) < MIN_CONTENT_LENGTH and url:
             fetched_content = await self._fetch_article_content(url)
-            if fetched_content and len(fetched_content) >= MIN_CONTENT_LENGTH:
+            if fetched_content and len(fetched_content) >= MIN_CONTENT_FALLBACK:
                 content = fetched_content
-            elif len(content) >= MIN_CONTENT_FALLBACK or (len(title) > 20 and len(content) >= 30):
-                content = f"{title}. {content}" if content else title
-            elif len(title) > 30:
-                content = title
-            else:
-                return None
-        elif len(content) < MIN_CONTENT_FALLBACK and len(title) > 30:
-            content = f"{title}. {content}" if content else title
-        elif len(content) < MIN_CONTENT_FALLBACK:
+
+        if _looks_like_consent_page(content):
+            # Aviso de cookies/consentimiento colado como artículo.
+            self._dropped_consent_page += 1
+            return None
+
+        if len(content) < MIN_CONTENT_FALLBACK:
+            self._dropped_no_content += 1
             return None
 
         # Image extraction — og:image FIRST (hero image curada para social), RSS como fallback
@@ -2326,8 +2466,11 @@ class HourlyProcessor:
                             "fecha_inventariado": datetime.now().isoformat(),
                             "published_at": prep.get("published_at", ""),
                             "titulo": art_data.get("titulo"),
-                            "resumen": art_data.get("resumen", ""),
-                            "noticia": art_data.get("noticia", ""),
+                            # Esta rama de fallback se saltaba los sanitizadores
+                            # que sí aplica la rama principal: de ahí que el
+                            # markdown crudo (**negritas**) llegase al email.
+                            "resumen": _sanitize_redacted_text(art_data.get("resumen", "")),
+                            "noticia": _sanitize_redacted_html(art_data.get("noticia", "")),
                             "imagen_url": prep["image"],
                             "fuentes": prep["sources"]
                         })
@@ -2396,27 +2539,49 @@ class HourlyProcessor:
                     title = entry.get('title', '')
                     summary = entry.get('summary', '') or entry.get('description', '')
 
-                    # If RSS has no summary at all, use title as minimum content
-                    # This prevents articles from being discarded in _redact_article
-                    if not summary.strip() and title.strip():
-                        summary = title
+                    # Si el RSS no trae summary, se deja vacío a propósito:
+                    # _prepare_article_for_redaction intentará scrapear el
+                    # artículo real y descartará si no hay contenido. Rellenar
+                    # con el titular haría que el redactor inventase el cuerpo.
 
-                    # Google News: resolve real URL and extract source name
+                    # Google News: resolver a la URL real del medio, o DESCARTAR.
+                    # Ver PARTE 1 en docs/PLAN_CALIDAD.md. Antes, si el decoder
+                    # fallaba se continuaba con la URL de news.google.com y el
+                    # scraper acababa resumiendo la página de consentimiento.
                     source_name = name
                     if is_google_news:
+                        decoded_url = None
                         try:
                             from googlenewsdecoder import new_decoderv1
                             decoded = await asyncio.to_thread(new_decoderv1, link)
                             if decoded and decoded.get('status'):
-                                link = decoded['decoded_url']
+                                decoded_url = decoded.get('decoded_url')
                         except Exception:
-                            pass  # Keep Google News URL as fallback
-                        # Use original source name from RSS entry
+                            decoded_url = None
+
+                        if not decoded_url or _is_google_url(decoded_url):
+                            # Sin URL real no hay artículo: descartar en vez de
+                            # arrastrar una URL de Google hasta el redactor.
+                            self._gn_decode_failed += 1
+                            continue
+
+                        link = decoded_url
+                        self._gn_decode_ok += 1
+
+                        # Medio real declarado por el propio feed de Google News
                         gn_source = entry.get('source', {})
                         if isinstance(gn_source, dict) and gn_source.get('title'):
                             source_name = gn_source['title']
-                        # Google News summary is HTML garbage, use title as content
-                        summary = title
+
+                        # El summary de Google News es HTML basura. Se deja VACÍO
+                        # para que _prepare_article_for_redaction scrapee el
+                        # artículo real. Nunca usar el titular como contenido:
+                        # obliga al LLM a inventarse el cuerpo.
+                        summary = ""
+
+                    title = _clean_feed_title(
+                        title, source_name=source_name, feed_name=name,
+                        domain=source.get('domain', ''))
 
                     published_struct = entry.get('published_parsed')
                     if published_struct:
@@ -2487,6 +2652,27 @@ class HourlyProcessor:
                             all_new_articles.extend(articles)
 
         logger.info(f"📰 Total artículos recolectados: {len(all_new_articles)}")
+
+        # Telemetría PARTE 1 (docs/PLAN_CALIDAD.md). Dos preguntas que hay que
+        # poder responder con datos: ¿cuánto pool cuesta fallar en cerrado?, y
+        # ¿el fallback de Google News sigue mereciendo la pena?
+        _gn_total = self._gn_decode_ok + self._gn_decode_failed
+        if _gn_total:
+            _rate = 100.0 * self._gn_decode_failed / _gn_total
+            logger.info(
+                f"🔗 Google News: {self._gn_decode_ok} resueltos / "
+                f"{self._gn_decode_failed} descartados ({_rate:.1f}% fallo del decoder)"
+            )
+            if _rate > 40:
+                logger.warning(
+                    "⚠️ Más del 40% de las entradas de Google News no resuelven a "
+                    "una URL real. El fallback está aportando poco pool utilizable."
+                )
+        if self._dropped_no_content or self._dropped_consent_page:
+            logger.info(
+                f"🧹 Descartados sin contenido real: {self._dropped_no_content} · "
+                f"páginas de consentimiento: {self._dropped_consent_page}"
+            )
 
         # merge_new_articles devuelve (added, full_list_in_memory).
         # Usamos full_list_in_memory para evitar el race read-after-write de GCS.
