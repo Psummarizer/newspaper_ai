@@ -19,6 +19,8 @@ google-cloud-texttospeech
 feedparser
 googlenewsdecoder
 beautifulsoup4>=4.12.3
+# Extraccion del texto principal de un articulo (PARTE 2.2 del plan de calidad)
+trafilatura>=2.0.0
 aiohttp
 requests
 

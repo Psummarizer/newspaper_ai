@@ -191,3 +191,81 @@ def test_el_sanitizador_sigue_limpiando_la_basura_json():
     """La limpieza de la Parte 1 no puede haberse perdido por el camino."""
     sucio = "Texto real del articulo.}]}}]}}]}"
     assert "}]}" not in _sanitize_redacted_text(sucio)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 2.2 — Extraccion del texto principal con trafilatura
+# ─────────────────────────────────────────────────────────────────────────────
+
+from scripts.ingest_news import _extraer_texto_principal  # noqa: E402
+
+# Pagina de medio tipica: el articulo enterrado entre menu, reclamos y pie.
+PAGINA_MEDIO = """<!DOCTYPE html>
+<html lang="es"><head><title>El Gobierno aprueba el decreto</title></head>
+<body>
+  <nav><ul><li><a href="/espana">Espana</a></li><li><a href="/deportes">Deportes</a></li>
+  <li><a href="/economia">Economia</a></li></ul></nav>
+  <aside class="promo">Suscribete a nuestra newsletter y recibe las claves del dia.</aside>
+  <article>
+    <h1>El Gobierno aprueba el decreto</h1>
+    <p>El Consejo de Ministros aprobo este martes el decreto que regula el
+    mercado electrico, con el voto favorable de los socios de la coalicion y la
+    abstencion de dos ministerios que habian pedido mas plazo para aplicarlo.</p>
+    <p>La norma entra en vigor en enero y afecta a las tarifas reguladas, que
+    pasaran a revisarse cada trimestre en lugar de cada ano, segun explico la
+    vicepresidenta en la rueda de prensa posterior al Consejo.</p>
+    <p>Las electricas han pedido un periodo transitorio mas largo y avisan de
+    que el calendario obliga a rehacer los contratos firmados en el ultimo
+    trimestre, un trabajo que calculan en varios meses.</p>
+  </article>
+  <div class="relacionadas">Noticia Relacionada: el precio de la luz sube un 3%.</div>
+  <footer>Publicidad. Ver mas galerias. Leer articulo completo.</footer>
+</body></html>"""
+
+
+def test_extrae_el_cuerpo_del_articulo():
+    texto = _extraer_texto_principal(PAGINA_MEDIO)
+    assert "Consejo de Ministros aprobo este martes" in texto
+    assert "pasaran a revisarse cada trimestre" in texto
+    assert "rehacer los contratos firmados" in texto
+
+
+def test_deja_fuera_el_boilerplate():
+    """Lo que antes se quitaba con una lista de patrones a mano."""
+    texto = _extraer_texto_principal(PAGINA_MEDIO)
+    for basura in ("Suscribete", "Publicidad", "Ver mas galerias",
+                   "Leer articulo completo", "Deportes"):
+        assert basura not in texto, f"se colo: {basura}"
+
+
+def test_extrae_mas_texto_que_el_regex_de_p_anterior():
+    """El motivo de adoptarlo: x1,81 de texto sobre 40 URLs reales (Anexo D.2).
+
+    Aqui se compara con la implementacion anterior, reproducida tal cual.
+    """
+    import re
+    parrafos = re.findall(
+        r'<p[^>]*>([^<]+(?:<[^/p][^>]*>[^<]*</[^p][^>]*>)*[^<]*)</p>',
+        PAGINA_MEDIO, re.IGNORECASE | re.DOTALL)
+    viejo = " ".join(p.strip() for p in parrafos if len(p.strip()) > 50)
+    viejo = re.sub(r'\s+', ' ', re.sub(r'<[^>]+>', ' ', viejo)).strip()
+    nuevo = _extraer_texto_principal(PAGINA_MEDIO)
+    assert len(nuevo) >= len(viejo)
+
+
+def test_normaliza_los_espacios():
+    texto = _extraer_texto_principal(PAGINA_MEDIO)
+    assert "\n" not in texto
+    assert "  " not in texto
+
+
+def test_html_vacio_o_ilegible_devuelve_cadena_vacia():
+    assert _extraer_texto_principal("") == ""
+    assert _extraer_texto_principal(None) == ""
+    assert _extraer_texto_principal("<html><body></body></html>") == ""
+
+
+def test_pagina_sin_articulo_no_inventa_contenido():
+    """Un indice de portada no es un articulo: mejor vacio que un menu."""
+    indice = "<html><body><nav><a href='/a'>A</a><a href='/b'>B</a></nav></body></html>"
+    assert len(_extraer_texto_principal(indice)) < 180  # bajo MIN_CONTENT_FALLBACK

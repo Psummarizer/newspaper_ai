@@ -459,6 +459,36 @@ async def _decode_google_news_url(link: str) -> tuple:
     return None, True
 
 
+def _extraer_texto_principal(html: str) -> str:
+    """Texto del articulo, sin menus, pies, comentarios ni reclamos.
+
+    `favor_recall=True` porque el coste de quedarse corto es alto: por debajo
+    de MIN_CONTENT_FALLBACK el articulo se descarta, y un parrafo de mas lo
+    absorbe el redactor sin dano.
+    """
+    if not html:
+        return ""
+    try:
+        import trafilatura
+    except ImportError:
+        logger.warning("trafilatura no instalado: no se puede extraer contenido")
+        return ""
+    try:
+        texto = trafilatura.extract(
+            html,
+            favor_recall=True,
+            include_comments=False,
+            include_tables=False,
+            no_fallback=False,
+        )
+    except Exception as e:
+        logger.debug(f"trafilatura fallo extrayendo: {e}")
+        return ""
+    if not texto:
+        return ""
+    return re.sub(r'\s+', ' ', texto).strip()
+
+
 def _looks_like_consent_page(text: str) -> bool:
     """True si el texto extraído es un aviso de cookies/consentimiento y no un
     artículo. Evita publicar el banner de Google como si fuera una noticia."""
@@ -2209,7 +2239,19 @@ class HourlyProcessor:
         return ""
     
     async def _fetch_article_content(self, url: str) -> str:
-        """Extrae el texto principal de un artículo web"""
+        """Extrae el texto principal de un articulo web.
+
+        PARTE 2.2 (docs/PLAN_CALIDAD.md). Antes esto era un regex de `<p>` mas
+        una lista de patrones de basura de medios espanoles. Medido sobre 40
+        URLs reales (Anexo D.2): trafilatura tiene la MISMA tasa de exito (85%,
+        y falla en las mismas URLs) pero extrae **x1,81 de texto**. No recupera
+        articulos: mejora el insumo del redactor, que es de donde salen las
+        invenciones cuando el texto llega corto.
+
+        Se conservan los dos guards de la Parte 1 — la URL de Google tras los
+        redirects y la pagina de consentimiento — porque no son extraccion:
+        son la regla de fallar en cerrado.
+        """
         if not url:
             return ""
         try:
@@ -2223,38 +2265,23 @@ class HourlyProcessor:
                     if response.status != 200:
                         return ""
                     # Si tras los redirects seguimos en Google, lo que viene es
-                    # la página de consentimiento, no un artículo (PARTE 1).
+                    # la pagina de consentimiento, no un articulo (PARTE 1).
                     if _is_google_url(str(response.url)):
                         return ""
                     html = await response.text()
                     if _looks_like_consent_page(html[:4000]):
                         return ""
-                    
-                    # Extraer texto de párrafos <p>
-                    paragraphs = re.findall(r'<p[^>]*>([^<]+(?:<[^/p][^>]*>[^<]*</[^p][^>]*>)*[^<]*)</p>', html, re.IGNORECASE | re.DOTALL)
-                    text_content = " ".join(p.strip() for p in paragraphs if len(p.strip()) > 50)
-                    
-                    # Limpiar tags HTML residuales
-                    text_content = re.sub(r'<[^>]+>', ' ', text_content)
-                    text_content = re.sub(r'\s+', ' ', text_content).strip()
-                    
-                    # Limpiar basura HTML común de medios españoles
-                    garbage_patterns = [
-                        r'Noticia\s+Relacionada[^.]*\.?',
-                        r'Leer\s+(m[aá]s|art[ií]culo\s+completo)[^.]*\.?',
-                        r'Ver\s+(m[aá]s|galer[ií]a|v[ií]deo)[^.]*\.?',
-                        r'Suscr[ií]bete[^.]*\.?',
-                        r'Newsletter[^.]*suscr[^.]*\.?',
-                        r'estandar\s+No',
-                        r'Premium\s+No',
-                        r'Publicidad[^.]*\.?',
-                    ]
-                    for pattern in garbage_patterns:
-                        text_content = re.sub(pattern, '', text_content, flags=re.IGNORECASE)
-                    
-                    text_content = re.sub(r'\s+', ' ', text_content).strip()
-                    
-                    return text_content[:3000]  # Limitar longitud
+
+            # trafilatura es sincrono y parsea el DOM entero: fuera del event
+            # loop, que aqui hay cientos de articulos en vuelo.
+            text_content = await asyncio.to_thread(_extraer_texto_principal, html)
+            if not text_content:
+                return ""
+            # El aviso de cookies tambien se comprueba sobre lo extraido: hay
+            # muros que solo se ven una vez quitado el boilerplate.
+            if _looks_like_consent_page(text_content):
+                return ""
+            return text_content[:3000]  # Limitar longitud
         except Exception as e:
             logger.debug(f"Error extrayendo contenido de {url}: {e}")
             return ""
