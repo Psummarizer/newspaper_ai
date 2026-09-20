@@ -10,7 +10,7 @@
 | Fichero | Qué contiene | Cuándo leerlo |
 |---|---|---|
 | **`docs/HANDOFF.md`** | Este fichero. Estado y siguiente paso | Siempre, primero |
-| **`docs/ESTRATEGIA.md`** | Quién es el cliente, mercado, posicionamiento, PodSummarizer, estado del código (§9) e implicación del Anexo C (§10) | Antes de decidir producto o marketing |
+| **`docs/ESTRATEGIA.md`** | Quién es el cliente, mercado, posicionamiento, PodSummarizer, estado del código (§9), implicación del Anexo C (§10) y **decisión de mercado (§11)** | Antes de decidir producto o marketing |
 | **`docs/PLAN_CALIDAD.md`** | Causa raíz, catálogo de 17 defectos, plan por partes con criterios de aceptación, y **Anexos A-E con todo lo medido** | Antes de tocar código |
 
 `CLAUDE.md` sigue siendo la referencia operativa (garantías G1-G10). **No lo
@@ -170,11 +170,20 @@ feeds cuando el problema es el embudo.
 
 ## 5. Decisiones abiertas del owner
 
-- [ ] Cerrar formalmente la Parte 1 (el owner se reservó esa decisión).
-- [ ] Mergear `fix/google-news-vector` a master (9 commits).
-- [ ] Purgar o no los artículos pre-fix del corpus.
-- [ ] Elegir puerta de entrada de mercado: hipótesis viva = **agro**
-      (ver `ESTRATEGIA.md` §3.3). Finanzas descartado.
+- [x] ~~Mergear `fix/google-news-vector` a master~~ — hecho (`aed2a37`, 12 commits).
+      **No se ha hecho push**, hay un `origin/master`.
+- [x] ~~Elegir puerta de entrada de mercado~~ — **opción C: producto general con
+      piel de nicho** (ver `ESTRATEGIA.md` §11). La decisión del vertical concreto
+      **no vincula hasta la Parte 7**.
+- [ ] **Cerrar formalmente la Parte 1** — falta verificar el semáforo del decoder
+      en el run de las 20:30 (el owner se reservó esta decisión).
+- [ ] **Purgar la basura pre-fix** — decidido que sí, pero la escritura en GCS la
+      bloqueó el clasificador de permisos. El script está listo y probado en seco
+      en el scratchpad de la sesión (`purge_prefix.py --apply`). Efecto medido:
+      articles.json −2.117 / +246 títulos limpiados / quedan 15.924;
+      topics.json −50 / +15 limpiados / quedan 522; **0 topics se quedan a cero**.
+- [ ] **Preguntarle a Dion cuánto pagaría.** Ya sabemos que es trader de
+      commodities y que paga Bloomberg. Falta el número, y sin él no hay precio.
 
 ---
 

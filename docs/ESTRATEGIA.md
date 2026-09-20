@@ -335,3 +335,98 @@ articulos en GCS), es falso:
    "1.015 fuentes" no significa nada si el usuario recibe cero. El argumento
    vendible sigue siendo memoria, dos capas y perspectiva (seccion 3.4), no el
    numero de feeds.
+
+---
+
+## 11. Mercado de entrada — DECISIÓN TOMADA (20/09/2026)
+
+**Opción elegida: C — producto general con piel de nicho.**
+
+El motor se queda horizontal. Se construye encima un *pack* vertical que es solo
+configuración y copy, no código.
+
+### Qué cuesta una piel de nicho
+
+| Pieza | Trabajo |
+|---|---|
+| Motor | **Cero.** Ni una línea |
+| Pack de topics | 5-8 specs precompiladas del sector (ver compilador, Anexo B8) |
+| Pack de feeds | Priorizar 20-40 fuentes del vertical en `sources.json` |
+| Landing | Copy vertical, misma aplicación |
+| Briefing público | El de ese vertical, indexable |
+
+Dos o tres días, sin tocar el pipeline, y **reversible**: si el nicho no engancha,
+se cambia el pack. Eso convierte la elección de mercado en algo barato y
+repetible en lugar de en una apuesta.
+
+### Cuándo vincula la decisión: en la PARTE 7
+
+```
+Partes 1-6  (calidad, dedup, grafo, formato, compilador)  → agnósticas del nicho
+Parte 7     (curaduría de fuentes)                        → empieza a importar
+Parte 8     (briefing público)                            → obligatorio: hay que publicar sobre ALGO
+```
+
+Se puede seguir trabajando varias sesiones sin decidir el vertical. **La
+validación, en cambio, empieza ya**, porque es gratis y tarda semanas en dar señal.
+
+### La señal que ya teníamos y no habíamos leído
+
+Dos de los cuatro usuarios activos son profesionales de mercados, con topics
+mejor especificados que la media:
+
+```
+diondijkshoorn    soy oil · palm oil · biofuels/biodiesel · freight · gold & silver
+                  macro · tariffs & trade flows · energy prices
+                  → una mesa de trading de commodities agrícolas
+
+alex.colmenarejo  tokenización de activos · clearing y CCPs · institutional blockchain
+                  política monetaria y liquidez · privacidad técnica
+                  → infraestructura post-trade
+```
+
+El producto atrajo ese perfil **sin buscarlo**. No es ruido.
+
+### Validación de campo: primera respuesta (Dion, 20/09/2026)
+
+| Pregunta | Respuesta |
+|---|---|
+| ¿Para qué lo usas? | **Trabajo. Trader de commodities** |
+| ¿Qué pagas hoy por información del sector? | **Bloomberg** |
+| ¿Cuánto pagarías por esto? | *(sin responder — pendiente)* |
+
+**Lectura, sin autoengaño:**
+
+1. **El presupuesto del nicho está confirmado y es alto.** Una terminal Bloomberg
+   ronda los 2.000-2.500 €/mes por puesto. Quien paga eso no discute 200 €/mes.
+2. **El incumbente no es un competidor al que se ataca de frente.** Contra la
+   terminal no se compite: datos en tiempo real, chat del sector, ejecución.
+3. **Pero el dato importante es otro: Dion tiene Bloomberg y aun así se construyó
+   su propia lista de topics aquí.** Si la terminal le resolviese la cobertura de
+   aceites vegetales y biodiésel, no habría escrito
+   `CPO futures (BMD), Indonesia B40 mandate, Malaysia export levy, RSPO`
+   en un producto ajeno. **Bloomberg es ancho; este nicho es profundo.**
+4. **El mercado no son los que tienen Bloomberg: son los que no pueden pagarlo.**
+   Analistas, back office, departamentos comerciales de cooperativas y
+   trituradoras, brokers pequeños, productores de biodiésel. Mismo dolor, sin
+   2.500 €/mes de presupuesto por persona. Es la forma clásica de disrupción:
+   servir al desatendido a la centésima parte del precio.
+
+**Pregunta abierta y crítica:** cuánto pagaría. Sin ese número no hay precio ni
+modelo. Es la siguiente conversación con Dion.
+
+### Coincidencia útil
+
+El caso de prueba de la **Parte 3** ya es `soy oil` (28 artículos en el corpus,
+0 entregados). Al arreglarlo, lo primero que se le puede enseñar a Dion es **su
+propio briefing funcionando** — validación de producto y de nicho en el mismo
+movimiento.
+
+### Estado de las opciones
+
+| Opción | Estado |
+|---|---|
+| **C · General + piel de nicho** | **ELEGIDA** |
+| A · Complejo agro-commodities | Vertical candidato nº1, presupuesto confirmado |
+| B · Infraestructura post-trade | Candidato nº2, nicho más estrecho |
+| D · Aplazar del todo | Descartada |
