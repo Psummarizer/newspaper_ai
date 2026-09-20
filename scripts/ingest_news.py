@@ -312,6 +312,60 @@ def _is_google_url(url: str) -> bool:
     return any(host in low for host in _GOOGLE_HOSTS)
 
 
+# ── Decoder de Google News: concurrencia acotada + un reintento ──────────────
+#
+# Medido en el run del 20/09/2026: con concurrencia libre, 2.186 de 3.306
+# entradas (66,1%) no resolvian. La misma llamada en una sonda casi secuencial
+# fallaba el 0% sobre 180 entradas. La firma es limitacion por tasa: el decoder
+# hace una peticion a Google por articulo y el run las lanza todas a la vez.
+#
+# Acotar la concurrencia cuesta poco tiempo (la fase de fetch ya dura ~44 min y
+# el decoder es una ida y vuelta de red) y deberia recuperar buena parte de esos
+# 2.186 articulos, que hoy se descartan por la regla de fallar en cerrado.
+#
+# El backoff se mantiene por debajo de 5s a proposito: CLAUDE.md (G10) avisa de
+# que con ~300 llamadas por run los reintentos largos revientan el task-timeout
+# del Cloud Run Job.
+_GN_DECODER_CONCURRENCY = int(os.getenv("GN_DECODER_CONCURRENCY", "4"))
+_GN_DECODER_RETRY_DELAY_S = float(os.getenv("GN_DECODER_RETRY_DELAY_S", "1.5"))
+_gn_decoder_sem = None
+
+
+def _get_gn_semaphore() -> asyncio.Semaphore:
+    """Semaforo perezoso: se crea dentro del event loop que lo va a usar."""
+    global _gn_decoder_sem
+    if _gn_decoder_sem is None:
+        _gn_decoder_sem = asyncio.Semaphore(max(1, _GN_DECODER_CONCURRENCY))
+    return _gn_decoder_sem
+
+
+async def _decode_google_news_url(link: str) -> tuple:
+    """Resuelve una URL de Google News a la del medio real.
+
+    Devuelve `(url_o_None, reintento_usado)`. Un unico reintento: si el fallo es
+    por tasa, esperar un momento basta; si es estructural, insistir no ayuda.
+    """
+    try:
+        from googlenewsdecoder import new_decoderv1
+    except Exception:
+        return None, False
+
+    sem = _get_gn_semaphore()
+    for intento in (0, 1):
+        try:
+            async with sem:
+                decoded = await asyncio.to_thread(new_decoderv1, link)
+            if decoded and decoded.get("status"):
+                url = decoded.get("decoded_url")
+                if url and not _is_google_url(url):
+                    return url, intento > 0
+        except Exception:
+            pass
+        if intento == 0:
+            await asyncio.sleep(_GN_DECODER_RETRY_DELAY_S)
+    return None, True
+
+
 def _looks_like_consent_page(text: str) -> bool:
     """True si el texto extraído es un aviso de cookies/consentimiento y no un
     artículo. Evita publicar el banner de Google como si fuera una noticia."""
@@ -490,6 +544,7 @@ class HourlyProcessor:
         # decoder de Google News es alta, el fallback necesita replantearse.
         self._gn_decode_ok = 0
         self._gn_decode_failed = 0
+        self._gn_decode_retried = 0
         self._dropped_no_content = 0
         self._dropped_consent_page = 0
         
@@ -2559,14 +2614,9 @@ class HourlyProcessor:
                     # scraper acababa resumiendo la página de consentimiento.
                     source_name = name
                     if is_google_news:
-                        decoded_url = None
-                        try:
-                            from googlenewsdecoder import new_decoderv1
-                            decoded = await asyncio.to_thread(new_decoderv1, link)
-                            if decoded and decoded.get('status'):
-                                decoded_url = decoded.get('decoded_url')
-                        except Exception:
-                            decoded_url = None
+                        decoded_url, uso_reintento = await _decode_google_news_url(link)
+                        if uso_reintento and decoded_url:
+                            self._gn_decode_retried += 1
 
                         if not decoded_url or _is_google_url(decoded_url):
                             # Sin URL real no hay artículo: descartar en vez de
@@ -2669,8 +2719,10 @@ class HourlyProcessor:
         if _gn_total:
             _rate = 100.0 * self._gn_decode_failed / _gn_total
             logger.info(
-                f"🔗 Google News: {self._gn_decode_ok} resueltos / "
-                f"{self._gn_decode_failed} descartados ({_rate:.1f}% fallo del decoder)"
+                f"🔗 Google News: {self._gn_decode_ok} resueltos "
+                f"({self._gn_decode_retried} salvados por el reintento) / "
+                f"{self._gn_decode_failed} descartados ({_rate:.1f}% fallo del decoder) "
+                f"[concurrencia={_GN_DECODER_CONCURRENCY}]"
             )
             if _rate > 40:
                 logger.warning(

@@ -286,3 +286,120 @@ def test_contenido_rss_suficiente_no_necesita_scraping():
 
     assert prep is not None
     assert llamadas == []
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# _decode_google_news_url — concurrencia acotada y un reintento
+#
+# Motivacion (run del 20/09/2026): con concurrencia libre, 2.186 de 3.306
+# entradas de Google News no resolvian (66,1%). En una sonda casi secuencial
+# fallaba el 0% sobre 180. Es limitacion por tasa.
+# ─────────────────────────────────────────────────────────────────────────────
+
+import scripts.ingest_news as ing  # noqa: E402
+
+
+def _reset_semaforo():
+    ing._gn_decoder_sem = None
+
+
+def test_decoder_devuelve_url_real_a_la_primera(monkeypatch):
+    _reset_semaforo()
+    monkeypatch.setattr(ing, "_GN_DECODER_RETRY_DELAY_S", 0)
+
+    def fake(link):
+        return {"status": True, "decoded_url": "https://www.dw.com/es/otan/a-1"}
+
+    monkeypatch.setitem(sys.modules, "googlenewsdecoder",
+                        type("m", (), {"new_decoderv1": staticmethod(fake)}))
+
+    url, reintento = asyncio.run(ing._decode_google_news_url("https://news.google.com/x"))
+    assert url == "https://www.dw.com/es/otan/a-1"
+    assert reintento is False
+
+
+def test_decoder_reintenta_una_vez_y_lo_reporta(monkeypatch):
+    """Un fallo puntual por tasa se recupera; el flag dice que costo reintento."""
+    _reset_semaforo()
+    monkeypatch.setattr(ing, "_GN_DECODER_RETRY_DELAY_S", 0)
+    llamadas = []
+
+    def fake(link):
+        llamadas.append(link)
+        if len(llamadas) == 1:
+            raise RuntimeError("429 rate limited")
+        return {"status": True, "decoded_url": "https://elpais.com/n.html"}
+
+    monkeypatch.setitem(sys.modules, "googlenewsdecoder",
+                        type("m", (), {"new_decoderv1": staticmethod(fake)}))
+
+    url, reintento = asyncio.run(ing._decode_google_news_url("https://news.google.com/x"))
+    assert url == "https://elpais.com/n.html"
+    assert reintento is True
+    assert len(llamadas) == 2
+
+
+def test_decoder_no_reintenta_mas_de_una_vez(monkeypatch):
+    """CLAUDE.md G10: nada de bucles de reintento en la ingesta (task-timeout)."""
+    _reset_semaforo()
+    monkeypatch.setattr(ing, "_GN_DECODER_RETRY_DELAY_S", 0)
+    llamadas = []
+
+    def fake(link):
+        llamadas.append(link)
+        raise RuntimeError("caido")
+
+    monkeypatch.setitem(sys.modules, "googlenewsdecoder",
+                        type("m", (), {"new_decoderv1": staticmethod(fake)}))
+
+    url, _ = asyncio.run(ing._decode_google_news_url("https://news.google.com/x"))
+    assert url is None
+    assert len(llamadas) == 2  # intento + un unico reintento
+
+
+def test_decoder_rechaza_una_url_que_sigue_siendo_de_google(monkeypatch):
+    _reset_semaforo()
+    monkeypatch.setattr(ing, "_GN_DECODER_RETRY_DELAY_S", 0)
+
+    def fake(link):
+        return {"status": True, "decoded_url": "https://consent.google.com/m?continue=x"}
+
+    monkeypatch.setitem(sys.modules, "googlenewsdecoder",
+                        type("m", (), {"new_decoderv1": staticmethod(fake)}))
+
+    url, _ = asyncio.run(ing._decode_google_news_url("https://news.google.com/x"))
+    assert url is None
+
+
+def test_decoder_respeta_el_limite_de_concurrencia(monkeypatch):
+    """Es el punto del arreglo: no lanzar todas las llamadas a la vez."""
+    _reset_semaforo()
+    monkeypatch.setattr(ing, "_GN_DECODER_CONCURRENCY", 3)
+    monkeypatch.setattr(ing, "_GN_DECODER_RETRY_DELAY_S", 0)
+
+    import threading
+    vivos = 0
+    pico = 0
+    lock = threading.Lock()
+
+    def fake(link):
+        nonlocal vivos, pico
+        with lock:
+            vivos += 1
+            pico = max(pico, vivos)
+        import time
+        time.sleep(0.02)
+        with lock:
+            vivos -= 1
+        return {"status": True, "decoded_url": f"https://medio.es/{link[-2:]}"}
+
+    monkeypatch.setitem(sys.modules, "googlenewsdecoder",
+                        type("m", (), {"new_decoderv1": staticmethod(fake)}))
+
+    async def run20():
+        return await asyncio.gather(
+            *[ing._decode_google_news_url(f"https://news.google.com/{i:02d}") for i in range(20)])
+
+    res = asyncio.run(run20())
+    assert all(u for u, _ in res)
+    assert pico <= 3, f"pico de concurrencia {pico}, deberia ser <= 3"
