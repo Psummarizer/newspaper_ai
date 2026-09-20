@@ -126,12 +126,15 @@ capacidad, es por **formato y fricción**:
 
 - ChatGPT exige intención, prompt y espera. Y **re-busca desde cero cada día**: no sabe
   qué te contó ayer, y te repetirá la misma historia toda la semana.
-- El briefing llega sin pedirlo, en 90 segundos, sin repetir lo que ya sabes.
+- El briefing llega sin pedirlo, con un digest de 90 segundos encima del desarrollo
+  completo, y sin repetir lo que ya sabes.
 
 **Por tanto el diferenciador real no es "139 fuentes" (eso no emociona a nadie), es:**
 1. **Memoria** — "si ayer te lo conté, hoy no te lo repito". Estructuralmente imposible
    para ChatGPT sin corpus persistente por usuario.
-2. **Brevedad garantizada** — 90 segundos, siempre. Es una promesa, no un resultado.
+2. **Dos capas** — un digest de 90 segundos encima del briefing completo. El que va con
+   prisa se entera; el que quiere el fondo lo tiene debajo. Decisión del owner
+   (20/09/2026): la longitud no se recorta, el resumen se añade.
 3. **Perspectiva** — la misma noticia en varios medios con su sesgo a la vista, en un
    golpe de ojo. Ya está calculado en el código y no se muestra.
 
@@ -161,14 +164,16 @@ Las 139 fuentes son el *cómo*, nunca el *qué vendemos*.
 Sustituir el copy místico por afirmaciones comprobables. Cuando el producto cumpla,
 la promesa es:
 
-> ### Tu briefing de 90 segundos.
-> Lo que ha cambiado desde ayer. Nada de lo que ya sabes.
-> Y cada noticia, también contada por los medios que la cuentan distinto.
+> ### Enterarte en 90 segundos. O a fondo, si te apetece.
+> Arriba, lo que ha cambiado desde ayer en una línea por noticia.
+> Debajo, el desarrollo completo — y cada noticia contada también por los
+> medios que la cuentan distinto.
 
 Tres bloques de prueba, los tres hechos del código y no adjetivos:
 1. **Cobertura, no buscador** — "un asistente te da los 8 resultados mejor posicionados;
    nosotros leemos medios enteros, dos veces al día".
 2. **Sin repeticiones** — "si ayer te contamos que iba a pasar, hoy solo te contamos que pasó".
+   Y una noticia contada por cinco medios es **una** noticia, con cinco fuentes.
 3. **Sin narrativa única** — "la misma noticia, con la línea editorial de cada medio a la vista".
 
 ---

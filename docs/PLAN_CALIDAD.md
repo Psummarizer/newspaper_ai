@@ -132,7 +132,7 @@ briefings sin ninguno de estos defectos.**
 ## D — Normalización e idioma
 - D1 · Misma entidad con tres grafías en un briefing: *hutíes* / **houthistes** (francés, de lemonde.fr) ; *Riad* / *Riyad* / *Riyadh*
 - D2 · Markdown crudo visible por todas partes: `**vivienda…**`, `**A, D, E y K**`, `*Gemini*`, `*RWA*`, `*Made in Italy*`
-- D3 · Tiempos de lectura incoherentes entre ediciones: 9 / 10 / 16 / 17 min
+- D3 · La etiqueta de tiempo de lectura no distingue digest de dossier (ver Parte 5)
 
 ## E — Calidad editorial de las fuentes
 - E1 · **Contenido SEO y de afiliación tratado como noticia**: `trendencias.com` (gabardina de Cortefiel, pueblo de Zaragoza), `directoalpaladar.com` (kiwi, verduras con grasas)
@@ -270,16 +270,35 @@ de `$0.0431`/run antes de dar el refactor por bueno.**
 
 ---
 
-## PARTE 5 — Presupuesto de atención
+## PARTE 5 — Dos capas: digest y dossier
 
-- Invertir el cálculo: **presupuesto fijo de 90 segundos**. El selector llena hasta el
-  presupuesto por **valor marginal** de cada afirmación = novedad para *ese* usuario ×
-  impacto × ajuste a sus intereses. Se selecciona por **información nueva aportada**,
-  no por relevancia temática.
-- `estimate_reading_time` (`src/utils/html_builder.py:395`) pasa de descriptor a restricción.
-- Portada = índice de lo que viene, **sin repetir el cuerpo** (arregla F1/G8 y C5).
+**Decisión del owner (20/09/2026): la longitud NO se recorta.** Un briefing de 15
+minutos con detalle es un producto legítimo, y el resumen corto va **encima**, no en
+lugar de él. Se descarta la idea anterior de imponer un presupuesto fijo de 90 s.
 
-**Aceptación:** ≤ 90 s declarados en todas las ediciones; 0 solapamiento portada/cuerpo.
+Es mejor producto, además, porque las dos capas se sirven del **mismo grafo de
+afirmaciones** de la Parte 4 — cambia la profundidad de render, no el contenido:
+
+| Capa | Qué es | Para quién |
+|---|---|---|
+| **Digest** (~90 s) | Una línea por afirmación, solo lo nuevo desde ayer | El que va con prisa, y el podcast |
+| **Dossier** (10-20 min) | El desarrollo completo, con perspectivas por medio | El que quiere enterarse de verdad |
+
+**El matiz que no hay que perder:** los 16-17 minutos actuales no son 16 minutos de
+información. Son ~10 de información y el resto **repetición e invención** — la misma
+noticia 4-5 veces (C1, C2) y el 40% del contenido escrito desde el titular (Anexo A).
+El objetivo no es acortar el dossier: es que **sus minutos sean reales**. La Parte 4
+lo acorta sola al colapsar duplicados, sin quitar ni una unidad de información.
+
+- El digest encabeza el email; el dossier va debajo.
+- `estimate_reading_time` (`src/utils/html_builder.py:395`) sigue siendo descriptor,
+  pero debe medir el dossier y anunciar ambas capas.
+- Portada = el digest, **sin repetir el cuerpo** (arregla F1/G8 y C5).
+
+**Aceptación:**
+- [ ] Digest legible en ≤ 90 s, con solo lo nuevo respecto al envío anterior.
+- [ ] Dossier sin duplicados: ninguna afirmación aparece dos veces.
+- [ ] 0 solapamiento entre digest y cuerpo.
 
 ---
 
@@ -348,8 +367,8 @@ nadie vigila **feeds**, que es la causa. 938 feeds sin saber cuáles están muer
 | 2 — Contrato de publicación | ⬜ | | |
 | 3 — Auditar el selector | ⬜ | | Antes de añadir feeds |
 | 4 — Grafo de afirmaciones | ⬜ | | Medir coste vs $0.0431/run |
-| 5 — Presupuesto de atención | ⬜ | | |
-| 6 — Preferencias y salud de fuentes | ⬜ | | |
+| 5 — Dos capas: digest + dossier | ⬜ | | Longitud NO se recorta (decisión owner) |
+| 6 — Compilador de topics, preferencias y salud de feeds | ⬜ | | Ver Anexo B8 |
 | 7 — Curaduría editorial | ⬜ | | |
 | 8 — Audio + Spotify | ⬜ | | Adquisición |
 
@@ -401,6 +420,13 @@ material util se esta tirando en cada etapa.
 8 documentos en `AINewspaper` (4 activos), **57 topics declarados**, ninguno en
 el formato legacy. Responde a: *los usuarios ponen bien sus topics, o es ambiguo
 y lleva a error?* **Es ambiguo, y de seis maneras distintas.**
+
+> **CORRECCIÓN (20/09/2026).** La primera versión de este anexo concluía que los
+> usuarios "rellenan mal" el campo de contexto y que había que enseñarles a escribir
+> reglas. Es la conclusión equivocada. Un texto descriptivo en lenguaje natural es
+> **buena señal**, no ruido: lo que falta no es disciplina del usuario, es un paso de
+> compilación. Ver **B8** al final del anexo. Los apartados B1-B7 describen los
+> síntomas observados, que siguen siendo válidos.
 
 ### B1 · El contexto describe el tema en vez de dar instrucciones
 - 18/57 topics con valor **vacio**.
@@ -455,27 +481,71 @@ Los otros **51 dependen de `_topic_cat_map` y del matching por keywords**. Es la
 superficie donde ya se han documentado errores de enrutado ("IA en Geopolitica",
 fix v0.60.1). A mas topics libres, mas probabilidad de misrouting silencioso.
 
-### B7 · Conflicto estructural: G5 contra la promesa de 90 segundos
-Los usuarios activos tienen **10, 10 y 11 topics**. Con G5 (minimo 3 noticias
-por topic), el suelo es **30-33 articulos por briefing**. Eso son los 16-17
-minutos que estamos viendo. **La garantia G5 y el presupuesto de atencion de la
-Parte 5 son matematicamente incompatibles con 10 topics.**
+### B7 · G5 y la longitud — RESUELTO por decisión de producto
 
-Hay que elegir, y es una decision de producto, no tecnica:
-- Limitar el numero de topics (p.ej. 5), o
-- Convertir G5 de "minimo 3 por topic" a "reparto de un presupuesto global",
-  aceptando que un topic pueda salir con 1 noticia o con ninguna ese dia.
+Los usuarios activos tienen **10, 10 y 11 topics**. Con G5 (mínimo 3 noticias por
+topic) el suelo son 30-33 artículos, que es de donde salen los 16-17 minutos.
 
-La segunda encaja mejor con la promesa de vender **brevedad y novedad** en vez
-de exhaustividad.
+**Decisión del owner (20/09/2026): G5 se queda y la longitud se queda.** Un briefing
+de 15 minutos con detalle es el producto; el resumen de 90 segundos se añade encima
+como capa, no como sustituto (ver Parte 5).
 
-### Acciones derivadas (entran en la Parte 6, no antes)
-- [ ] Reescribir el copy del campo de contexto: pedir **reglas**, no
-      descripciones. Ejemplos en linea: *"solo masculino"*, *"fuentes
-      preferidas: X, Y"*, *"nada de fichajes"*.
-- [ ] Avisar en el alta cuando dos topics del usuario se solapan semanticamente.
-- [ ] Avisar cuando el topic esta en un idioma distinto al del briefing.
-- [ ] Validar granularidad: rechazar topics de <4 caracteres y avisar en los de
-      ≥4 palabras ("puede que no haya noticias diarias de esto").
-- [ ] Normalizar el formato al guardar (capitalizacion, tildes, separadores).
-- [ ] Decidir B7 antes de implementar la Parte 5.
+Lo que sigue siendo cierto es que esos 16-17 minutos **no son 16 minutos de
+información**: una parte es la misma noticia repetida 4-5 veces y un 40% se escribía
+desde el titular. Al arreglar las Partes 1 y 4 la longitud bajará sola, sin perder
+ni una unidad de información. Si después de eso un briefing sigue siendo largo, es
+porque el usuario pidió 11 topics — y eso es una elección suya legítima.
+
+### B8 · La solución correcta: compilar el contexto, no reeducar al usuario
+
+El campo de contexto es lenguaje natural libre, y eso está bien. Un LLM puede
+convertir *"Descripción: Transformación del post-trade: clearing, CCPs, netting,
+settlement"* en una especificación que el pipeline entienda. Lo que falta es ese paso.
+
+**Compilador de topics**: una llamada LLM **al guardar el topic** (no por run, no por
+usuario y noticia — se cachea y se reutiliza), que produce:
+
+```json
+{
+  "topic": "Clearing y cámaras de compensación",
+  "canonical": "clearing-ccp",
+  "language": "es",
+  "categories": ["Economía y Finanzas"],
+  "include": ["CCP", "netting", "settlement", "post-trade", "cámara de compensación"],
+  "exclude": [],
+  "entities": ["EMIR", "LCH", "Eurex Clearing"],
+  "preferred_sources": [],
+  "expected_volume": "low",
+  "overlaps_with": ["Tokenización de activos"]
+}
+```
+
+Qué resuelve cada campo, contra los síntomas de arriba:
+
+| Campo | Síntoma que ataca |
+|---|---|
+| `include` / `exclude` / `entities` | **B1** — extrae reglas de un texto descriptivo |
+| `categories` | **B6** — enrutado explícito, sin depender del matching por keywords |
+| `language` + `canonical` | **B3**, **B5** — normaliza idioma, tildes, capitalización y separadores |
+| `overlaps_with` | **B2** — detecta la canibalización *antes* de que vacíe el pool |
+| `expected_volume` | **B4** — avisa de que un topic nicho no dará 3 noticias diarias |
+
+Y el texto descriptivo **no se tira**: se conserva como señal semántica para el
+matching de relevancia, que es justo para lo que sirve bien.
+
+**Coste:** una llamada por topic al guardarlo. Con 57 topics en todo el sistema, es
+irrelevante. Recompilar cuando el usuario edita el topic.
+
+**Nota:** el frontend va a estructurar mejor el alta de nuevos usuarios, lo cual ayuda
+pero no sustituye al compilador — no cubre los topics ya existentes, ni la detección
+de solapamiento, ni el enrutado a categorías.
+
+### Acciones derivadas (entran en la Parte 6)
+
+- [ ] **Compilador de topics (B8)** — es la acción principal; absorbe B1-B6.
+- [ ] Al detectar `overlaps_with`, avisar al usuario en el alta: *"'crypto' y
+      'Tokenización de activos' van a competir por las mismas noticias"*.
+- [ ] Al detectar `expected_volume: low`, avisar: *"puede que no haya noticias
+      diarias de esto"*.
+- [ ] Recompilar los 57 topics existentes una vez, como migración.
+- [ ] Preferencias que cierran el bucle hasta la ingesta (ver Parte 6).
