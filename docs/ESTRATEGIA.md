@@ -4,7 +4,7 @@
 > y las preguntas abiertas. Si retomas el trabajo en otra sesión, **empieza por aquí**
 > y por `docs/PLAN_CALIDAD.md`.
 >
-> Última actualización: 2026-09-20
+> Última actualización: 2026-09-20 · Estado del código en la sección 9
 
 ---
 
@@ -249,3 +249,87 @@ Los spans ya llevan timestamp y fuente.
 PodSummarizer son "extraccion de senal de un flujo, con contexto de usuario". Lo unico que
 cambia es el contenedor (texto/audio/video) y el formato de salida. Unificarlos en el grafo
 de afirmaciones divide por dos el mantenimiento y multiplica lo que cada uno puede hacer.
+
+---
+
+## 9. Estado del codigo a 20/09/2026 (para retomar en otra sesion)
+
+Rama: `fix/google-news-vector`. **Solo hay codigo nuevo de la PARTE 1.** El resto
+del plan esta documentado pero **no implementado**.
+
+### Implementado (scripts/ingest_news.py)
+
+Todo lo de la **Parte 1 — cerrar el vector Google News**:
+
+1. Si el decoder de Google News no resuelve, o la URL resuelta sigue siendo de
+   Google, **se descarta el articulo**. Antes era `except: pass` y seguia con la
+   URL de Google.
+2. Se elimina `summary = title` (en la rama de Google News y en la de RSS sin
+   summary). El contenido sale de scrapear el articulo real, o no sale.
+3. `_prepare_article_for_redaction`: fuera los fallbacks que convertian el
+   titular en cuerpo; suelo de contenido util 80 -> 180 caracteres.
+4. Detector de paginas de consentimiento (ES/EN/FR) en el scraper y antes de
+   redactar.
+5. `_clean_feed_title`: sufijos de medio, fechas embebidas y leads truncados.
+6. Telemetria: tasa de fallo del decoder, descartes por falta de contenido y por
+   pagina de consentimiento.
+
+**Tests**: `tests/test_ingest_part1.py`, 29 casos, sin red ni credenciales.
+Se ejecutan con `python -m pytest tests/ -q`.
+
+### Excepcion a señalar
+
+Hay **un cambio de 2 lineas que pertenece a la Parte 2**, no a la Parte 1: la
+rama de fallback del redactor se saltaba `_sanitize_redacted_text` /
+`_sanitize_redacted_html` que si aplica la rama principal. Por ahi colaba el
+markdown crudo (`**negritas**`) al email. Se arreglo porque estaba en la misma
+funcion que se estaba tocando. **El resto de la Parte 2 sigue sin hacer.**
+
+### NO tocado
+
+- `src/agents/orchestrator.py`, `src/utils/html_builder.py`, y el resto de `src/`.
+- **Firestore: ninguna escritura.** Se evaluo fusionar topics solapados de tres
+  usuarios y se descarto con datos (ver Anexo C del plan de calidad). Existe una
+  copia de seguridad de los `topic` map de los 8 usuarios, por si se retomara.
+- `data/sources.json`. Ojo: produccion lee de **GCS** (1.015 fuentes activas),
+  no del fichero local (938).
+
+### Pendiente para cerrar la Parte 1
+
+Un run real de ingesta que confirme sobre el briefing generado: 0 articulos con
+texto de cookies, 0 fuentes `news.google.com`, y desaparicion de las
+alucinaciones de entidades.
+
+---
+
+## 10. Implicacion estrategica del Anexo C
+
+El hallazgo del Anexo C del plan de calidad **cambia el relato de la cobertura**,
+y por tanto lo que podemos prometer.
+
+Se creia que el problema era falta de fuentes: el propio email de alerta del
+sistema recomienda *"anadir mas feeds"*. Medido contra el corpus real (18.570
+articulos en GCS), es falso:
+
+| Topic de un usuario | En el corpus | Recibio |
+|---|---|---|
+| Politica monetaria y liquidez | 175 | 0 |
+| Tokenizacion de activos | 80 | 0 |
+| soy oil | 28 | 0 |
+
+**El material esta y el pipeline lo pierde.** Consecuencias para la estrategia:
+
+1. **G1 no es el problema.** Las 1.015 fuentes cumplen. Invertir en mas feeds
+   antes de arreglar el embudo es gastar en algo que ya funciona.
+2. **Agrava el riesgo C6 (personalizacion aparente).** Estamos vendiendo
+   personalizacion y entregando 0 de 28 articulos relevantes a un usuario que
+   habia escrito una especificacion impecable. Si alguien compara lo que pidio
+   con lo que recibio, la promesa se cae. **Es el mayor riesgo de posicionamiento
+   que tenemos hoy**, por encima de la longitud o del formato.
+3. **Refuerza el orden del plan.** Primero Parte 3 (por que se pierde el
+   material), despues Parte 6 (compilador de topics). Afinar lo que entra a un
+   embudo que tira el 90% no sirve de nada.
+4. **La cobertura deja de ser argumento de venta hasta que se demuestre.**
+   "1.015 fuentes" no significa nada si el usuario recibe cero. El argumento
+   vendible sigue siendo memoria, dos capas y perspectiva (seccion 3.4), no el
+   numero de feeds.
