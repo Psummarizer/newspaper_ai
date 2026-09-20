@@ -129,6 +129,11 @@ def main():
                                                for u in (x[1].get("fuentes") or []))], N, "P1")
 
     p("\n--- PARTE 2 (lineas de partida del 20/09) ---")
+    p("  OJO: esto mide lo YA PUBLICADO en topics.json. Las reglas 2.1-2.3 actuan")
+    p("  en la INGESTA, asi que estos contadores no bajan hasta que corra un run")
+    p("  nuevo con el fix desplegado. Un FALLO aqui no dice que la regla no sirva.")
+    p("  Efecto comprobado por replay sobre este mismo corpus: markdown 62->0,")
+    p("  autodelacion 34 descartes, 0 topics por debajo de 3 noticias (G5).")
     md = [x for x in rec if "**" in texto(x[1])]
     stub = [x for x in rec if STUB.search(texto(x[1]))]
     dirty_red = [x for x in rec if DIRTY_TITLE.search(str(x[1].get("titulo", "")))]
