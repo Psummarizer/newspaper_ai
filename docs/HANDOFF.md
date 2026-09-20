@@ -80,7 +80,8 @@ tests/test_ingest_part2.py  ← Parte 2, 45 tests, sin red ni credenciales
 docs/{HANDOFF,ESTRATEGIA,PLAN_CALIDAD}.md
 ```
 
-**Parte 2: hecho 2.1** (markdown). Pendientes 2.2-2.6.
+**Parte 2: hechas 2.1, 2.2, 2.3 y 2.4.** Pendientes **2.5** (anclaje por
+entidades) y **2.6** (normalizacion e idioma). 122 tests en verde.
 
 `src/agents/orchestrator.py`, `src/utils/html_builder.py` y el resto de `src/`
 **sin tocar**. **Ninguna escritura en Firestore.**
@@ -202,30 +203,54 @@ Replay sobre el corpus real (572 noticias de `topics.json`): markdown crudo
 **62 → 0**, **0** tags HTML perdidos, **0** textos visibles alterados.
 45 tests en `tests/test_ingest_part2.py`, con los casos reales del corpus.
 
-**2.2 · trafilatura** *(borra código, mejora el insumo)*
+**2.2 · trafilatura** — ✅ **HECHO** (`6dc7994`)
 
 Sustituir el cuerpo de `_fetch_article_content` (regex de `<p>` + lista de
 patrones de basura) por `trafilatura.extract(html, favor_recall=True)`.
 
-- Ya está instalado, **falta declararlo en `requirements.txt`**.
-- Medido sobre 40 URLs reales: **misma tasa de éxito (85%)**, pero **x1,81 de
-  texto**. No recupera artículos, mejora el insumo del redactor.
-- **Conservar** `_looks_like_consent_page` y el guard de URL de Google.
-- Permite borrar ~60 líneas.
+Medido en vivo sobre 40 URLs del corpus (31 descargables), viejo vs nuevo sobre
+el **mismo HTML**: publicables 30/31 → **31/31**, **0 regresiones**, 1 recuperado
+(161 → 5.036 chars), texto **x1,18** sin cap.
 
-**2.3 · Autodelación** *(regla trivial, 14 casos)*
+⚠️ El **x1,81** del Anexo D.2 **no reproduce** en esta muestra (salió x1,18).
+El resultado que manda es otro: **boilerplate residual 10/31 → 2/31**. Uno de
+cada tres artículos le llegaba al redactor con avisos de cookies y reclamos de
+newsletter *dentro del texto a resumir* — justo el insumo del que salen las
+invenciones.
 
-Si el texto redactado dice *"no se detalla"*, *"el texto no especifica"*, *"aún
-no han sido detallados"* → **descartar el artículo**. Publicar algo que admite
-no tener contenido es peor que no publicar nada.
+Se conservaron `_looks_like_consent_page` y el guard de URL de Google, y el de
+consentimiento se aplica ahora también sobre el texto extraído. trafilatura
+corre en `asyncio.to_thread` (es síncrono y parsea el DOM entero).
 
-**2.4 · Autocontención — mata el clickbait**
+**2.3 · Autodelación** — ✅ **HECHO** (`dbdbe72`)
 
-Prohibido publicar un titular con deíctico sin referente: *"el alimento que
-causa millones de muertes"*, *"este producto"*, *"el factor que separa a…"*.
-**El titular debe nombrar el sujeto.** El cuerpo suele tenerlo (en el caso real
-decía "ultraprocesados"); el titular copiaba el gancho de la fuente en vez de
-resolverlo. Regenerar el titular desde el cuerpo.
+Solo se descarta cuando el texto nombra el **material de origen como
+contenedor** ("el contenido", "el texto", "el artículo", "el informe"). Que una
+noticia diga que un anuncio se hizo "sin detalles concretos" es periodismo
+legítimo y se publica — hay 7 tests dedicados a eso.
+
+Replay sobre el corpus real: **34/572 descartadas (5,9%)**, todas
+autodelaciones genuinas, y **0 topics caen por debajo de 3 noticias (G5)**.
+
+El prompt ya lo prohibía con seis líneas y ejemplos ("FAKE MODESTY"). Seguía
+pasando: es el argumento entero de la Parte 2.
+
+**2.4 · Autocontención** — ✅ **HECHO** (`3496cfa`)
+
+**Decisión del owner (20/09), distinta de lo que decía este pliego:** el
+titular **puede** ser clickbait sin precisar el sujeto — el medio tiene derecho
+a su gancho. Lo que no se permite es que **la descripción tampoco lo cuente**.
+Así que la regla **no toca el titular** y no regenera nada: comprueba que el
+**resumen** lo resuelve.
+
+Se descarta solo la combinación de las dos: titular que esconde el sujeto tras
+un núcleo genérico Y resumen que tampoco nombra nada concreto (nombre propio o
+cifra).
+
+Replay sobre los 334 titulares únicos: **6 esconden el sujeto (1,8%)**, de los
+cuales **4 se publican** porque el resumen los resuelve y **2 se descartan**.
+El caso canónico del plan, *"El alimento que deberías tener siempre en la
+nevera"*, **se publica**: el resumen nombra el huevo cocido y al nutricionista.
 
 **2.5 · Anclaje por entidades** *(el importante, y el que mide de verdad)*
 
@@ -239,6 +264,19 @@ pasada barata (gratis, determinista)      →  cifras + NER (spaCy es/en)
 
 - El regex por sí solo **no sirve**: confunde traducción con invención
   (`Fuerza Aérea` ← "Air Force", `República Checa` ← "Czech Republic"). Ver E.7.
+- ⚠️ **spaCy está roto en este entorno**: instalado (3.7.4) pero compilado
+  contra numpy 1.x, y el entorno tiene numpy 2.2.6 → `numpy.dtype size changed`.
+  Arreglarlo es subir spaCy a ≥3.8 **y** meter los modelos es/en (~50 MB cada
+  uno) en la imagen Docker. Ni spaCy ni numpy están en `requirements.txt`.
+- **Recomendación**: saltarse spaCy. La pasada barata solo tiene que marcar
+  candidatos con **recall alto** (secuencias en mayúscula + cifras), que eso sí
+  lo hace un regex; quien decide invención vs traducción es el LLM juez, que ya
+  estaba presupuestado. spaCy solo afinaría la precisión de la lista de
+  candidatos, o sea que ahorraría alguna llamada al juez — no compensa una
+  dependencia rota más imagen inflada.
+- **A decidir antes de implementar**: meter una llamada LLM por artículo en la
+  ingesta toca G10 (failover) y el task-timeout del Cloud Run Job, que ya iba
+  justo. Conviene que el juez solo vea los artículos marcados, no los ~300.
 - Coste del LLM juez: **~$0,0002 por artículo ≈ $4/mes** al volumen actual.
 - **No escala con usuarios**: la redacción es `O(artículos)`, no
   `O(artículos × usuarios)`. Ese $4/mes sigue siendo $4/mes con 10.000 usuarios.
