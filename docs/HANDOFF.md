@@ -1,7 +1,8 @@
 # HANDOFF — empieza por aquí
 
 > Punto de entrada para retomar el trabajo en otra sesión.
-> Última sesión: **2026-09-20**. Rama: **`fix/google-news-vector`** (sin mergear a master).
+> Última sesión: **2026-09-20**. Rama: **`master`** (Parte 1 mergeada; **sin push**,
+> 16 commits por delante de `origin/master`, **sin desplegar**).
 
 ---
 
@@ -74,16 +75,19 @@ En `scripts/ingest_news.py`, para las entradas de Google News:
 
 ```
 scripts/ingest_news.py      ← único fichero de producción modificado
-tests/test_ingest_part1.py  ← nuevo, 34 tests, sin red ni credenciales
+tests/test_ingest_part1.py  ← Parte 1, 34 tests, sin red ni credenciales
+tests/test_ingest_part2.py  ← Parte 2, 45 tests, sin red ni credenciales
 docs/{HANDOFF,ESTRATEGIA,PLAN_CALIDAD}.md
 ```
+
+**Parte 2: hecho 2.1** (markdown). Pendientes 2.2-2.6.
 
 `src/agents/orchestrator.py`, `src/utils/html_builder.py` y el resto de `src/`
 **sin tocar**. **Ninguna escritura en Firestore.**
 
 Comprobar que todo sigue bien:
 ```bash
-python -m pytest tests/ -q                  # esperado: 34 passed
+python -m pytest tests/ -q                  # esperado: 79 passed
 python scripts/verify_part1.py              # criterios contra GCS (solo lectura)
 ```
 
@@ -91,47 +95,78 @@ python scripts/verify_part1.py              # criterios contra GCS (solo lectura
 
 Hay **2 líneas que pertenecen a la Parte 2**: aplicar los sanitizadores en la
 rama de fallback del redactor. Se arregló por estar en la misma función. **No
-bastó**: el run demostró que `_sanitize_redacted_text` **no elimina markdown en
-absoluto**, solo caracteres de control y basura JSON. Sigue saliendo markdown
-crudo en el **7,8%** de las noticias.
+bastó**: el run demostró que `_sanitize_redacted_text` no eliminaba markdown en
+absoluto, solo caracteres de control y basura JSON. ~~Sigue saliendo markdown
+crudo en el 7,8% de las noticias.~~ **Cerrado en 2.1** (`74a502d`): ahora los
+dos sanitizadores convierten el markdown, cada uno a su destino.
 
 ---
 
 ## 4. Lo que toca AHORA
 
-### Paso 0 — cerrar la Parte 1 (falta una sola cosa)
+### Paso 0 — cerrar la Parte 1 (sigue abierto, y ahora sabemos por qué)
 
-El último cambio (semáforo + reintento en el decoder) **está implementado y
-testeado pero NO verificado en un run real**. Hay que:
+> **Actualización 20/09/2026, 17:00.** El semáforo **sigue sin verificar**, y la
+> sonda que se hizo para verificarlo cambió el diagnóstico.
 
-```bash
-# 1. Lanzar la ingesta (escribe en GCS de produccion; ~60 min)
-python -u scripts/ingest_news.py > /tmp/ingest.log 2>&1
+**Por qué no se pudo verificar en el run de las 20:30:**
 
-# 2. El numero que decide si el semaforo funciona
-grep "Google News:" /tmp/ingest.log
+1. El run de las 20:30 **aún no había ocurrido** (la sonda se hizo a las 16:39;
+   la última ejecución del job era `newsletter-ingest-job-cqk2h`, 04:57 UTC).
+2. Más importante: **master está 15 commits por delante de `origin/master` y no
+   se ha desplegado.** El job de producción sigue corriendo la imagen anterior,
+   así que el run de las 20:30 **no habría llevado el semáforo** aunque se
+   hubiera esperado. Verificarlo en producción exige build + deploy, que
+   requiere el "sí" del owner (regla de CLAUDE.md).
 
-# 3. Todos los criterios de aceptacion, de una vez (SOLO LECTURA)
-python scripts/verify_part1.py --since 2026-09-20T20:30
+**Lo que sí se midió (sonda A/B local, solo lectura, 120 URLs del corpus
+pre-fix, mismo conjunto en ambos brazos):**
+
+| brazo | resultado |
+|---|---|
+| libre (sin semáforo) | 0/120 resueltas — **100% de fallo** |
+| semáforo (conc=4) | 0/120 resueltas — **100% de fallo** |
+
+El resultado **no dice que el semáforo no sirva**: dice que la sonda se invalidó
+a sí misma. El mensaje del decoder lo explica:
+
+```
+429 Client Error: Too Many Requests for url: https://www.google.com/sorry/index?continue=https://news...
 ```
 
-`scripts/verify_part1.py` reproduce todas las mediciones de los anexos: separa el
-corpus nuevo del anterior por `fecha_ingesta`, comprueba los 4 criterios de la
-Parte 1 y muestra las 3 líneas de partida de la Parte 2. Devuelve exit code 0 si
-la Parte 1 cumple. **No escribe nada.**
+`/sorry/index` es el **interstitial de bloqueo por IP** de Google, no un 429 por
+petición. Confirmado con URLs recién sacadas del feed: 0/8 primero y 0/4 veinte
+minutos después. El feed RSS sigue respondiendo con normalidad; lo bloqueado es
+solo el decoder.
 
-Esperado: la tasa de fallo baja claramente del **66,1%** de referencia. Si no
-baja, el problema no era limitación por tasa y hay que replantear el fallback de
-Google News (es el 19,3% de las fuentes).
+**Lo que esto cambia del diagnóstico de la Parte 1.** La hipótesis era
+"limitación por tasa, acotar la concurrencia lo arregla". El mecanismo real es
+**un bloqueo de IP con estado**: una vez cruzado el umbral, *todas* las
+peticiones siguientes fallan, vayan a la concurrencia que vayan. Eso encaja
+mejor con el 66,1% que la hipótesis original — no es que fallara 2 de cada 3
+peticiones, es que **el run funcionó hasta que lo bloquearon y a partir de ahí
+falló todo**. Predicción comprobable en el primer run con semáforo: los fallos
+deberían salir **agrupados al final**, no repartidos.
 
-Tunear sin tocar código: `GN_DECODER_CONCURRENCY` (por defecto 4) y
-`GN_DECODER_RETRY_DELAY_S` (1,5).
+Si es así, la concurrencia acotada **retrasa** el bloqueo pero no lo evita con
+~3.306 decodificaciones por run. Las salidas reales (a decidir, no implementado):
 
-> ⚠️ **Ojo al interpretar el briefing de los próximos días.** El corpus conserva
-> ~16.400 artículos **anteriores al fix**, con 2.117 URLs de Google, durante
-> `ARTICLES_RETENTION_HOURS = 72`. Pueden seguir apareciendo defectos de la
-> Parte 1 sin que el fix haya fallado. Se puede purgar (escritura acotada en
-> producción, **requiere decisión del owner**) o esperar a la retención.
+- **Recortar el volumen**: Google News es el 19,3% de las fuentes. Decodificar
+  solo las entradas sin alternativa, no las 3.306.
+- **Aprovechar lo que ya trae el feed**: cada entrada lleva
+  `source = {href: 'https://es.tradingview.com', title: 'TradingView'}`. No da
+  la URL del artículo, pero sí el medio — base para un fallback dirigido en vez
+  de descartar.
+- **Comprobar si el bloqueo aplica en Cloud Run**: la IP de salida del job no es
+  la de esta máquina. Puede que en producción el umbral esté en otro sitio.
+
+**Cómo verificarlo cuando toque** (no repetir la sonda A/B: el brazo libre
+quema la IP para el brazo siguiente — medir el acotado primero, o no medir):
+
+```bash
+grep "Google News:" <log del run>          # tras un deploy con el semáforo
+python scripts/verify_part1.py             # criterios sobre el corpus (solo lectura)
+```
 
 ### Paso 1 — PARTE 2, contrato de publicación
 
@@ -152,12 +187,20 @@ Reverificar en cualquier momento: `python scripts/verify_part1.py`
 
 #### Orden de trabajo sugerido
 
-**2.1 · Markdown → HTML** *(el más barato, empieza por aquí)*
+**2.1 · Markdown → HTML** — ✅ **HECHO** (`74a502d`)
 
-`_sanitize_redacted_text` **no toca el markdown**: solo limpia caracteres de
-control y basura JSON. Por eso el fix de 2 líneas de la Parte 1 no bastó.
-Convertir `**x**` → `<b>x</b>`, `*x*` → `<i>x</i>`, y quitar el resto.
-Cuidado: `_sanitize_redacted_html` debe preservar los tags que ya existen.
+Dos destinos distintos, a propósito: el **cuerpo** (HTML) convierte
+`**x**` → `<b>x</b>` y `*x*` → `<i>x</i>`; el **título y el resumen** son texto
+plano y solo pierden el marcador — un titular no lleva tags, y además alimenta
+el dedup y el matching por keywords del selector.
+
+La conversión se aplica solo a los **nodos de texto** (`_fuera_de_tags`): sin
+eso, un `_` de un atributo (`href="x_y_z"`) se come como cursiva y rompe el
+HTML. Los tags que ya existían se preservan.
+
+Replay sobre el corpus real (572 noticias de `topics.json`): markdown crudo
+**62 → 0**, **0** tags HTML perdidos, **0** textos visibles alterados.
+45 tests en `tests/test_ingest_part2.py`, con los casos reales del corpus.
 
 **2.2 · trafilatura** *(borra código, mejora el insumo)*
 
