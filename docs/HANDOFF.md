@@ -80,8 +80,8 @@ tests/test_ingest_part2.py  ← Parte 2, 45 tests, sin red ni credenciales
 docs/{HANDOFF,ESTRATEGIA,PLAN_CALIDAD}.md
 ```
 
-**Parte 2: hechas 2.1, 2.2, 2.3 y 2.4.** Pendientes **2.5** (anclaje por
-entidades) y **2.6** (normalizacion e idioma). 125 tests en verde.
+**Parte 2: hechas 2.1, 2.2, 2.3 y 2.4.** **2.5 a medias** (criba lista, juez sin
+activar). Pendiente **2.6** (normalizacion e idioma). 136 tests en verde.
 
 **Nada de esto esta desplegado.** Ver el run de las 20:30 mas abajo.
 
@@ -292,35 +292,50 @@ cuales **4 se publican** porque el resumen los resuelve y **2 se descartan**.
 El caso canónico del plan, *"El alimento que deberías tener siempre en la
 nevera"*, **se publica**: el resumen nombra el huevo cocido y al nutricionista.
 
-**2.5 · Anclaje por entidades** *(el importante, y el que mide de verdad)*
+**2.5 · Anclaje por entidades** — 🟡 **A MEDIAS** (`86dc1ea`): criba lista, juez sin activar
 
-Diseño en dos pasadas, no todo con LLM:
+La criba determinista (`_entidades_sin_respaldo`) ya está, con 13 tests. Marca
+nombres propios y cifras de la redacción que no aparecen en el material. **No
+filtra nada todavía.**
 
-```
-pasada barata (gratis, determinista)      →  cifras + NER (spaCy es/en)
-    │
-    └─ solo lo que marque  →  LLM juez (gpt-5-nano): ¿es invención o traducción?
-```
+**Sin spaCy** (decisión del owner). La criba solo necesita recall, que es lo que
+da un regex; spaCy sigue roto en el entorno (numpy 1.x vs 2.2.6).
 
-- El regex por sí solo **no sirve**: confunde traducción con invención
-  (`Fuerza Aérea` ← "Air Force", `República Checa` ← "Czech Republic"). Ver E.7.
-- ⚠️ **spaCy está roto en este entorno**: instalado (3.7.4) pero compilado
-  contra numpy 1.x, y el entorno tiene numpy 2.2.6 → `numpy.dtype size changed`.
-  Arreglarlo es subir spaCy a ≥3.8 **y** meter los modelos es/en (~50 MB cada
-  uno) en la imagen Docker. Ni spaCy ni numpy están en `requirements.txt`.
-- **Recomendación**: saltarse spaCy. La pasada barata solo tiene que marcar
-  candidatos con **recall alto** (secuencias en mayúscula + cifras), que eso sí
-  lo hace un regex; quien decide invención vs traducción es el LLM juez, que ya
-  estaba presupuestado. spaCy solo afinaría la precisión de la lista de
-  candidatos, o sea que ahorraría alguna llamada al juez — no compensa una
-  dependencia rota más imagen inflada.
-- **A decidir antes de implementar**: meter una llamada LLM por artículo en la
-  ingesta toca G10 (failover) y el task-timeout del Cloud Run Job, que ya iba
-  justo. Conviene que el juez solo vea los artículos marcados, no los ~300.
-- Coste del LLM juez: **~$0,0002 por artículo ≈ $4/mes** al volumen actual.
-- **No escala con usuarios**: la redacción es `O(artículos)`, no
-  `O(artículos × usuarios)`. Ese $4/mes sigue siendo $4/mes con 10.000 usuarios.
-- Acción ante entidad inventada: **re-redactar una vez**; si reincide, descartar.
+**Por qué el juez no está encendido.** Para fijar el umbral hay que saber qué
+porcentaje de artículos marca la criba, y ese número **no se puede medir a
+posteriori**:
+
+| comparación | artículos marcados |
+|---|---|
+| contra el snippet del RSS (`articles.json`) | 81,8% |
+| contra el artículo real re-scrapeado hoy | 70,9% |
+
+**Ninguno de los dos es el dato bueno.** `articles.json` guarda el `content` del
+RSS, que es corto; el redactor recibió el texto scrapeado. Comparar contra el
+snippet marca como inventado lo que sí estaba en el artículo — salieron
+"Tokio", "Mississippi", "Honolulu" como candidatos. Y re-scrapear hoy no
+devuelve lo que el redactor vio entonces.
+
+Los dos textos **solo coexisten dentro de `_redact_batch`, durante el run**. Por
+eso se instrumentó ahí: cada run vuelca hasta 150 casos a **`anclaje_muestra.json`**
+en GCS (fichero aparte, nunca `topics.json`, todo envuelto en `try/except`
+porque una calibración no puede tumbar una ingesta).
+
+**Siguiente paso, con la muestra del run de la mañana en la mano:**
+1. Leer `anclaje_muestra.json` y clasificar a mano ~40 candidatos: ¿invención,
+   traducción, o nombre que sí estaba?
+2. Con eso se sabe el volumen real y qué tipos de candidato merecen el juez.
+3. Encender el juez **batched** (uno por lote de redacción, no por artículo),
+   solo sobre los marcados, y **fail-open**: si el proveedor está caído se
+   publica sin juzgar, nunca se bloquea el run.
+4. Acción ante invención confirmada: el pliego decía re-redactar una vez. Dado
+   el presupuesto de timeout, **descartar** es más barato y más coherente con
+   2.3 y 2.4. Decisión pendiente.
+
+⚠️ Lo que NO hay que hacer: darle a la criba poder de decisión. Marca el 71% de
+los artículos, y la mayoría son traducciones ("La Administración Nacional de
+Seguridad Vehicular" ← NHTSA) o nombres comunes en mayúscula. Hay un test que
+fija esa limitación a propósito.
 
 **2.6 · Normalización e idioma** *(cierra el catálogo D)*
 
