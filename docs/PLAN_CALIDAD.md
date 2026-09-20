@@ -536,6 +536,24 @@ matching de relevancia, que es justo para lo que sirve bien.
 **Coste:** una llamada por topic al guardarlo. Con 57 topics en todo el sistema, es
 irrelevante. Recompilar cuando el usuario edita el topic.
 
+**Tres cosas que el compilador necesita para no volverse un pasivo:**
+
+1. **Versionado.** Al cambiar el prompt del compilador, las specs ya guardadas quedan
+   obsoletas. Campo `spec_version` en cada spec y un job de recompilado para las que
+   se queden atrás. Barato, pero hay que preverlo desde el primer día: sin esto, a los
+   seis meses hay tres generaciones de spec conviviendo y nadie sabe cuál manda.
+
+2. **Deriva.** Una spec envejece: aparecen entidades nuevas en un tema (un fichaje, una
+   empresa, una ley). Recompilado periódico — mensual basta — o disparado cuando el
+   topic empieza a rendir por debajo de lo normal.
+
+3. **Un compilado malo degrada ese topic en silencio y para siempre.** Es el riesgo
+   real: nadie se entera de que la spec de "Nutrición" excluyó algo que no debía.
+   La mitigación es además la mejor parte del producto: **enseñarle la spec al usuario**
+   en lenguaje llano — *"esto es lo que hemos entendido de tu tema: incluimos X,
+   excluimos Y, esperamos poco volumen"* — y dejarle corregirla. Es superficie de
+   depuración, es confianza, y es el onboarding que hoy le falta al campo de contexto.
+
 **Nota:** el frontend va a estructurar mejor el alta de nuevos usuarios, lo cual ayuda
 pero no sustituye al compilador — no cubre los topics ya existentes, ni la detección
 de solapamiento, ni el enrutado a categorías.
