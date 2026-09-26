@@ -1254,9 +1254,9 @@ class HourlyProcessor:
         # Modo sombra de Jev: resumen + desacuerdos para auditar. Fichero aparte.
         if self._jev_shadow:
             try:
-                tot = {k: sum(t[k] for t in self._jev_shadow)
+                tot = {k: round(sum(t[k] for t in self._jev_shadow), 1)
                        for k in ("evaluadas", "ambos", "solo_llm", "solo_jev", "ninguno",
-                                 "errores_jev", "input_tokens")}
+                                 "errores_jev", "input_tokens", "segundos_llm", "segundos_jev")}
                 decididas = tot["ambos"] + tot["solo_llm"] + tot["solo_jev"] + tot["ninguno"]
                 acuerdo = (tot["ambos"] + tot["ninguno"]) / decididas if decididas else 0
                 coste = tot["input_tokens"] / 1e6 * JEV_PRICE_PER_M_INPUT
@@ -1268,7 +1268,8 @@ class HourlyProcessor:
                 logger.info(
                     f"🕶️ Jev sombra: {tot['evaluadas']} noticias, acuerdo {acuerdo:.0%} "
                     f"(solo LLM {tot['solo_llm']}, solo Jev {tot['solo_jev']}), "
-                    f"errores {tot['errores_jev']}, {tot['input_tokens']} tok ≈ ${coste:.3f}"
+                    f"errores {tot['errores_jev']}, {tot['input_tokens']} tok ≈ ${coste:.3f}, "
+                    f"tiempo filtro LLM {tot['segundos_llm']:.0f}s vs Jev {tot['segundos_jev']:.0f}s"
                 )
             except Exception as _e:
                 logger.warning(f"No se pudo guardar la sombra de Jev: {_e}")
@@ -2434,6 +2435,7 @@ class HourlyProcessor:
         if getattr(self, "_jev_shadow", None) is not None and jev_shadow_enabled() and articles:
             _jev_articles = list(articles)
             _jev_task = asyncio.create_task(jev_score_articles(topic, user_contexts or [], _jev_articles))
+        _llm_filter_t0 = time.time()
 
         # Build User Context String for Optimized Filtering
         context_str = ""
@@ -2662,8 +2664,10 @@ class HourlyProcessor:
 
         if _jev_task is not None:
             try:
+                _llm_filter_s = time.time() - _llm_filter_t0
                 self._jev_shadow.append(
-                    summarize_topic(topic, _jev_articles, all_relevant, await _jev_task))
+                    summarize_topic(topic, _jev_articles, all_relevant, await _jev_task,
+                                    llm_seconds=_llm_filter_s))
             except Exception as e:
                 logger.warning(f"Jev sombra falló para '{topic}' (no afecta al filtro): {e}")
 

@@ -83,14 +83,17 @@ async def jev_score_articles(topic: str, contexts: list, articles: list) -> dict
     if _semaphore is None:
         _semaphore = asyncio.Semaphore(JEV_CONCURRENCY)
     stats = {"input_tokens": 0, "output_tokens": 0, "errors": 0, "latency_ms": [], "last_error": ""}
+    t0 = time.time()
     key = os.getenv("TYPESAFE_API_KEY", "")
     instructions = _instructions(topic, contexts)
     async with httpx.AsyncClient() as client:
         scores = await asyncio.gather(*[_score_one(client, key, instructions, a, stats) for a in articles])
+    stats["seconds"] = time.time() - t0
     return {"scores": list(scores), "stats": stats}
 
 
-def summarize_topic(topic: str, articles: list, llm_relevant: list, jev_result: dict) -> dict:
+def summarize_topic(topic: str, articles: list, llm_relevant: list, jev_result: dict,
+                    llm_seconds: float = 0.0) -> dict:
     """Compara la decision del filtro LLM con la de Jev para un topic."""
     llm_urls = {a.get("url") for a in llm_relevant}
     both = llm_only = jev_only = neither = 0
@@ -126,5 +129,7 @@ def summarize_topic(topic: str, articles: list, llm_relevant: list, jev_result: 
         "ultimo_error": stats["last_error"],
         "input_tokens": stats["input_tokens"],
         "latencia_p50_ms": lat[len(lat) // 2] if lat else None,
+        "segundos_llm": round(llm_seconds, 1),
+        "segundos_jev": round(stats.get("seconds", 0.0), 1),
         "desacuerdos": disagreements,
     }

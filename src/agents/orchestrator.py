@@ -3598,7 +3598,11 @@ JSON only: {{"keywords": ["kw1", "kw2", ...]}}"""
         def _base_slots(topic_name: str) -> int:
             subs = topic_subtopics.get(topic_name, [])
             if subs:
-                return min(5, len(subs))  # 1 slot per subtopic, hard cap MAX_PER_SECTION
+                # 1 slot por subtopic, pero nunca por debajo del mínimo G5: el
+                # contexto "Nutricion para salud y/o gimnasio o deporte" se
+                # parseaba a 1-2 subtopics y el topic salía con 1-2 noticias
+                # teniendo 14 disponibles (alex, 23 y 25/09/2026).
+                return max(MIN_PER_TOPIC, min(5, len(subs)))
             t_lower = topic_name.lower()
             for kw in _niche_keywords:
                 if kw in t_lower:
