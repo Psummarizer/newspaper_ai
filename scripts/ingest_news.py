@@ -30,6 +30,9 @@ from src.services.firebase_service import FirebaseService
 from src.utils.html_builder import CATEGORY_IMAGES
 from src.utils.text_utils import validate_image_size
 from src.services.perspective_enricher import enrich_topics_with_perspectives
+from src.services.jev_shadow import (
+    JEV_PRICE_PER_M_INPUT, JEV_THRESHOLD, jev_score_articles, jev_shadow_enabled, summarize_topic,
+)
 from src.utils.constants import ARTICLES_RETENTION_HOURS, ARTICLES_INGEST_WINDOW_HOURS, TOPICS_RETENTION_DAYS, CATEGORIES_LIST, INGESTA_COVERAGE_HOURS, INGEST_TOPICS_BUDGET_S
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -1033,6 +1036,8 @@ class HourlyProcessor:
         self._dropped_titular_misterioso = 0
         # PARTE 2.5: muestra para calibrar el anclaje por entidades.
         self._anclaje_muestra = []
+        # Modo sombra de Jev: comparacion con el filtro LLM, fichero aparte.
+        self._jev_shadow = []
         
     async def run(self):
         logger.info("🚀 Inicio Pipeline Horario (OPTIMIZADO)")
@@ -1245,6 +1250,28 @@ class HourlyProcessor:
                 )
             except Exception as _e:
                 logger.warning(f"No se pudo guardar la muestra de anclaje: {_e}")
+
+        # Modo sombra de Jev: resumen + desacuerdos para auditar. Fichero aparte.
+        if self._jev_shadow:
+            try:
+                tot = {k: sum(t[k] for t in self._jev_shadow)
+                       for k in ("evaluadas", "ambos", "solo_llm", "solo_jev", "ninguno",
+                                 "errores_jev", "input_tokens")}
+                decididas = tot["ambos"] + tot["solo_llm"] + tot["solo_jev"] + tot["ninguno"]
+                acuerdo = (tot["ambos"] + tot["ninguno"]) / decididas if decididas else 0
+                coste = tot["input_tokens"] / 1e6 * JEV_PRICE_PER_M_INPUT
+                self.gcs.save_json_file(
+                    f"jev_shadow/{datetime.now().strftime('%Y-%m-%d_%H%M')}.json",
+                    {"generado": datetime.now().isoformat(), "umbral": JEV_THRESHOLD,
+                     "totales": {**tot, "acuerdo": round(acuerdo, 3), "coste_usd": round(coste, 4)},
+                     "topics": self._jev_shadow})
+                logger.info(
+                    f"🕶️ Jev sombra: {tot['evaluadas']} noticias, acuerdo {acuerdo:.0%} "
+                    f"(solo LLM {tot['solo_llm']}, solo Jev {tot['solo_jev']}), "
+                    f"errores {tot['errores_jev']}, {tot['input_tokens']} tok ≈ ${coste:.3f}"
+                )
+            except Exception as _e:
+                logger.warning(f"No se pudo guardar la sombra de Jev: {_e}")
 
         if (self._dropped_no_content or self._dropped_consent_page
                 or self._dropped_autodelacion or self._dropped_titular_misterioso):
@@ -2401,6 +2428,13 @@ class HourlyProcessor:
             articles = articles[:max_candidates]
         logger.info(f"🔍 {topic}: {len(articles)} candidatos en lotes de {batch_size}")
 
+        # Modo sombra: Jev puntua las MISMAS candidatas en paralelo. Solo mide;
+        # nunca cambia el resultado. getattr: los tests llaman al metodo con un stub.
+        _jev_task = None
+        if getattr(self, "_jev_shadow", None) is not None and jev_shadow_enabled() and articles:
+            _jev_articles = list(articles)
+            _jev_task = asyncio.create_task(jev_score_articles(topic, user_contexts or [], _jev_articles))
+
         # Build User Context String for Optimized Filtering
         context_str = ""
         if user_contexts:
@@ -2625,6 +2659,13 @@ class HourlyProcessor:
             # Delay between batches to avoid Mistral rate limits
             if batch_start + batch_size < len(articles):
                 await asyncio.sleep(2)
+
+        if _jev_task is not None:
+            try:
+                self._jev_shadow.append(
+                    summarize_topic(topic, _jev_articles, all_relevant, await _jev_task))
+            except Exception as e:
+                logger.warning(f"Jev sombra falló para '{topic}' (no afecta al filtro): {e}")
 
         # Combinar fast-pass (fuentes preferidas, sin LLM) + LLM-filtered
         final_relevant = preferred_pass + all_relevant
