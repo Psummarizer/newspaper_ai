@@ -61,6 +61,32 @@ def _coerce_ids(raw) -> list:
     return out
 
 
+_ALIAS_STOPWORDS = {"sobre", "para", "with", "from", "entre", "desde", "news", "noticias"}
+
+
+def _alias_tokens(text: str) -> set:
+    """Raices (5 letras, sin tildes) de las palabras significativas."""
+    norm = unicodedata.normalize("NFKD", (text or "").lower())
+    norm = "".join(c for c in norm if not unicodedata.combining(c))
+    return {w[:5] for w in re.findall(r"[a-z0-9]+", norm)
+            if len(w) >= 4 and w not in _ALIAS_STOPWORDS}
+
+
+def _alias_fits_topic(alias: str, topic_name: str) -> bool:
+    """False si un alias especifico (>=3 palabras) no comparte al menos la mitad
+    de sus palabras con el topic: entonces es un tema distinto, no un sinonimo.
+
+    El matcher LLM fusiono "Politica monetaria y liquidez" con 'macroeconomia'
+    e "Institutional blockchain networks" con 'Tecnologia (IA; Cloud;
+    Blockchain...)': esos topics de alex.colmenarejo perdian su ingesta propia y
+    compartian pool con el generico (el 25/09 se quedaron vacios a la vez).
+    """
+    alias_toks = _alias_tokens(alias)
+    if len(alias_toks) < 3:
+        return True
+    return len(alias_toks & _alias_tokens(topic_name)) * 2 >= len(alias_toks)
+
+
 def _published_sort_key(article: dict) -> datetime:
     """Clave para ordenar por published_at; sin fecha parseable va al final."""
     raw = article.get("published_at") or article.get("fecha_ingesta") or ""
@@ -1656,7 +1682,11 @@ class HourlyProcessor:
                 response_format={"type": "json_object"},
             )
             result = _extract_json(response.choices[0].message.content)
-            return result.get("match")
+            match = result.get("match")
+            if match and not _alias_fits_topic(alias, match):
+                logger.info(f"🚫 Match LLM rechazado: '{alias}' no es sinónimo de '{match}' (tema específico)")
+                return None
+            return match
         except Exception as e:
             logger.warning(f"Error en matching LLM para '{alias}': {e}")
             return None
@@ -1670,6 +1700,16 @@ class HourlyProcessor:
         # RESET user_contexts for all topics (to ensure freshness from active users)
         for t_info in topics_data.values():
             t_info["user_contexts"] = []
+
+        # Deshacer fusiones erroneas del matcher LLM: el alias vuelve a quedar
+        # libre y, si algun usuario activo lo tiene, abajo se crea su topic propio.
+        for t_info in topics_data.values():
+            name = t_info.get("name", "")
+            aliases = t_info.get("aliases", [])
+            kept = [a for a in aliases if a == name or _alias_fits_topic(a, name)]
+            if len(kept) != len(aliases):
+                logger.info(f"✂️ Topic '{name}': alias separados {sorted(set(aliases) - set(kept))}")
+                t_info["aliases"] = kept
 
         for alias, desc in user_aliases_tuples:
             found = False

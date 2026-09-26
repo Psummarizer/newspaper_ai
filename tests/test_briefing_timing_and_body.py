@@ -68,3 +68,24 @@ def test_frase_kilometrica_se_corta_sin_dejar_negritas_abiertas():
 
 def test_texto_plano_sin_parrafos():
     assert shorten_news_html("Una frase. Otra frase.") == "<p>Una frase. Otra frase.</p>"
+
+
+# --- Alias especificos no se fusionan con topics genericos ----------------
+
+from scripts.ingest_news import _alias_fits_topic
+
+
+def test_fontaneria_monetaria_no_es_sinonimo_de_macro():
+    assert not _alias_fits_topic("Política monetaria y liquidez", "macroeconomia")
+
+
+def test_blockchain_institucional_no_es_sinonimo_de_tecnologia():
+    assert not _alias_fits_topic("Institutional blockchain networks",
+                                 "Tecnologia (IA; Cloud; Blockchain; Quatum Computing)")
+
+
+def test_sinonimos_cortos_se_siguen_fusionando():
+    assert _alias_fits_topic("macro", "macroeconomia")
+    assert _alias_fits_topic("Economía Global", "macroeconomia")
+    assert _alias_fits_topic("Espionaje e inteligencia", "Inteligencia y Contrainteligencia")
+    assert _alias_fits_topic("Madrid urbanism and build proyects", "Proyectos de urbanismo en Madrid")
