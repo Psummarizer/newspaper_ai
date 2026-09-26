@@ -18,7 +18,7 @@ from src.services.firebase_service import FirebaseService
 from src.services.gcs_service import GCSService
 from src.services.podcast_service import NewsPodcastService
 from src.utils.constants import CATEGORIES_LIST, CATEGORY_KEYWORDS, FRESHNESS_URGENTE_STEPS, FRESHNESS_NORMAL_STEPS, FRESHNESS_EVERGREEN_STEPS
-from src.utils.text_utils import is_obvious_icon_url, format_date_es
+from src.utils.text_utils import is_obvious_icon_url, format_date_es, shorten_news_html
 
 # ---------------------------------------------------------------------------
 # MEDIA DOMAIN MAP — fuente única para reconocimiento de fuentes preferidas.
@@ -1093,6 +1093,9 @@ class Orchestrator:
         # lee horas después. Reemplazamos por la fecha absoluta del evento.
         title = _fix_temporal_drift(title, news_item)
         body = _fix_temporal_drift(body, news_item)
+        # Email: solo el lead (+ siguiente parrafo si cabe). El texto completo
+        # se queda en cache para dedup y la web.
+        body = shorten_news_html(body)
 
         image_url = news_item.get("imagen_url", "")
         sources = news_item.get("fuentes", [])

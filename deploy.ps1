@@ -97,7 +97,9 @@ function Deploy-CloudRunJob {
 }
 
 Deploy-CloudRunJob -JobName $INGEST_JOB_NAME -JobMode "ingest" -TimeoutSeconds 7200
-Deploy-CloudRunJob -JobName $SEND_JOB_NAME   -JobMode "send"   -TimeoutSeconds 3600
+# Envío: 7200s porque espera a que termine la ingesta de la mañana (hasta
+# SEND_WAIT_INGEST_MAX_MIN=90 min, ver src/entrypoint.py) antes de generar.
+Deploy-CloudRunJob -JobName $SEND_JOB_NAME   -JobMode "send"   -TimeoutSeconds 7200
 
 # --- 5. CLOUD SCHEDULER → Cloud Run Jobs ---
 # Los schedulers ya NO apuntan a endpoints HTTP del Service. Ahora invocan

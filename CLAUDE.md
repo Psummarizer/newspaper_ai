@@ -107,6 +107,8 @@ Estas garantías deben respetarse en todo desarrollo nuevo. Si un cambio las rom
 ### G2 — Solo noticias de las 2 últimas ingestas
 - El filtro primario es `fecha_inventariado` (timestamp que pone nuestro sistema al procesar), **no** `published_at` (fecha RSS, puede ser incorrecta).
 - Las ingestas son a las **6:30am y 20:30pm hora Madrid**. Envío diario a las **7:15am**. Gap máximo entre ingestas = 14h.
+- El envío **espera** a que termine la ingesta de la mañana si sigue en curso (`ingest_state.json`
+  → `last_run_started` > `last_run_finished`), hasta 90 min. No quitar: la ingesta tarda 40-110 min.
 - `INGESTA_COVERAGE_HOURS = 20` garantiza que ningún tier supera 2 ingestas. **No subir este valor.**
 - Freshness tiers (definidos en `src/utils/constants.py`):
   - **URGENTE** (política, deporte, geopolítica): prueba 12h, amplía a 20h si <3 artículos
@@ -194,6 +196,10 @@ Estas garantías deben respetarse en todo desarrollo nuevo. Si un cambio las rom
   que `is_hard_block()` lo aparta 24h (`PROVIDER_HARD_BLOCK_COOLDOWN_S`) sin gastar el reintento, y
   lo registra con un mensaje que apunta al panel del proveedor. Distinguirlo importa: un pico se
   reintenta, una cuenta bloqueada hay que ir a arreglarla.
+- **Presupuesto agotado (402)**: `billing_api_budget_exhausted` de Mistral (y cualquier 402 /
+  "payment required" / "budget exhausted") cuenta como error de proveedor Y como bloqueo duro:
+  se aparta esa clave 24h sin reintento y se salta a la siguiente. Sin esto, el 25/09/2026 la
+  clave 1 agotó su presupuesto y el failover nunca probó `mistral2` ni OpenAI (ver v1.1).
 - Los errores que NO son de cuota se propagan tal cual: un bug real no debe disfrazarse de failover.
 - `FailoverClient` ignora el `model=` del call-site y usa el modelo propio de cada proveedor,
   y adapta los kwargs incompatibles (`max_tokens`→`max_completion_tokens` y `reasoning_effort=low`
@@ -210,6 +216,33 @@ Estas garantías deben respetarse en todo desarrollo nuevo. Si un cambio las rom
   run, revientan el task-timeout del Cloud Run Job.
 
 ## Bugs Conocidos y Fixes Aplicados
+
+### v1.1 (2026-09-26) — Incidencia: 0 briefings el 26/09 y cobertura baja los días previos
+**Síntomas**: 26/09 sin briefing para nadie; 25/09 con alerta de cobertura baja y alex.colmenarejo
+sin macro.
+
+**Causas** (tres, independientes):
+1. **Mistral 402, no 429**: desde el 25/09 07:31 `MISTRAL_API_KEY` devuelve
+   `402 billing_api_budget_exhausted`. `is_quota_error` solo conocía 429/quota → `FailoverClient`
+   lo propagaba como bug real. `MISTRAL_API_KEY2` y OpenAI estaban sanas y nunca se probaron.
+   Las ingestas del 25/09 20:30 y 26/09 06:30 filtraron 0 relevantes y topics.json quedó con 2
+   noticias (la salvaguarda anti-vaciado no salta porque no llegó a 0).
+2. **Carrera ingesta/envío**: la ingesta de las 06:30 terminó a las 07:49, 08:17, 08:20 y 07:32
+   (21-25/09; el 25/09 por un segfault nativo + reintento de Cloud Run). El envío de las 07:15 leía
+   un topics.json a medio actualizar.
+3. **Candidatos más viejos primero**: `_filter_relevant` recorta a 150 con round-robin por fuente
+   cogiendo la cabeza de cada cola, y `articles.json` está en orden de llegada. La ingesta de las
+   20:30 del 24/09 redactó para macro capturas de la mañana publicadas el 23/09; a las 07:15 del
+   25/09 superaban el corte de 24h por `published_at` y macro salió vacío.
+
+**Fixes**:
+- `is_billing_error` en `llm_factory.py`: 402/budget → failover inmediato + bloqueo 24h.
+- `_llm_call_with_retry` no duerme ante bloqueos duros.
+- La ingesta escribe `last_run_started` en `ingest_state.json`; el send-job espera (polling 60s,
+  máx. `SEND_WAIT_INGEST_MAX_MIN`=90) si hay una ingesta en curso. Send-job task-timeout → 7200s.
+- `_get_articles_for_categories` ordena candidatos por `published_at` descendente.
+- Email: el cuerpo de cada noticia se recorta a ~90 palabras con frases completas
+  (`shorten_news_html`); el texto completo sigue en topics.json.
 
 ### v1.0 (2026-09-06) — Incidencia: 4 dias sin briefing
 **Sintoma**: el 06/09 no llego el briefing; los dias previos llegaban emails de "cobertura baja"

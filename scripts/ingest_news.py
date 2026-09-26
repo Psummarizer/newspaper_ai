@@ -24,7 +24,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import aiohttp
 import feedparser
-from src.services.llm_factory import LLMFactory, is_quota_error
+from src.services.llm_factory import LLMFactory, is_quota_error, is_hard_block
 from src.services.gcs_service import GCSService
 from src.services.firebase_service import FirebaseService
 from src.utils.html_builder import CATEGORY_IMAGES
@@ -61,6 +61,15 @@ def _coerce_ids(raw) -> list:
     return out
 
 
+def _published_sort_key(article: dict) -> datetime:
+    """Clave para ordenar por published_at; sin fecha parseable va al final."""
+    raw = article.get("published_at") or article.get("fecha_ingesta") or ""
+    try:
+        return datetime.fromisoformat(str(raw)[:19].replace("Z", ""))
+    except ValueError:
+        return datetime.min
+
+
 async def _llm_call_with_retry(client, model, messages, max_retries=2, **kwargs):
     """Wrapper for LLM calls with backoff on rate-limit (429) errors.
 
@@ -81,7 +90,8 @@ async def _llm_call_with_retry(client, model, messages, max_retries=2, **kwargs)
             )
             return response
         except Exception as e:
-            is_rate_limit = is_quota_error(e)
+            # Un bloqueo duro (presupuesto agotado, cupo 0) no mejora esperando.
+            is_rate_limit = is_quota_error(e) and not is_hard_block(e)
             if is_rate_limit and attempt < max_retries:
                 wait = delays[min(attempt, len(delays) - 1)]
                 logger.warning(f"⏳ Rate limit (intento {attempt + 1}/{max_retries}), esperando {wait}s...")
@@ -1011,6 +1021,18 @@ class HourlyProcessor:
                 logger.info(f"🕒 Última ejecución: {self.last_run_time} (hace {ago})")
             except Exception as e:
                 logger.warning(f"Error parseando last_run_time: {e}")
+
+        # Marca de ingesta EN CURSO: el send-job (07:15) la lee y espera a que
+        # termine en lugar de leer un topics.json a medio actualizar. Se conserva
+        # last_run_finished porque es la base de la ventana dinámica de este run.
+        self._run_started_iso = datetime.now().isoformat()
+        try:
+            self.gcs.save_json_file("ingest_state.json", {
+                **(state or {}),
+                "last_run_started": self._run_started_iso,
+            })
+        except Exception as e:
+            logger.warning(f"No se pudo marcar la ingesta como en curso: {e}")
         
         # 0. INGESTA RSS — devuelve la lista TOTAL en memoria (existentes + nuevos).
         #    Evitamos releer GCS para sortear race read-after-write.
@@ -1175,7 +1197,8 @@ class HourlyProcessor:
 
         # 6. Guardar estado de finalización
         self.gcs.save_json_file("ingest_state.json", {
-            "last_run_finished": datetime.now().isoformat()
+            "last_run_started": getattr(self, "_run_started_iso", None),
+            "last_run_finished": datetime.now().isoformat(),
         })
         logger.info("💾 Estado guardado (ingest_state.json)")
 
@@ -2137,6 +2160,13 @@ class HourlyProcessor:
             if url and url not in seen:
                 seen.add(url)
                 unique.append(a)
+        # Más reciente primero. articles.json está en orden de llegada (viejo →
+        # nuevo) y _filter_relevant recorta a 150 cogiendo la CABEZA de cada
+        # fuente: sin este orden evaluaba lo más viejo de la ventana. El 24/09 a
+        # las 20:30, las 15 noticias macro redactadas eran capturas de la mañana
+        # publicadas el 23/09; a las 07:15 del 25/09 superaban el corte de 24h
+        # por published_at del orquestador y el briefing salió sin macro.
+        unique.sort(key=_published_sort_key, reverse=True)
         return unique
     
     async def _filter_relevant(self, topic: str, articles: list, user_contexts: list = None) -> list:

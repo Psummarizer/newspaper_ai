@@ -41,19 +41,43 @@ _QUOTA_PATTERNS = (
     "quota", "insufficient_quota", "too many requests",
 )
 
+# Errores de FACTURACION: el proveedor responde 402 porque la clave alcanzo su
+# limite de gasto (Mistral: `billing_api_budget_exhausted`, code 2303). Incidencia
+# 25/09/2026 07:31 → 26/09: MISTRAL_API_KEY agoto su presupuesto, el 402 no
+# casaba con _QUOTA_PATTERNS, FailoverClient lo propagaba como "bug real" sin
+# probar MISTRAL_API_KEY2 (sana) ni OpenAI, y dos ingestas seguidas dejaron
+# topics.json casi vacio → 0 briefings enviados el 26/09.
+_BILLING_PATTERNS = (
+    "402", "payment required", "budget exhausted", "billing",
+    "insufficient_credits", "credit balance",
+)
+
+
+def is_billing_error(exc: Exception) -> bool:
+    """True si el error es de presupuesto/facturacion agotado en esa clave."""
+    if getattr(exc, "status_code", None) == 402:
+        return True
+    s = str(exc).lower()
+    return any(p in s for p in _BILLING_PATTERNS)
+
 
 def is_quota_error(exc: Exception) -> bool:
-    """True si el error es de cuota/rate-limit (y por tanto reintentable en otro proveedor)."""
+    """True si el error es de cuota, rate-limit o facturacion (reintentable en otro proveedor)."""
+    if is_billing_error(exc):
+        return True
     s = str(exc).lower()
     return any(p in s for p in _QUOTA_PATTERNS)
 
 
 def is_hard_block(exc: Exception) -> bool:
-    """True si el 429 trae un limite asignado de 0 req/min (cuenta deshabilitada).
+    """True si el proveedor no se recupera esperando: presupuesto agotado (402)
+    o un 429 con limite asignado de 0 req/min (cuenta deshabilitada).
 
     Se distingue del rate-limit normal porque no se recupera con el tiempo: hay
     que arreglar la cuenta en el panel del proveedor.
     """
+    if is_billing_error(exc):
+        return True
     resp = getattr(exc, "response", None)
     headers = getattr(resp, "headers", None) or {}
     for name in ("x-ratelimit-limit-req-minute", "x-ratelimit-limit-requests"):
@@ -379,9 +403,10 @@ class FailoverClient:
                     if is_hard_block(e):
                         # Cupo asignado = 0: la cuenta esta deshabilitada, no hay
                         # nada que esperar. Fuera del chain sin gastar el reintento.
+                        motivo = ("presupuesto de la clave agotado (402)" if is_billing_error(e)
+                                  else "limite 0 req/min: acceso deshabilitado a nivel de cuenta")
                         logger.error(
-                            f"⛔ '{key}' devuelve limite 0 req/min: acceso deshabilitado "
-                            f"a nivel de cuenta, no es un pico de trafico. Revisa el panel "
+                            f"⛔ '{key}': {motivo}, no es un pico de trafico. Revisa el panel "
                             f"del proveedor (verificacion / pago / tier)."
                         )
                         LLMFactory.mark_down(key, PROVIDER_HARD_BLOCK_COOLDOWN_S)

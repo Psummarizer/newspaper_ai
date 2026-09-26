@@ -33,6 +33,56 @@ def _run_ingest() -> int:
     return 0
 
 
+SEND_WAIT_POLL_S = 60
+SEND_WAIT_MAX_MIN = int(os.environ.get("SEND_WAIT_INGEST_MAX_MIN", "90"))
+# Una marca de inicio más vieja que esto es de un run muerto (timeout, crash sin
+# reintento): no se espera por ella.
+STALE_INGEST_START_H = 3
+
+
+def _ingest_in_progress(state: dict) -> bool:
+    from datetime import datetime, timedelta
+    started, finished = state.get("last_run_started"), state.get("last_run_finished")
+    if not started:
+        return False
+    try:
+        started_dt = datetime.fromisoformat(started)
+        if datetime.now() - started_dt > timedelta(hours=STALE_INGEST_START_H):
+            return False
+        return not finished or datetime.fromisoformat(finished) < started_dt
+    except ValueError:
+        return False
+
+
+def _wait_for_running_ingest() -> None:
+    """Espera a que termine la ingesta de la mañana antes de generar briefings.
+
+    La ingesta arranca a las 06:30 y el envío a las 07:15, pero entre el 21 y el
+    25/09/2026 la ingesta de la mañana acabó a las 07:49, 08:17, 08:20 y 07:32:
+    el envío leía un topics.json a medio actualizar y los topics procesados al
+    final solo tenían el pool de la noche anterior (cobertura baja, macro vacío).
+    """
+    import time
+    from src.services.gcs_service import GCSService
+
+    gcs = GCSService()
+    deadline = time.time() + SEND_WAIT_MAX_MIN * 60
+    waited = False
+    while _ingest_in_progress(gcs.get_json_file("ingest_state.json")):
+        if time.time() >= deadline:
+            logger.error(
+                f"⏰ La ingesta sigue en curso tras {SEND_WAIT_MAX_MIN} min de espera. "
+                f"Se envía con el topics.json actual."
+            )
+            return
+        if not waited:
+            logger.info("⏳ Hay una ingesta en curso: esperando a que termine antes de enviar...")
+            waited = True
+        time.sleep(SEND_WAIT_POLL_S)
+    if waited:
+        logger.info("✅ Ingesta terminada, arrancando el envío.")
+
+
 def _run_send() -> int:
     """Ejecuta la generación + envío diaria de briefings. Devuelve exit code.
 
@@ -55,6 +105,7 @@ def _run_send() -> int:
         )
     else:
         logger.info("🚀 JOB_MODE=send → ejecutando generación y envío de briefings")
+        _wait_for_running_ingest()
 
     asyncio.run(generate_and_send(
         test_user=test_user,

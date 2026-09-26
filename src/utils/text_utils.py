@@ -231,3 +231,83 @@ def truncate_to_sentence(text: str, max_chars: int = 220) -> str:
             result = truncated.rstrip() + "."
 
     return result
+
+
+# --- Cuerpo de noticia recortado para el email ------------------------------
+# El redactor escribe ~200 palabras en 3-4 parrafos; con 15-25 noticias el
+# briefing se hacia interminable. En el email se muestra el lead (y el parrafo
+# siguiente si cabe); el texto completo sigue en cache para dedup y la web.
+EMAIL_BODY_MAX_WORDS = 90
+
+import re as _re_short
+
+_P_RE = _re_short.compile(r"<p\b[^>]*>(.*?)</p>", _re_short.I | _re_short.S)
+_TAG_RE = _re_short.compile(r"<[^>]+>")
+_SENT_SPLIT_RE = _re_short.compile(r"(?<=[.!?…])\s+")
+_INLINE_TAGS = ("b", "strong", "i", "em")
+
+
+def _count_words(html: str) -> int:
+    return len(_TAG_RE.sub(" ", html).split())
+
+
+def _close_open_tags(html: str) -> str:
+    for tag in _INLINE_TAGS:
+        opened = len(_re_short.findall(rf"<{tag}\b[^>]*>", html, _re_short.I))
+        closed = len(_re_short.findall(rf"</{tag}>", html, _re_short.I))
+        html += f"</{tag}>" * max(0, opened - closed)
+    return html
+
+
+def _cut_paragraph(html: str, max_words: int) -> str:
+    """Recorta un parrafo a frases completas dentro de max_words."""
+    out, used = [], 0
+    for sent in _SENT_SPLIT_RE.split(html.strip()):
+        w = _count_words(sent)
+        if out and used + w > max_words:
+            break
+        out.append(sent)
+        used += w
+    result = " ".join(out)
+    if _count_words(result) > int(max_words * 1.5):
+        # Una sola frase kilometrica: corte por palabra, sin romper etiquetas.
+        tokens, kept = _re_short.split(r"(\s+)", result), []
+        n = 0
+        for tok in tokens:
+            if tok.strip() and not tok.startswith("<"):
+                n += 1
+            if n > max_words:
+                break
+            kept.append(tok)
+        result = "".join(kept).rstrip(" ,;:") + "…"
+    return _close_open_tags(result)
+
+
+def shorten_news_html(html: str, max_words: int = EMAIL_BODY_MAX_WORDS) -> str:
+    """Devuelve los primeros parrafos completos del cuerpo hasta max_words.
+
+    Siempre incluye el primer parrafo (recortado a frases si no cabe solo).
+    Solo conserva el contenido de los <p>; listas u otros bloques se omiten.
+    """
+    if not html:
+        return ""
+    paras = [p.strip() for p in _P_RE.findall(html) if _TAG_RE.sub("", p).strip()]
+    if not paras:
+        paras = [html.strip()]
+    out, used = [], 0
+    for p in paras:
+        w = _count_words(p)
+        if used + w <= max_words:
+            out.append(p)
+            used += w
+            continue
+        remaining = max_words - used
+        # Lead corto: se completa con las frases del parrafo siguiente que quepan.
+        if not out or remaining >= 20:
+            partial = _cut_paragraph(p, remaining) if out else _cut_paragraph(p, max_words)
+            if out and _count_words(partial) > remaining:
+                partial = ""  # ni la primera frase cabe: mejor no añadir nada
+            if partial:
+                out.append(partial)
+        break
+    return "".join(f"<p>{p}</p>" for p in out)
