@@ -34,7 +34,9 @@ PROVIDER_HARD_BLOCK_COOLDOWN_S = 24 * 3600
 # frente a $0.30/1M de Gemini Flash, y el proyecto de Gemini tiene billing
 # habilitado (los excesos del free tier se cobran en silencio, ver la cabecera
 # de src/utils/llm_quality.py). Gemini queda como penúltimo recurso.
-FALLBACK_CHAIN = ["mistral", "openai", "gemini", "groq"]
+# Decision del owner (26/09/2026): el respaldo es SOLO mistral → mistral2 →
+# openai. Gemini y Groq quedan fuera del chain (Gemini cobraba en silencio).
+FALLBACK_CHAIN = ["mistral", "openai"]
 
 _QUOTA_PATTERNS = (
     "429", "rate_limited", "rate limit", "resource_exhausted",

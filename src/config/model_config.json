@@ -8,7 +8,7 @@
     "llm_providers": {
         "openai": {
             "fast_model": "gpt-5-nano",
-            "quality_model": "gpt-4o-mini",
+            "quality_model": "gpt-5-nano",
             "base_url": null
         },
         "gemini": {

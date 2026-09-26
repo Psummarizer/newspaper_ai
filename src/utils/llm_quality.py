@@ -1,5 +1,5 @@
 """
-LLM quality helper: Mistral como primario, Gemini como ULTIMO recurso.
+LLM quality helper: Mistral como primario, OpenAI gpt-5-nano como ULTIMO recurso.
 
 REVISADO 2026-05-28 — antes Gemini era primario. Bug observado: Gemini Flash
 free tier es 250 RPD; con billing habilitado en el proyecto, los excesos NO
@@ -12,12 +12,12 @@ Estrategia actual:
     tokens/mes) y suficiente para <50 usuarios/día.
   - Cuando Mistral falla por cuota (429), se prueba MISTRAL_API_KEY2 si
     existe (clave secundaria del mismo provider, sigue siendo free).
-  - Si la secundaria tampoco está o también falla → Gemini Flash como ULTIMO
-    recurso. En condiciones normales, Gemini bill = $0.
+  - Si la secundaria tampoco está o también falla → OpenAI gpt-5-nano como
+    ULTIMO recurso (26/09/2026: Gemini sale del chain por decisión del owner).
 
 Métricas:
   - Cada call registra qué modelo se usó (mistral_primary vs mistral_2 vs
-    gemini_last_resort).
+    openai_last_resort).
 """
 
 import logging
@@ -50,12 +50,12 @@ async def call_quality_llm(
     response_format: Optional[dict] = None,
     label: str = "",
 ) -> dict:
-    """Llama al LLM "quality" con fallback Mistral->Mistral2->Gemini.
+    """Llama al LLM "quality" con fallback Mistral->Mistral2->OpenAI.
 
     Pipeline:
       1. Intenta processor.client_quality (= Mistral por config).
       2. Si falla por cuota → intenta MISTRAL_API_KEY2 (free, misma provider).
-      3. Si tampoco → Gemini como ultimo recurso (puede costar).
+      3. Si tampoco → OpenAI gpt-5-nano como ultimo recurso.
 
     Args:
         processor: ContentProcessorAgent.
@@ -99,20 +99,18 @@ async def call_quality_llm(
             return response
         except Exception as e:
             logger.warning(
-                f"⚠️ MISTRAL_API_KEY2 también falló [{label}]: {e}. Cayendo a Gemini (PUEDE COSTAR)..."
+                f"⚠️ MISTRAL_API_KEY2 también falló [{label}]: {e}. Cayendo a OpenAI..."
             )
 
-    # 3. Último recurso: Gemini (puede generar coste si billing habilitado)
+    # 3. Último recurso: OpenAI gpt-5-nano (chain acordado: mistral → mistral2 → openai)
     try:
-        from src.services.llm_factory import LLMFactory
-        gemini_client = LLMFactory._get_or_create_client("gemini")
-        config = LLMFactory._load_config()
-        gemini_model = (config.get("llm_providers", {}).get("gemini", {})
-                        .get("quality_model") or "gemini-2.5-flash")
-        response = await gemini_client.chat.completions.create(
-            model=gemini_model, **kwargs,
+        from src.services.llm_factory import LLMFactory, _adapt_kwargs
+        openai_client = LLMFactory._get_or_create_client("openai")
+        openai_model = LLMFactory._model_for("openai", "quality")
+        response = await openai_client.chat.completions.create(
+            model=openai_model, **_adapt_kwargs("openai", openai_model, kwargs),
         )
-        logger.warning(f"   💸 [{label}] Usando Gemini como ULTIMO recurso (puede costar)")
+        logger.warning(f"   🔄 [{label}] Usando OpenAI {openai_model} como último recurso")
         return response
     except Exception as e:
         raise RuntimeError(
