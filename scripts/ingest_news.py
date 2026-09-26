@@ -15,6 +15,7 @@ import logging
 import json
 import re
 import unicodedata
+from urllib.parse import urlparse
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
 
@@ -30,6 +31,7 @@ from src.services.firebase_service import FirebaseService
 from src.utils.html_builder import CATEGORY_IMAGES
 from src.utils.text_utils import validate_image_size
 from src.services.perspective_enricher import enrich_topics_with_perspectives
+from src.utils.media_sources import _resolve_preferred_domains
 from src.services.jev_shadow import (
     JEV_PRICE_PER_M_INPUT, JEV_THRESHOLD, jev_score_articles, jev_shadow_enabled, summarize_topic,
 )
@@ -63,6 +65,8 @@ def _coerce_ids(raw) -> list:
             continue
     return out
 
+
+_TOPIC_STOPWORDS = {"del", "los", "las", "and", "the", "for", "con", "por", "para", "sobre", "noticias", "news"}
 
 _ALIAS_STOPWORDS = {"sobre", "para", "with", "from", "entre", "desde", "news", "noticias"}
 
@@ -1579,30 +1583,29 @@ class HourlyProcessor:
         return {"status": "different", "matched_key": None}
     
     def _is_relevant_for_topic(self, news_item: dict, topic: str) -> bool:
-        """Verifica relevancia con keywords (sin LLM, ahorra costes)"""
-        title = news_item.get("titulo", "")
-        resumen = news_item.get("resumen", "")
-        combined = f"{title} {resumen}".lower()
-        combined = unicodedata.normalize('NFD', combined)
-        combined = ''.join(c for c in combined if unicodedata.category(c) != 'Mn')
+        """Verifica relevancia con keywords (sin LLM) al reutilizar una noticia
+        redactada para OTRO topic de la misma categoría.
 
-        topic_lower = unicodedata.normalize('NFD', topic.lower())
-        topic_lower = ''.join(c for c in topic_lower if unicodedata.category(c) != 'Mn')
+        Antes bastaba con que UNA palabra del nombre apareciera como SUBCADENA:
+        "gold" casaba con "Goldman", "soy"/"oil" con cualquier texto en español
+        o de petróleo, "real" con "realidad", "inteligencia" (Espionaje) con
+        "inteligencia artificial" y "market" (Market Infrastructure & Clearing)
+        con todo. Así entraban noticias cripto en Clearing y Payments.
+        Ahora: palabras completas, y con 1-2 palabras significativas hacen falta
+        todas; con 3 o más, al menos 2.
+        """
+        def _norm(text: str) -> str:
+            text = unicodedata.normalize("NFD", (text or "").lower())
+            return "".join(c for c in text if unicodedata.category(c) != "Mn")
 
-        # Extract topic keywords (split on spaces, semicolons, commas)
-        topic_words = set()
-        for sep in [';', ',', ' ']:
-            for w in topic_lower.split(sep):
-                w = w.strip()
-                if len(w) > 2:
-                    topic_words.add(w)
+        combined = _norm(f"{news_item.get('titulo', '')} {news_item.get('resumen', '')}")
+        words = {w for w in re.findall(r"[a-z0-9]+", _norm(topic))
+                 if len(w) > 2 and w not in _TOPIC_STOPWORDS}
+        if not words:
+            return False
+        hits = sum(1 for w in words if re.search(r"\b" + re.escape(w) + r"\b", combined))
+        return hits >= (len(words) if len(words) <= 2 else 2)
 
-        # If any topic keyword appears in title+summary, it's relevant
-        for kw in topic_words:
-            if kw in combined:
-                return True
-        return False
-    
     # =========================================================================
     # MÉTODOS EXISTENTES (sin cambios significativos)
     # =========================================================================
@@ -2372,27 +2375,17 @@ class HourlyProcessor:
         # y que el orchestrator decida luego en la selección top-N.
         preferred_pass = []
         if contexts_joined:
-            # Mapa simple de nombre→dominio (subset crítico, no requiere import)
-            _preferred_map = {
-                "el debate": "eldebate.com", "eldebate": "eldebate.com",
-                "el confidencial": "elconfidencial.com", "elconfidencial": "elconfidencial.com",
-                "libertad digital": "libertaddigital.com", "libertaddigital": "libertaddigital.com",
-                "the objective": "theobjective.com", "theobjective": "theobjective.com",
-                "voz pópuli": "vozpopuli.com", "voz populi": "vozpopuli.com", "vozpopuli": "vozpopuli.com",
-                "okdiario": "okdiario.com", "abc": "abc.es", "la razón": "larazon.es",
-                "el español": "elespanol.com", "marca": "marca.com", "as": "as.com",
-                "expansión": "expansion.com", "el economista": "eleconomista.es",
-                "el mundo": "elmundo.es", "el país": "elpais.com",
-                "mundo deportivo": "mundodeportivo.com", "sport": "sport.es",
-                "relevo": "relevo.com", "motorsport": "motorsport.com",
-            }
-            preferred_domains = {dom for name, dom in _preferred_map.items() if name in contexts_joined}
+            # Mismo resolvedor que el orquestador (src/utils/media_sources.py):
+            # límite de palabra y nombres ambiguos solo si se habla de fuentes.
+            preferred_domains = set()
+            for _ctx in (user_contexts or []):
+                preferred_domains |= _resolve_preferred_domains(str(_ctx))
             if preferred_domains:
                 pass_set = set()
                 for a in articles:
-                    src_url = (a.get("url", "") or a.get("link", "")).lower()
+                    netloc = urlparse((a.get("url", "") or a.get("link", "")).lower()).netloc
                     for dom in preferred_domains:
-                        if dom in src_url:
+                        if netloc == dom or netloc.endswith("." + dom):
                             preferred_pass.append(a)
                             pass_set.add(id(a))
                             break

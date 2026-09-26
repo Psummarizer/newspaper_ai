@@ -149,12 +149,18 @@ Estas garantías deben respetarse en todo desarrollo nuevo. Si un cambio las rom
 - `forbidden_sources` excluye dominios enteros (comparación exacta de dominio).
 
 **Comportamiento de "Fuentes preferidas: X, Y, Z" en el contexto:**
-- Se resuelven via `_resolve_preferred_domains()` (módulo orchestrator.py):
-  1. Busca cada nombre en `MEDIA_DOMAIN_MAP` (>100 medios ES+INT hardcodeados).
-  2. Si detecta "fuentes preferidas: X, Y" en el texto, parsea la lista e infiere dominios para medios no reconocidos.
+- Se resuelven via `_resolve_preferred_domains()` en `src/utils/media_sources.py`, **compartido por
+  la ingesta (fast-pass) y el orquestador** (boost +5 y selección):
+  1. Busca cada nombre de `MEDIA_DOMAIN_MAP` (>100 medios ES+INT) con límite de palabra. Los nombres
+     que son palabras corrientes (`AMBIGUOUS_MEDIA_NAMES`: "el mundo", "as", "marca", "sur"...) solo
+     cuentan si el contexto habla de fuentes/medios. Antes, "el mundo de los pagos" daba +5 a
+     elmundo.es y "as" dentro de "Alcaraz" metía 77 artículos de as.com en deporte sin filtro.
+  2. "Periódicos de derechas/izquierdas" (con mención de fuentes) añade la prensa de esa línea.
+  3. Si detecta "fuentes preferidas/principales: X, Y" parsea la lista (dominios tal cual, incluso
+     con typo `.con`) e infiere dominios para medios no reconocidos.
 - Si hay suficientes artículos de esas fuentes → se usan SOLO esas fuentes (sin mezcla de medios externos).
 - Si no hay suficientes → el LLM completa con los mejores disponibles.
-- Añadir nuevos medios a `MEDIA_DOMAIN_MAP` (nivel de módulo, antes de la clase `Orchestrator`) si un usuario menciona un medio no reconocido.
+- Añadir nuevos medios a `MEDIA_DOMAIN_MAP` en `src/utils/media_sources.py` si un usuario menciona un medio no reconocido.
 
 **Comportamiento de categoría para topics de viajes:**
 - "viajes" mapea SOLO a `Consumo y Estilo de Vida`. No incluye `Transporte y Movilidad` porque las averías de trenes/aviones no son noticias de ocio. Si se añade cualquier keyword de viajes al `_topic_cat_map`, no incluir Transporte.

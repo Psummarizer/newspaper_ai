@@ -20,107 +20,12 @@ from src.services.podcast_service import NewsPodcastService
 from src.utils.constants import CATEGORIES_LIST, CATEGORY_KEYWORDS, FRESHNESS_URGENTE_STEPS, FRESHNESS_NORMAL_STEPS, FRESHNESS_EVERGREEN_STEPS
 from src.utils.text_utils import is_obvious_icon_url, format_date_es, shorten_news_html
 
-# ---------------------------------------------------------------------------
-# MEDIA DOMAIN MAP — fuente única para reconocimiento de fuentes preferidas.
-# Cubre medios españoles e internacionales. Añadir aquí cuando un usuario
-# mencione un medio no reconocido en su contexto de Firestore.
-# ---------------------------------------------------------------------------
-MEDIA_DOMAIN_MAP: Dict[str, str] = {
-    # España — generalistas
-    "el país": "elpais.com", "el pais": "elpais.com", "elpais": "elpais.com",
-    "el mundo": "elmundo.es", "elmundo": "elmundo.es",
-    "el debate": "eldebate.com", "eldebate": "eldebate.com",
-    "el confidencial": "elconfidencial.com", "elconfidencial": "elconfidencial.com",
-    "libertad digital": "libertaddigital.com", "libertaddigital": "libertaddigital.com",
-    "the objective": "theobjective.com", "theobjective": "theobjective.com",
-    "voz pópuli": "vozpopuli.com", "voz populi": "vozpopuli.com", "vozpopuli": "vozpopuli.com",
-    "okdiario": "okdiario.com",
-    "el español": "elespanol.com", "elespanol": "elespanol.com",
-    "eldiario": "eldiario.es", "eldiario.es": "eldiario.es",
-    "abc": "abc.es",
-    "la razón": "larazon.es", "la razon": "larazon.es", "larazon": "larazon.es",
-    "público": "publico.es", "publico": "publico.es",
-    "infolibre": "infolibre.es",
-    "la vanguardia": "lavanguardia.com", "lavanguardia": "lavanguardia.com",
-    "el periódico": "elperiodico.com", "el periodico": "elperiodico.com",
-    "20 minutos": "20minutos.es", "20minutos": "20minutos.es",
-    "huffpost españa": "huffingtonpost.es", "huffpost": "huffingtonpost.es",
-    "esdiario": "esdiario.com",
-    "el heraldo": "heraldo.es", "heraldo de aragón": "heraldo.es",
-    "la voz de galicia": "lavozdegalicia.es",
-    "el correo": "elcorreo.com",
-    "sur": "diariosur.es",
-    "ideal": "ideal.es",
-    "europa press": "europapress.es",
-    # España — economía
-    "expansión": "expansion.com", "expansion": "expansion.com",
-    "cinco días": "cincodias.elpais.com", "cinco dias": "cincodias.elpais.com",
-    "el economista": "eleconomista.es",
-    "bolsamanía": "bolsamania.com", "bolsamania": "bolsamania.com",
-    "cotizalia": "cotizalia.com",
-    # España — deportes
-    "as": "as.com", "diario as": "as.com",
-    "marca": "marca.com",
-    "sport": "sport.es",
-    "mundo deportivo": "mundodeportivo.com", "mundodeportivo": "mundodeportivo.com",
-    "relevo": "relevo.com",
-    "estadio deportivo": "estadiodeportivo.com",
-    "superdeporte": "superdeporte.es",
-    "jornada deportiva": "jornadadeportiva.com",
-    # España — motor
-    "motorsport": "es.motorsport.com", "motorsport.com": "es.motorsport.com",
-    "motor.es": "motor.es",
-    "motorpasión": "motorpasion.com", "motorpasion": "motorpasion.com",
-    "autobild españa": "autobild.es", "autobild": "autobild.es",
-    # España — tecnología
-    "xataka": "xataka.com",
-    "genbeta": "genbeta.com",
-    "hipertextual": "hipertextual.com",
-    "muycomputer": "muycomputer.com",
-    "computerhoy": "computerhoy.com",
-    # España — radio/tv
-    "cope": "cope.es",
-    "cadena ser": "cadenaser.com", "ser": "cadenaser.com",
-    "onda cero": "ondacero.es",
-    "rtve": "rtve.es", "tve": "rtve.es", "televisión española": "rtve.es", "television española": "rtve.es",
-    "la sexta": "lasexta.com",
-    "antena 3": "antena3.com",
-    # Internacional — generalistas
-    "reuters": "reuters.com",
-    "ap": "apnews.com", "associated press": "apnews.com", "ap news": "apnews.com",
-    "afp": "afp.com",
-    "bbc": "bbc.com", "bbc news": "bbc.com",
-    "cnn": "cnn.com",
-    "the guardian": "theguardian.com", "guardian": "theguardian.com",
-    "new york times": "nytimes.com", "nyt": "nytimes.com",
-    "washington post": "washingtonpost.com",
-    "the economist": "economist.com",
-    "financial times": "ft.com",
-    "le monde": "lemonde.fr",
-    "der spiegel": "spiegel.de",
-    "al jazeera": "aljazeera.com",
-    "dw": "dw.com", "deutsche welle": "dw.com",
-    # Internacional — economía/finanzas
-    "bloomberg": "bloomberg.com",
-    "wall street journal": "wsj.com", "wsj": "wsj.com",
-    "forbes": "forbes.com",
-    "fortune": "fortune.com",
-    "business insider": "businessinsider.com",
-    # Internacional — deportes
-    "espn": "espn.com",
-    "sky sports": "skysports.com",
-    "bbc sport": "bbc.co.uk",
-    "marca internacional": "marca.com",
-    "formula 1 oficial": "formula1.com", "f1.com": "formula1.com",
-    "motorsport network": "motorsport.com",
-    "autosport": "autosport.com",
-    # Internacional — tecnología
-    "wired": "wired.com",
-    "techcrunch": "techcrunch.com",
-    "the verge": "theverge.com",
-    "ars technica": "arstechnica.com",
-    "mit technology review": "technologyreview.com",
-}
+# MEDIA_DOMAIN_MAP y los resolvedores de fuentes viven en src/utils/media_sources.py
+# (compartidos con la ingesta). Añadir allí los medios nuevos.
+from src.utils.media_sources import (  # noqa: E402
+    MEDIA_DOMAIN_MAP, _resolve_forbidden_domains, _resolve_preferred_domains,
+)
+
 
 # Categorías que requieren frescura urgente (deportes en vivo, política, etc.)
 _URGENTE_CATS = {
@@ -262,90 +167,6 @@ def _entities_from_subtopic_rules(rules: list) -> set:
                     entities.add(" ".join(tokens).lower())
 
     return entities
-
-
-def _resolve_preferred_domains(context: str) -> set:
-    """Extrae dominios preferidos del contexto de Firestore del usuario.
-
-    Estrategia:
-    1. Buscar cada clave de MEDIA_DOMAIN_MAP en el contexto (word-boundary).
-    2. Si el contexto contiene 'fuentes preferidas:' o 'preferred sources:',
-       parsear la lista y para items no reconocidos intentar inferir el dominio
-       (ej: 'Relevo' → 'relevo.com').
-    """
-    if not context:
-        return set()
-    ctx_lower = context.lower()
-    domains = set()
-
-    # Paso 1: match contra mapa conocido
-    for name, domain in MEDIA_DOMAIN_MAP.items():
-        if re.search(r'\b' + re.escape(name) + r'\b', ctx_lower):
-            domains.add(domain)
-
-    # Paso 2: parseo de "fuentes preferidas: X, Y, Z"
-    patterns = [r'fuentes preferidas[:\s]+([^\.]+)', r'fuentes principales[:\s]+([^\.]+)',
-                r'preferred sources[:\s]+([^\.]+)', r'prefiero[:\s]+([^\.]+)']
-    for pattern in patterns:
-        m = re.search(pattern, ctx_lower)
-        if m:
-            raw_names = re.split(r'[,;]', m.group(1))
-            for raw in raw_names:
-                name = raw.strip().rstrip('.')
-                if not name or len(name) < 2:
-                    continue
-                # Si ya fue reconocido en el paso 1, skip
-                already = any(re.search(r'\b' + re.escape(name) + r'\b', ctx_lower)
-                              and MEDIA_DOMAIN_MAP.get(name) for n, _ in MEDIA_DOMAIN_MAP.items())
-                if already:
-                    continue
-                # Inferencia simple: "El Debate" → eldebate.com, "BBC News" → bbcnews.com
-                inferred = re.sub(r'\bel\b|\bla\b|\blos\b|\bthe\b|\ble\b|\bde\b', '', name)
-                inferred = re.sub(r'\s+', '', inferred).lower()
-                if inferred:
-                    domains.add(inferred + '.com')
-    return domains
-
-
-def _resolve_forbidden_domains(raw) -> set:
-    """Normaliza `forbidden_sources` a un set de DOMINIOS.
-
-    Los usuarios escriben NOMBRES ('Elpais', 'la sexta', 'tve'), no dominios,
-    así que hay que resolverlos vía MEDIA_DOMAIN_MAP. Antes se exigía un '.' en
-    la entrada, lo que descartaba silenciosamente todos los nombres → el filtro
-    de fuentes prohibidas nunca bloqueaba nada (bug: elpais.com colándose pese a
-    estar prohibido).
-
-    Acepta lista o string separado por comas/;. Cada entrada se resuelve así:
-      1. Dominio/URL explícito ('elpais.com', 'https://elpais.com/x') → dominio.
-      2. Nombre conocido en MEDIA_DOMAIN_MAP ('elpais', 'la sexta') → su dominio.
-      3. Nombre no reconocido → inferencia simple (quita artículos + '.com').
-    """
-    if not raw:
-        return set()
-    if isinstance(raw, str):
-        items = [f.strip() for f in re.split(r'[,;]', raw) if f.strip()]
-    else:
-        items = [str(f).strip() for f in raw if str(f).strip()]
-    domains = set()
-    for item in items:
-        clean = item.lower().strip()
-        if clean.startswith("http"):
-            try:
-                clean = urlparse(clean).netloc.lower()
-            except Exception:
-                pass
-        clean = clean.split("/")[0].replace("www.", "")
-        if clean in MEDIA_DOMAIN_MAP:
-            domains.add(MEDIA_DOMAIN_MAP[clean])
-        elif "." in clean:
-            domains.add(clean)
-        else:
-            inferred = re.sub(r'\b(el|la|los|las|the|le|de)\b', '', clean)
-            inferred = re.sub(r'\s+', '', inferred)
-            if inferred:
-                domains.add(inferred + ".com")
-    return domains
 
 
 def _resolve_preferred_entities(context: str) -> set:
@@ -3707,7 +3528,14 @@ JSON only: {{"keywords": ["kw1", "kw2", ...]}}"""
         _topic_expansion_cache: dict = {}
 
         # --- Second pass: select and process ---
-        for idx, topic in enumerate(topics):
+        # Los topics con MENOS candidatas eligen primero. La dedup cross-topic
+        # es voraz (la primera sección que coge una noticia se la queda) y con
+        # el orden de Firestore 'biofuels' y 'tariffs' se llevaban las noticias
+        # de palma y 'palm oil' salía con 1 (Dion, 25/09/2026). El orden de las
+        # secciones del email lo decide la categoría, no este bucle.
+        _selection_order = sorted(
+            topics, key=lambda t: len(topic_fresh_news[t][0]) if t in topic_fresh_news else 0)
+        for idx, topic in enumerate(_selection_order):
             if topic not in topic_fresh_news:
                 continue
 
