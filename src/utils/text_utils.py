@@ -313,7 +313,10 @@ def shorten_news_html(html: str, max_words: int = EMAIL_BODY_MAX_WORDS,
             if used >= min_words:
                 break
             continue
-        # Frases de este párrafo que quepan sin pasar de max_words.
+        # Párrafo que no cabe entero: solo se toman frases sueltas si aún no
+        # se llegó al mínimo.
+        if used >= min_words:
+            break
         kept = []
         for sent in _SENT_SPLIT_RE.split(p):
             sw = _count_words(sent)
