@@ -33,9 +33,8 @@ from src.utils.text_utils import validate_image_size
 from src.services.perspective_enricher import enrich_topics_with_perspectives
 from src.utils.media_sources import _resolve_preferred_domains
 from src.services.candidate_ranker import CandidateRanker
-from src.services.jev_shadow import (
-    JEV_PRICE_PER_M_INPUT, JEV_THRESHOLD, jev_score_articles, jev_shadow_enabled, summarize_topic,
-)
+from src.services.jev_shadow import JEV_PRICE_PER_M_INPUT, jev_shadow_enabled
+from src.services.relevance_cascade import jev_cascade_filter
 from src.utils.constants import ARTICLES_RETENTION_HOURS, ARTICLES_INGEST_WINDOW_HOURS, TOPICS_RETENTION_DAYS, CATEGORIES_LIST, INGESTA_COVERAGE_HOURS, INGEST_TOPICS_BUDGET_S
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -1042,8 +1041,8 @@ class HourlyProcessor:
         self._dropped_titular_misterioso = 0
         # PARTE 2.5: muestra para calibrar el anclaje por entidades.
         self._anclaje_muestra = []
-        # Modo sombra de Jev: comparacion con el filtro LLM, fichero aparte.
-        self._jev_shadow = []
+        # Estadísticas de la cascada Jev por topic (fichero aparte en GCS).
+        self._jev_stats = []
         
     async def run(self):
         logger.info("🚀 Inicio Pipeline Horario (OPTIMIZADO)")
@@ -1257,28 +1256,24 @@ class HourlyProcessor:
             except Exception as _e:
                 logger.warning(f"No se pudo guardar la muestra de anclaje: {_e}")
 
-        # Modo sombra de Jev: resumen + desacuerdos para auditar. Fichero aparte.
-        if self._jev_shadow:
+        # Cascada Jev: totales + muestra de la zona gris para auditar. Fichero aparte.
+        if self._jev_stats:
             try:
-                tot = {k: round(sum(t[k] for t in self._jev_shadow), 1)
-                       for k in ("evaluadas", "ambos", "solo_llm", "solo_jev", "ninguno",
-                                 "errores_jev", "input_tokens", "segundos_llm", "segundos_jev")}
-                decididas = tot["ambos"] + tot["solo_llm"] + tot["solo_jev"] + tot["ninguno"]
-                acuerdo = (tot["ambos"] + tot["ninguno"]) / decididas if decididas else 0
-                coste = tot["input_tokens"] / 1e6 * JEV_PRICE_PER_M_INPUT
+                keys = ("evaluadas", "aceptadas_jev", "zona_gris", "gris_aceptadas", "rechazadas",
+                        "errores_jev", "input_tokens_jev", "segundos_jev")
+                tot = {k: round(sum(t.get(k, 0) for t in self._jev_stats), 1) for k in keys}
+                tot["topics_en_fallback"] = sum(1 for t in self._jev_stats if t.get("fallback"))
+                tot["coste_jev_usd"] = round(tot["input_tokens_jev"] / 1e6 * JEV_PRICE_PER_M_INPUT, 4)
                 self.gcs.save_json_file(
-                    f"jev_shadow/{datetime.now().strftime('%Y-%m-%d_%H%M')}.json",
-                    {"generado": datetime.now().isoformat(), "umbral": JEV_THRESHOLD,
-                     "totales": {**tot, "acuerdo": round(acuerdo, 3), "coste_usd": round(coste, 4)},
-                     "topics": self._jev_shadow})
+                    f"jev_filter/{datetime.now().strftime('%Y-%m-%d_%H%M')}.json",
+                    {"generado": datetime.now().isoformat(), "totales": tot, "topics": self._jev_stats})
                 logger.info(
-                    f"🕶️ Jev sombra: {tot['evaluadas']} noticias, acuerdo {acuerdo:.0%} "
-                    f"(solo LLM {tot['solo_llm']}, solo Jev {tot['solo_jev']}), "
-                    f"errores {tot['errores_jev']}, {tot['input_tokens']} tok ≈ ${coste:.3f}, "
-                    f"tiempo filtro LLM {tot['segundos_llm']:.0f}s vs Jev {tot['segundos_jev']:.0f}s"
-                )
+                    f"🧮 Cascada Jev: {tot['evaluadas']:.0f} noticias → Jev acepta {tot['aceptadas_jev']:.0f}, "
+                    f"zona gris {tot['zona_gris']:.0f} (revisor acepta {tot['gris_aceptadas']:.0f}), "
+                    f"errores {tot['errores_jev']:.0f}, topics en fallback {tot['topics_en_fallback']}, "
+                    f"≈ ${tot['coste_jev_usd']:.3f}")
             except Exception as _e:
-                logger.warning(f"No se pudo guardar la sombra de Jev: {_e}")
+                logger.warning(f"No se pudieron guardar las estadísticas de Jev: {_e}")
 
         if (self._dropped_no_content or self._dropped_consent_page
                 or self._dropped_autodelacion or self._dropped_titular_misterioso):
@@ -2481,13 +2476,24 @@ class HourlyProcessor:
             articles = articles[:max_candidates]
         logger.info(f"🔍 {topic}: {len(articles)} candidatos en lotes de {batch_size}")
 
-        # Modo sombra: Jev puntua las MISMAS candidatas en paralelo. Solo mide;
-        # nunca cambia el resultado. getattr: los tests llaman al metodo con un stub.
-        _jev_task = None
-        if getattr(self, "_jev_shadow", None) is not None and jev_shadow_enabled() and articles:
-            _jev_articles = list(articles)
-            _jev_task = asyncio.create_task(jev_score_articles(topic, user_contexts or [], _jev_articles))
-        _llm_filter_t0 = time.time()
+        # Filtro principal: cascada Jev + revisor LLM (src/services/relevance_cascade.py).
+        # Si Jev no está disponible o falla en >20% del topic, sigue el filtro
+        # LLM por lotes de siempre (G10: nunca depender de un solo proveedor).
+        # getattr: los tests llaman al método con un stub sin estado de run.
+        if articles and jev_shadow_enabled() and getattr(self, "_jev_stats", None) is not None:
+            try:
+                _jev_relevant, _jev_st = await jev_cascade_filter(topic, user_contexts or [], articles)
+                self._jev_stats.append(_jev_st)
+                if _jev_relevant is not None:
+                    final_relevant = preferred_pass + _jev_relevant
+                    logger.info(
+                        f"✅ {topic}: {len(_jev_relevant)} relevantes de {len(articles)} (Jev "
+                        f"{_jev_st['aceptadas_jev']} + zona gris {_jev_st['gris_aceptadas']}/"
+                        f"{_jev_st['zona_gris']}) + {len(preferred_pass)} fast-pass = {len(final_relevant)} total")
+                    return final_relevant
+                logger.warning(f"⚠️ {topic}: {_jev_st.get('fallback')} → filtro LLM por lotes")
+            except Exception as e:
+                logger.warning(f"⚠️ {topic}: cascada Jev falló ({e}) → filtro LLM por lotes")
 
         # Build User Context String for Optimized Filtering
         context_str = ""
@@ -2713,15 +2719,6 @@ class HourlyProcessor:
             # Delay between batches to avoid Mistral rate limits
             if batch_start + batch_size < len(articles):
                 await asyncio.sleep(2)
-
-        if _jev_task is not None:
-            try:
-                _llm_filter_s = time.time() - _llm_filter_t0
-                self._jev_shadow.append(
-                    summarize_topic(topic, _jev_articles, all_relevant, await _jev_task,
-                                    llm_seconds=_llm_filter_s))
-            except Exception as e:
-                logger.warning(f"Jev sombra falló para '{topic}' (no afecta al filtro): {e}")
 
         # Combinar fast-pass (fuentes preferidas, sin LLM) + LLM-filtered
         final_relevant = preferred_pass + all_relevant
