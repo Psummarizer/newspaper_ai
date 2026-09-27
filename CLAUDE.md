@@ -38,7 +38,11 @@ topics.json en GCS               Build HTML → Email
 - Ejemplo: topics "Real Madrid" + "Formula 1" → ambos caen en categoría **Deporte** → una sola sección con noticias de ambos.
 - El `_topic_cat_map` controla este mapeo. **Si falta un topic en el mapa, sus artículos pueden acabar en categorías incorrectas** (ej: IA en Geopolítica).
 
-**Mínimo por categoría**: cada sección del email debe tener ≥ 3 artículos. Si una categoría recibe menos, se rellena con artículos adicionales de los topics que mapean a ella.
+**Mínimo por categoría**: cada sección del email debe tener ≥ 3 artículos. Si una categoría recibe menos,
+`_merge_thin_sections` (orchestrator) mueve sus noticias a la sección que ya tiene más noticias de su mismo
+topic (Moda no se parte entre Cultura y Consumo) y, si aun así queda una sección con 1, la une a su sección
+hermana (`_SIBLING_SECTION`: Justicia→Política, Salud→Ciencia...). La sección destino amplía su tope en lo
+recibido para no perder noticias.
 
 **Providers LLM**: Mistral free (fast + quality) con failover automático (ver G10). Config en `src/config/model_config.json`.
 
@@ -51,7 +55,16 @@ caducada (`/v1/models` responde 200 y la cuenta marca uso cero). Lo que sí sirv
 `ministral-3b-latest` (750 rpm). Los alias antiguos (`mistral-tiny`, `open-mistral-7b`,
 `open-mistral-nemo`) redirigen en silencio a `ministral-8b`.
 
-**Calidad del filtro**: el modelo del filtro de INGESTA importa poco — medido sobre el mismo pool,
+**Filtro de relevancia de la INGESTA = cascada Jev (desde 27/09/2026)** — `src/services/relevance_cascade.py`:
+Jev (TypeSafe, `TYPESAFE_API_KEY`) puntúa cada candidata (noul): ≥0.6 acepta, <0.15 rechaza, y la zona gris
+[0.15, 0.6) la decide un revisor gpt-5-nano (respaldo Mistral). Si Jev falla en >20% de un topic, se usa el
+filtro LLM por lotes de siempre. Medido a mano: 102 desacuerdos reales → filtro ministral-8b 25%, Jev solo 75%,
+cascada 84-89% sin perder buenas (Mistral como revisor perdía 11 de 31); 150 etiquetadas → P 88% / R 97%.
+El revisor prima NO perder noticias: la precisión final la pone Stage 2 en el envío. Estadísticas por ingesta
+en GCS `jev_filter/<fecha>.json` (incluye muestra de la zona gris para auditar).
+Antes del filtro, `candidate_ranker.py` prioriza las candidatas con términos distintivos del topic.
+
+**Calidad del filtro (histórico)**: el modelo del filtro de INGESTA importaba poco — medido sobre el mismo pool,
 `ministral-8b` y `gpt-5-nano` producen listas casi idénticas. La precisión temática la pone el
 **Stage 2** (`llm_strict_yes_no_filter`, gpt-5-nano) en el orchestrator al enviar: sobre un caso real
 descartó ciclismo, sucesos, meteorología y religión de "Política Española" conservando todas las
@@ -188,7 +201,7 @@ Estas garantías deben respetarse en todo desarrollo nuevo. Si un cambio las rom
 - **Estado real desde v0.90**: la portada repite (con titular reescrito) noticias del cuerpo a modo de
   resumen; el cuerpo NO las salta. Se cambió porque saltarlas dejaba secciones con 1 noticia.
 - `portada_urls` se sigue calculando (antes del bucle de secciones) por si se vuelve a saltar.
-- Pendiente de decisión del owner (27/09/2026): algunos lectores lo perciben como noticia repetida.
+- **Decisión del owner (27/09/2026)**: se mantiene. La portada resume y el cuerpo amplía la noticia.
 
 ### G9 — Idioma y país
 - Si `Language ≠ es` en Firestore, las noticias seleccionadas se traducen automáticamente antes de renderizar.

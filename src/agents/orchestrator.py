@@ -27,6 +27,64 @@ from src.utils.media_sources import (  # noqa: E402
 )
 
 
+# Sección hermana a la que se une una sección que se quedaría con 1 noticia.
+_SIBLING_SECTION = {
+    "Justicia y Legal": "Política", "Sociedad": "Política", "Política": "Justicia y Legal",
+    "Internacional": "Geopolítica", "Geopolítica": "Internacional",
+    "Cultura y Entretenimiento": "Consumo y Estilo de Vida",
+    "Consumo y Estilo de Vida": "Cultura y Entretenimiento",
+    "Salud y Bienestar": "Ciencia e Investigación", "Ciencia e Investigación": "Salud y Bienestar",
+    "Medio Ambiente y Clima": "Ciencia e Investigación",
+    "Energía": "Economía y Finanzas", "Transporte y Movilidad": "Economía y Finanzas",
+    "Agricultura y Alimentación": "Economía y Finanzas", "Industria": "Negocios y Empresas",
+    "Negocios y Empresas": "Economía y Finanzas", "Economía y Finanzas": "Negocios y Empresas",
+    "Tecnología y Digital": "Ciencia e Investigación",
+}
+MIN_SECTION_SIZE = 3
+
+
+def _merge_thin_sections(category_map: dict) -> dict:
+    """Une las secciones con menos de MIN_SECTION_SIZE noticias a otra sección.
+
+    1. Cada noticia de una sección pequeña va a la sección que ya tiene más
+       noticias de su MISMO topic (así 'Moda' no se parte entre Cultura y
+       Consumo). 2. Si aun así queda una sección con 1 noticia, se une a su
+       sección hermana (_SIBLING_SECTION) si existe en el briefing.
+    Caso elena 27/09: 'Justicia y Legal' con 1 noticia y Moda repartida en dos.
+    Muta category_map; devuelve {sección_destino: nº de noticias recibidas}.
+    """
+    moved: dict = {}
+
+    def _move(src, url, dst):
+        category_map.setdefault(dst, {})[url] = category_map[src].pop(url)
+        moved[dst] = moved.get(dst, 0) + 1
+
+    for cat in sorted(category_map, key=lambda c: len(category_map[c])):
+        arts = category_map.get(cat) or {}
+        if not arts or len(arts) >= MIN_SECTION_SIZE:
+            continue
+        for url, art in list(arts.items()):
+            topic = art.get("source_topic")
+            best, best_n = None, 0
+            for other, other_arts in category_map.items():
+                if other == cat:
+                    continue
+                n = sum(1 for a in other_arts.values() if a.get("source_topic") == topic)
+                if n > best_n:
+                    best, best_n = other, n
+            if best:
+                _move(cat, url, best)
+    for cat in list(category_map):
+        arts = category_map.get(cat) or {}
+        if len(arts) == 1:
+            sib = _SIBLING_SECTION.get(cat)
+            if sib and category_map.get(sib):
+                _move(cat, next(iter(arts)), sib)
+    for cat in [c for c, a in category_map.items() if not a]:
+        del category_map[cat]
+    return moved
+
+
 # Topics de alcance global: el filtro duro de "noticia doméstica extranjera" no aplica.
 _GLOBAL_MARKET_CATS = {
     "Economía y Finanzas", "Tecnología y Digital", "Energía", "Agricultura y Alimentación",
@@ -3957,6 +4015,11 @@ JSON only: {{"keywords": ["kw1", "kw2", ...]}}"""
                          category_map[official].update(category_map[k])
                      del category_map[k]
 
+        # --- FASE 2c: SIN SECCIONES DE 1-2 NOTICIAS ---
+        _merged_into = _merge_thin_sections(category_map)
+        for _tgt, _n in _merged_into.items():
+            print(f"   🧩 Sección '{_tgt}' recibe {_n} noticia(s) de secciones con <3")
+
         # Use the defined order from constants
         ordered_cats = CATEGORIES_LIST
         print(f"   📋 Orden definido: {ordered_cats}")
@@ -4086,6 +4149,8 @@ JSON only: {{"keywords": ["kw1", "kw2", ...]}}"""
                 max_per_cat = max(5, topics_for_cat * 3)
             else:
                 max_per_cat = 3
+            # Las noticias fusionadas desde secciones pequeñas no se pierden por el tope.
+            max_per_cat += _merged_into.get(cat, 0)
 
             # Group articles by source_topic within this category
             topic_groups = {}
