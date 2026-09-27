@@ -1380,6 +1380,15 @@ CRITERIOS DE DUPLICADO (marcar como redundante):
   Ej: "Madrid pierde 76-69 ante Hapoel" + "Real Madrid sufre derrota ante Hapoel" → DUPLICADO.
   Ej: "Banda rusa Karakurt sancionada por DOJ" + "DOJ acusa a Karakurt de ataques" → DUPLICADO.
 
+- MISMA HISTORIA / MISMO CASO: varias piezas sobre el mismo caso concreto
+  (misma persona anónima, mismo suceso, misma polémica puntual) aunque cada
+  una cuente un desarrollo distinto. El lector lo percibe como repetición.
+  Ej: "Justicia avala el desahucio de Maricarmen" + "El 'Decreto Maricarmen'
+  que exige el Sindicato de Inquilinas" + "Podemos rechaza el pacto sobre el
+  real decreto Maricarmen" → UN SOLO GRUPO (se queda una).
+  NO es misma historia: dos partidos distintos de un equipo, dos decisiones
+  distintas de un mismo gobierno, dos lanzamientos distintos de una empresa.
+
 CRITERIOS PARA NO MARCAR DUPLICADO (mantener ambos SOLO si):
 - Aportan INFORMACIÓN COMPLEMENTARIA SUSTANCIAL: datos numéricos distintos,
   citas distintas, ángulo de causa vs consecuencia con análisis profundo,
@@ -1794,6 +1803,27 @@ JSON only: {{"invalid_ids": [1, 3], "reasons": {{"1": "...", "3": "..."}}}}
         news_list = self._dedup_same_event(news_list, topic)
         if len(news_list) < before_dedup:
             print(f"      🎯 Same-event dedup '{topic}': {before_dedup} -> {len(news_list)}")
+
+        # --- STEP 2b: G6 — si hay bastantes noticias de los medios preferidos,
+        # SOLO esos medios. Se aplica al pool (y al cache de respaldo) antes de
+        # elegir nada: el 27/09 elena tenía 20/27 noticias de sus medios y la
+        # cobertura de subtemas las sustituyó por eldiario, 20minutos...
+        _g6_domains = _resolve_preferred_domains(contexts_joined)
+        if _g6_domains:
+            def _from_pref(n: Dict) -> bool:
+                for src in n.get("fuentes", []) or []:
+                    dom = urlparse(src).netloc.lower().replace("www.", "")
+                    if dom in _g6_domains or any(dom.endswith("." + d) for d in _g6_domains):
+                        return True
+                return False
+            _pref_only = [n for n in news_list if _from_pref(n)]
+            if len(_pref_only) >= max_count:
+                if len(_pref_only) < len(news_list):
+                    print(f"      📰 Fuentes preferidas '{topic}': {len(_pref_only)}/{len(news_list)} "
+                          f"del pool son de sus medios → solo esos")
+                news_list = _pref_only
+                if full_topic_cache:
+                    full_topic_cache = [n for n in full_topic_cache if _from_pref(n)]
 
         if len(news_list) <= max_count:
             return news_list

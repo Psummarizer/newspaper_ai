@@ -125,6 +125,9 @@ Estas garantías deben respetarse en todo desarrollo nuevo. Si un cambio las rom
 - Si se elimina cualquiera de estas capas, aparecerán noticias duplicadas en el briefing.
 
 ### G4 — Sin duplicados: mismo tema en momentos distintos (ej: "jugará" vs "ganó")
+- **Misma historia en todo el briefing** (`_dedup_briefing_llm`): varias piezas del mismo caso concreto
+  (sentencia + protestas + decreto del desahucio de "Maricarmen", 27/09) cuentan como un solo grupo y se
+  queda una. No aplica a protagonistas recurrentes (dos partidos distintos, dos decisiones distintas).
 - `_dedup_same_event` en `orchestrator.py` tiene 2 capas:
   - **Capa A** (temporal): si 2 artículos tienen >18h de diferencia, comparten ≥1 entidad propia **y** la contención de entidades ≥0.5 → descarta el más viejo (caso preview↔resultado de G4).
   - **Capa B** (genérica): ≥2 entidades propias compartidas **y** contención ≥0.5 **y** (solapamiento de títulos ≥0.4 — sin tokens del topic — **o** uno es previa y otro resultado) → mismo evento, descarta el más viejo.
@@ -159,6 +162,9 @@ Estas garantías deben respetarse en todo desarrollo nuevo. Si un cambio las rom
   3. Si detecta "fuentes preferidas/principales: X, Y" parsea la lista (dominios tal cual, incluso
      con typo `.con`) e infiere dominios para medios no reconocidos.
 - Si hay suficientes artículos de esas fuentes → se usan SOLO esas fuentes (sin mezcla de medios externos).
+  Se aplica al pool en `_select_top_3_cached` (STEP 2b) ANTES de elegir, y también al cache de respaldo
+  de la cobertura de subtemas: el 27/09 elena tenía 20/27 noticias de sus medios y la cobertura de
+  subtemas las sustituyó por eldiario.es, 20minutos, europapress...
 - Si no hay suficientes → el LLM completa con los mejores disponibles.
 - Añadir nuevos medios a `MEDIA_DOMAIN_MAP` en `src/utils/media_sources.py` si un usuario menciona un medio no reconocido.
 
@@ -178,10 +184,11 @@ Estas garantías deben respetarse en todo desarrollo nuevo. Si un cambio las rom
 - **Env var**: `PEXELS_API_KEY` en `.env` (ya incluida en Docker image).
 - **Coste**: 0€. Pexels API gratuita, ~15-25 calls por briefing, bien dentro del límite de 20.000/mes.
 
-### G8 — Portada no duplica el cuerpo
-- Los artículos seleccionados para la portada se recogen en `portada_urls`.
-- Al renderizar las secciones del cuerpo, los artículos cuya URL esté en `portada_urls` se saltan explícitamente.
-- Este orden es crítico: la portada se selecciona **ANTES** del bucle de secciones en `run_for_user`.
+### G8 — Portada = titulares destacados que TAMBIÉN aparecen en el cuerpo
+- **Estado real desde v0.90**: la portada repite (con titular reescrito) noticias del cuerpo a modo de
+  resumen; el cuerpo NO las salta. Se cambió porque saltarlas dejaba secciones con 1 noticia.
+- `portada_urls` se sigue calculando (antes del bucle de secciones) por si se vuelve a saltar.
+- Pendiente de decisión del owner (27/09/2026): algunos lectores lo perciben como noticia repetida.
 
 ### G9 — Idioma y país
 - Si `Language ≠ es` en Firestore, las noticias seleccionadas se traducen automáticamente antes de renderizar.
