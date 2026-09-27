@@ -27,6 +27,12 @@ from src.utils.media_sources import (  # noqa: E402
 )
 
 
+# Topics de alcance global: el filtro duro de "noticia doméstica extranjera" no aplica.
+_GLOBAL_MARKET_CATS = {
+    "Economía y Finanzas", "Tecnología y Digital", "Energía", "Agricultura y Alimentación",
+    "Ciencia e Investigación", "Negocios y Empresas", "Industria", "Medio Ambiente y Clima",
+}
+
 # Categorías que requieren frescura urgente (deportes en vivo, política, etc.)
 _URGENTE_CATS = {
     "Política", "Deporte", "Geopolítica", "Internacional",
@@ -820,7 +826,8 @@ class Orchestrator:
         combined = title + " " + summary
         for src_c in article_countries:
             for kw in self._COUNTRY_DOMESTIC_KEYWORDS.get(src_c, []):
-                if kw in combined:
+                # Palabra completa: "america" no debe casar con "Latinoamérica".
+                if re.search(r"(?<!\w)" + re.escape(kw.strip()) + r"(?!\w)", combined):
                     return True
         return False
 
@@ -3323,7 +3330,13 @@ JSON only: {{"keywords": ["kw1", "kw2", ...]}}"""
             _geopol_kw = {"geopolit", "intern", "iran", "arabia", "contraintelig",
                           "tariff", "trade", "global", "world"}
             _topic_is_geopolitical = any(kw in _topic_n for kw in _geopol_kw)
-            if user_iso and not _topic_is_geopolitical:
+            # Mercados, tecnología, energía, materias primas o ciencia: lo que
+            # pasa en EE.UU. o China ES noticia global. El 27/09 este filtro
+            # quitó 5 noticias de macro (Fed) a Dion, que pide "ECB/Fed rate
+            # decisions", y otras de Clearing y liquidez a alex.
+            _topic_is_global_market = bool(
+                set(cached_data.get("categories", []) or []) & _GLOBAL_MARKET_CATS)
+            if user_iso and not _topic_is_geopolitical and not _topic_is_global_market:
                 before_cut = len(fresh_news)
                 fresh_news = [
                     a for a in fresh_news

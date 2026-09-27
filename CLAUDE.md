@@ -192,7 +192,8 @@ Estas garantías deben respetarse en todo desarrollo nuevo. Si un cambio las rom
 ### G10 — Resiliencia LLM: el pipeline nunca depende de un solo proveedor
 - Todo cliente LLM sale de `LLMFactory.get_client()`, que devuelve un **`FailoverClient`**
   (`src/services/llm_factory.py`): misma API que `AsyncOpenAI` pero con un chain de
-  proveedores detrás. Orden: `mistral` → `mistral2` (MISTRAL_API_KEY2) → `openai` → `gemini` → `groq`,
+  proveedores detrás. Orden: `mistral` → `mistral2` (MISTRAL_API_KEY2) → `openai` (gpt-5-nano); Gemini y Groq
+  fuera del chain desde el 26/09/2026 por decisión del owner,
   filtrado por las claves presentes en el entorno.
 - Ante un error de cuota (429 / quota / resource_exhausted) reintenta **una vez** en el mismo
   proveedor (pico puntual) y, si vuelve a fallar, marca ese proveedor **caído durante 30 min**
@@ -222,6 +223,29 @@ Estas garantías deben respetarse en todo desarrollo nuevo. Si un cambio las rom
   run, revientan el task-timeout del Cloud Run Job.
 
 ## Bugs Conocidos y Fixes Aplicados
+
+### v1.2 (2026-09-27) — Topics nicho sin candidatas y filtro de país excesivo
+**Síntomas**: alex con Clearing, Tokenización y Blockchain institucional a 0 (stage2-strict-filter-empty);
+Dion con palm oil a 0 y macro a 1.
+
+**Causas**:
+1. **Las candidatas buenas nunca llegaban al filtro**: cada topic recibe todas las noticias de sus
+   categorías (>1.000) y el filtro solo evalúa 150 elegidas por reparto entre fuentes, sin mirar el
+   tema. En Clearing las 150 evaluadas no tenían ni una de clearing (Jev en sombra las puntuó todas
+   <0.2); el filtro de ingesta dejó pasar morralla cripto que Stage 2 descartó con razón. Y palm oil
+   solo veía 8-25 candidatas porque sus noticias caen en "Economía y Finanzas", fuera de sus categorías.
+2. **Filtro duro de país** con "u.s.", "america", "trump" como marcadores de noticia doméstica y por
+   subcadena: quitaba noticias de la Fed a un usuario NL que pide "ECB/Fed rate decisions".
+
+**Fixes**:
+- `src/services/candidate_ranker.py`: preselección por términos distintivos del topic (nombre +
+  siglas y nombres propios del contexto), buscados en TODA la ventana de ingesta y ponderados por
+  rareza (IDF). Ocupan hasta 100 de las 150 plazas; el resto sigue siendo el reparto por fuentes.
+  Topics amplios sin términos raros ("Real Madrid") no cambian.
+- El filtro duro de país no aplica a topics de mercados/tecnología/energía/materias primas/ciencia
+  (`_GLOBAL_MARKET_CATS`), y los marcadores se buscan como palabra completa.
+- Alerta de cobertura: si cae una clave pero la cadena sigue con otra, el aviso es informativo y dice
+  que la cobertura baja NO se explica por eso (antes, rojo aunque mistral2 atendiera todo).
 
 ### v1.1 (2026-09-26) — Incidencia: 0 briefings el 26/09 y cobertura baja los días previos
 **Síntomas**: 26/09 sin briefing para nadie; 25/09 con alerta de cobertura baja y alex.colmenarejo

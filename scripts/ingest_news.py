@@ -32,6 +32,7 @@ from src.utils.html_builder import CATEGORY_IMAGES
 from src.utils.text_utils import validate_image_size
 from src.services.perspective_enricher import enrich_topics_with_perspectives
 from src.utils.media_sources import _resolve_preferred_domains
+from src.services.candidate_ranker import CandidateRanker
 from src.services.jev_shadow import (
     JEV_PRICE_PER_M_INPUT, JEV_THRESHOLD, jev_score_articles, jev_shadow_enabled, summarize_topic,
 )
@@ -1026,6 +1027,7 @@ class HourlyProcessor:
         self.existing_news = {}  # {normalized_title: {"news": news_dict, "topic_id": str}}
         self.existing_urls = set() # {url} para de-duplicación estricta
         self._articles_run_cache = None  # articles.json cargado una vez por run (evita N lecturas GCS)
+        self._candidate_ranker = None  # índice por palabras de TODA la ventana (preselección)
 
         # Telemetría PARTE 1 (docs/PLAN_CALIDAD.md): si la tasa de fallo del
         # decoder de Google News es alta, el fallback necesita replantearse.
@@ -1367,6 +1369,20 @@ class HourlyProcessor:
         
         # Filtrar relevantes
         user_contexts = topic_info.get("user_contexts", [])
+
+        # Preselección: noticias de TODA la ventana (no solo de sus categorías)
+        # que contienen términos distintivos del topic van primero al filtro.
+        try:
+            ranked, _anchors = self._window_ranker().rank(topic_name, user_contexts)
+            if ranked:
+                prio = [dict(a, _kw_priority=True) for _s, a in ranked]
+                prio_urls = {a.get("url") for a in prio}
+                extra = len([a for a in prio if a.get("url") not in {c.get("url") for c in candidates}])
+                candidates = prio + [c for c in candidates if c.get("url") not in prio_urls]
+                logger.info(f"🎯 {topic_name}: {len(prio)} candidatas priorizadas por términos "
+                            f"{sorted(_anchors)[:8]} ({extra} fuera de sus categorías)")
+        except Exception as e:
+            logger.warning(f"Preselección por términos falló para '{topic_name}' (se sigue sin ella): {e}")
         relevant = await self._filter_relevant(topic_name, candidates, user_contexts) if candidates else []
         logger.info(f"✅ {topic_name}: {len(relevant)} relevantes")
         
@@ -2094,9 +2110,29 @@ class HourlyProcessor:
             down = LLMFactory.health_report()
             llm_block = ""
             if down:
-                llm_block = f"""
+                # ¿Quedó algún proveedor de la cadena sano? Si sí, el filtro sí
+                # evaluó (con la clave siguiente) y la cobertura baja NO se debe a
+                # esto. El 27/09 se avisaba en rojo por la clave 1 de Mistral
+                # aunque mistral2 atendió todas las llamadas.
+                try:
+                    _chain = [k for k, *_ in LLMFactory.get_client("fast")[0]._chain]
+                except Exception:
+                    _chain = []
+                healthy = [k for k in _chain if k not in down]
+                if healthy:
+                    llm_block = f"""
+              <div style='background:#3a3410;border:1px solid #f1c40f;padding:12px;margin-bottom:16px;'>
+                <strong style='color:#f1c40f;'>ℹ️ Claves LLM apartadas en esta ingesta:
+                {', '.join(sorted(down))}</strong>
+                <p style='color:#ddd;font-size:13px;margin:6px 0 0;'>La cadena siguió funcionando
+                con <b>{', '.join(healthy)}</b>: el filtro evaluó los artículos con normalidad, así
+                que la cobertura baja de abajo NO se explica por esto.</p>
+              </div>
+                """
+                else:
+                    llm_block = f"""
               <div style='background:#4a1010;border:1px solid #e74c3c;padding:12px;margin-bottom:16px;'>
-                <strong style='color:#e74c3c;'>🚫 Proveedores LLM agotados durante esta ingesta:
+                <strong style='color:#e74c3c;'>🚫 Todos los proveedores LLM agotados durante esta ingesta:
                 {', '.join(sorted(down))}</strong>
                 <p style='color:#ddd;font-size:13px;margin:6px 0 0;'>La cobertura baja de abajo
                 probablemente NO es un problema de feeds RSS: el filtro LLM no pudo evaluar los
@@ -2198,6 +2234,25 @@ class HourlyProcessor:
         # de un pool genérico (caso elena.ortega, 09/2026).
         return []
     
+    def _window_ranker(self) -> CandidateRanker:
+        """Índice de TODAS las noticias de la ventana (cualquier categoría), una vez por run."""
+        if self._candidate_ranker is None:
+            if self._articles_run_cache is None:
+                self._articles_run_cache = self.gcs.get_articles()
+            cutoff = (datetime.now() - timedelta(hours=self._ingest_window_hours())).isoformat()
+            window = [a for a in (self._articles_run_cache or [])
+                      if str(a.get("fecha_ingesta") or a.get("published_at") or "")[:19] >= cutoff[:19]]
+            self._candidate_ranker = CandidateRanker(window)
+            logger.info(f"🗂️ Índice de preselección: {len(window)} noticias de la ventana")
+        return self._candidate_ranker
+
+    def _ingest_window_hours(self) -> float:
+        hours_limit = ARTICLES_INGEST_WINDOW_HOURS
+        if getattr(self, "last_run_time", None):
+            delta = datetime.now() - self.last_run_time
+            hours_limit = max(0.1, min(delta.total_seconds() / 3600 + 0.5, ARTICLES_INGEST_WINDOW_HOURS))
+        return hours_limit
+
     def _get_articles_for_categories(self, categories: list) -> list:
         """Busca artículos en GCS dinámicamente según la última ejecución"""
 
@@ -2399,12 +2454,16 @@ class HourlyProcessor:
         max_candidates = 150
         batch_size = 50
         if len(articles) > max_candidates:
+            # Las priorizadas por términos del topic entran primero; el resto de
+            # plazas se reparte por fuentes como siempre.
+            _prio = [a for a in articles if a.get("_kw_priority")][:max_candidates]
+            _rest = [a for a in articles if not a.get("_kw_priority")]
             # Diversify: round-robin across sources so minority sports get evaluated
             by_src = {}
-            for art in articles:
+            for art in _rest:
                 src = art.get("source_name", "unknown")
                 by_src.setdefault(src, []).append(art)
-            diverse = []
+            diverse = list(_prio)
             queues = list(by_src.values())
             ri = 0
             while len(diverse) < max_candidates and queues:
