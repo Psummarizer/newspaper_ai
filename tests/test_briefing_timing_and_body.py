@@ -49,10 +49,18 @@ P3 = "<p>" + " ".join(["Tercer párrafo con contexto adicional."] * 8) + "</p>"
 
 
 def test_recorta_a_frases_completas_bajo_el_tope():
-    out = shorten_news_html(LEAD + P2 + P3, max_words=60)
+    out = shorten_news_html(LEAD + P2 + P3, max_words=60, min_words=40)
     assert out.startswith(LEAD)
-    assert _count_words(out) <= 60
+    assert 40 <= _count_words(out) <= 60
     assert "Tercer párrafo" not in out
+    assert out.endswith(".</p>")
+
+
+def test_objetivo_60_90_sigue_con_frases_de_los_parrafos_siguientes():
+    # Lead corto + párrafo 2 que no cabe entero: se toman sus frases y, si aún
+    # no se llega a 60, las del párrafo 3.
+    out = shorten_news_html(LEAD + P2 + P3)
+    assert 60 <= _count_words(out) <= 90
     assert out.endswith(".</p>")
 
 

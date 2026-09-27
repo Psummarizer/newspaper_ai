@@ -291,8 +291,8 @@ sin macro.
 - La ingesta escribe `last_run_started` en `ingest_state.json`; el send-job espera (polling 60s,
   máx. `SEND_WAIT_INGEST_MAX_MIN`=90) si hay una ingesta en curso. Send-job task-timeout → 7200s.
 - `_get_articles_for_categories` ordena candidatos por `published_at` descendente.
-- Email: el cuerpo de cada noticia se recorta a ~90 palabras con frases completas
-  (`shorten_news_html`); el texto completo sigue en topics.json.
+- Email: el cuerpo de cada noticia se recorta a 60-90 palabras con frases completas
+  (`shorten_news_html`, decisión del owner 27/09); el texto completo sigue en topics.json.
 
 ### v1.0 (2026-09-06) — Incidencia: 4 dias sin briefing
 **Sintoma**: el 06/09 no llego el briefing; los dias previos llegaban emails de "cobertura baja"

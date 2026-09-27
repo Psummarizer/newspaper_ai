@@ -238,6 +238,7 @@ def truncate_to_sentence(text: str, max_chars: int = 220) -> str:
 # briefing se hacia interminable. En el email se muestra el lead (y el parrafo
 # siguiente si cabe); el texto completo sigue en cache para dedup y la web.
 EMAIL_BODY_MAX_WORDS = 90
+EMAIL_BODY_MIN_WORDS = 60  # objetivo del owner (27/09/2026): 60-90 palabras por noticia
 
 import re as _re_short
 
@@ -283,11 +284,14 @@ def _cut_paragraph(html: str, max_words: int) -> str:
     return _close_open_tags(result)
 
 
-def shorten_news_html(html: str, max_words: int = EMAIL_BODY_MAX_WORDS) -> str:
-    """Devuelve los primeros parrafos completos del cuerpo hasta max_words.
+def shorten_news_html(html: str, max_words: int = EMAIL_BODY_MAX_WORDS,
+                      min_words: int = EMAIL_BODY_MIN_WORDS) -> str:
+    """Cuerpo de la noticia para el email: 60-90 palabras en frases completas.
 
-    Siempre incluye el primer parrafo (recortado a frases si no cabe solo).
-    Solo conserva el contenido de los <p>; listas u otros bloques se omiten.
+    Añade párrafos enteros mientras quepan en max_words; cuando uno no cabe,
+    añade las frases suyas que quepan y, si aún no se llega a min_words, sigue
+    con las frases de los párrafos siguientes. Nunca corta una frase (salvo una
+    primera frase kilométrica). Solo conserva el contenido de los <p>.
     """
     if not html:
         return ""
@@ -300,14 +304,25 @@ def shorten_news_html(html: str, max_words: int = EMAIL_BODY_MAX_WORDS) -> str:
         if used + w <= max_words:
             out.append(p)
             used += w
+            if used >= max_words:
+                break
             continue
-        remaining = max_words - used
-        # Lead corto: se completa con las frases del parrafo siguiente que quepan.
-        if not out or remaining >= 20:
-            partial = _cut_paragraph(p, remaining) if out else _cut_paragraph(p, max_words)
-            if out and _count_words(partial) > remaining:
-                partial = ""  # ni la primera frase cabe: mejor no añadir nada
-            if partial:
-                out.append(partial)
-        break
+        if not out:
+            out.append(_cut_paragraph(p, max_words))
+            used = _count_words(out[0])
+            if used >= min_words:
+                break
+            continue
+        # Frases de este párrafo que quepan sin pasar de max_words.
+        kept = []
+        for sent in _SENT_SPLIT_RE.split(p):
+            sw = _count_words(sent)
+            if used + sw > max_words:
+                break
+            kept.append(sent)
+            used += sw
+        if kept:
+            out.append(_close_open_tags(" ".join(kept)))
+        if used >= min_words:
+            break
     return "".join(f"<p>{p}</p>" for p in out)
