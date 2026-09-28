@@ -2056,8 +2056,12 @@ JSON only: {{"invalid_ids": [1, 3], "reasons": {{"1": "...", "3": "..."}}}}
                 label="top_n_selector",
             )
             result = json.loads(response.choices[0].message.content)
-            ids = result.get("selected_ids", [])
-            llm_selected = [remaining_articles[i] for i in ids if i < len(remaining_articles)]
+            # Los modelos pequeños a veces devuelven la lista a secas ([0, 2])
+            # en vez de {"selected_ids": [...]}: el 28/09 eso tumbó la selección
+            # de 'Anthropic' ("'list' object has no attribute 'get'").
+            ids = result if isinstance(result, list) else result.get("selected_ids", [])
+            ids = [int(i) for i in ids if str(i).strip().lstrip("-").isdigit()]
+            llm_selected = [remaining_articles[i] for i in ids if 0 <= i < len(remaining_articles)]
             # Salvaguarda anti-vaciado: si el LLM devuelve selected_ids=[] pese a
             # haber candidatos disponibles, NO lo aceptamos como "ninguno es
             # relevante" — modelos pequeños/gratuitos (ministral-8b) sobre-aplican
