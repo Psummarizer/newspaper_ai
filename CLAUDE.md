@@ -99,7 +99,17 @@ volver a medir: es la única capa que hace precisión, y solo puede descartar, n
 - [ ] Batch redaction: 3 artículos por llamada LLM (no cambiar a 1 por artículo)
 - [ ] Pre-dedup por título: evita redactar duplicados
 
-### 4. Fuentes RSS problemáticas
+### 4. Google News bloqueado → réplica en Bing News (28/09/2026)
+- El decoder de enlaces de Google News **falla al 100% desde Cloud Run** (Google bloquea la IP con
+  `/sorry/index`): cada ingesta descarta ~3.380 entradas de los 249 feeds de búsqueda de Google News, que son
+  justo los que alimentan los topics nicho (palm oil, clearing, Canton, espionaje...). Ver `docs/HANDOFF.md`.
+- Mitigación: cada feed de búsqueda de Google News tiene una réplica en **Bing News RSS** en `sources.json`
+  (campo `mirror_of`, nombre "... (Bing)", `&qft=sortbydate="1"` para lo más reciente). Bing trae la URL real
+  en el parámetro `url=` del enlace: `_bing_news_real_url` la extrae sin peticiones extra.
+- Copia previa: `gs://newsletter-ai-data/backups/sources_pre_bing_20260928.json`.
+- Comprobar en cada run: `grep "Google News:"` (fallo del decoder) y que los topics nicho reciben candidatas.
+
+### 5. Fuentes RSS problemáticas
 Verificar periódicamente que estas fuentes dan artículos:
 - Voz Pópuli: `https://www.vozpopuli.com/rss/` y Google News fallback
 - Libertad Digital: `https://www.libertaddigital.com/rss/portada.xml`
