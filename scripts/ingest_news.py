@@ -94,6 +94,25 @@ def _alias_fits_topic(alias: str, topic_name: str) -> bool:
     return len(alias_toks & _alias_tokens(topic_name)) * 2 >= len(alias_toks)
 
 
+def _bing_news_real_url(link: str) -> str:
+    """URL real del artículo de un enlace de Bing News RSS (apiclick.aspx?url=...).
+
+    Devuelve "" si el enlace no la trae o apunta a otro sitio de Bing/MSN
+    de agregación en vez de al medio.
+    """
+    try:
+        from urllib.parse import parse_qs
+        parsed = urlparse(link)
+        if "bing.com" not in parsed.netloc:
+            return link
+        real = parse_qs(parsed.query).get("url", [""])[0]
+        if not real.startswith("http") or "bing.com" in urlparse(real).netloc:
+            return ""
+        return real
+    except Exception:
+        return ""
+
+
 def _published_sort_key(article: dict) -> datetime:
     """Clave para ordenar por published_at; sin fecha parseable va al final."""
     raw = article.get("published_at") or article.get("fecha_ingesta") or ""
@@ -3265,6 +3284,7 @@ class HourlyProcessor:
         if not url: return [], "no_url"
 
         is_google_news = 'news.google.com' in url
+        is_bing_news = 'bing.com/news' in url
 
         feed_content = await self._fetch_feed(session, url)
         if not feed_content: return [], "fetch_failed"
@@ -3318,6 +3338,19 @@ class HourlyProcessor:
                         # artículo real. Nunca usar el titular como contenido:
                         # obliga al LLM a inventarse el cuerpo.
                         summary = ""
+
+                    # Bing News: la URL real va DENTRO del enlace (?url=...), así
+                    # que no hace falta decodificar nada contra Google. Es la vía
+                    # de suministro para topics nicho mientras el decoder de
+                    # Google News está bloqueado por IP (100% de fallo, 28/09).
+                    if is_bing_news:
+                        real = _bing_news_real_url(link)
+                        if not real:
+                            continue
+                        link = real
+                        bing_source = entry.get('news_source')
+                        if isinstance(bing_source, str) and bing_source.strip():
+                            source_name = bing_source.strip()
 
                     title = _clean_feed_title(
                         title, source_name=source_name, feed_name=name,

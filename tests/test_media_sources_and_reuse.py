@@ -49,3 +49,24 @@ def test_reutilizacion_acepta_lo_que_si_es_del_topic():
     assert _rel("gold & silver", "Gold and silver rally as yields fall")
     assert _rel("Real Madrid", "El Real Madrid gana al Atlético")
     assert _rel("Payments", "Visa expands real-time payments")
+
+
+# --- Bing News: la URL real va dentro del enlace (28/09/2026) ---------------
+
+from scripts.ingest_news import _bing_news_real_url
+
+
+def test_bing_extrae_la_url_real_sin_peticiones():
+    link = ("http://www.bing.com/news/apiclick.aspx?ref=FexRss&aid=&tid=abc"
+            "&url=https%3a%2f%2fwww.palmoilmagazine.com%2fcpo-price%2f2026%2f09%2f27%2fx&c=1")
+    assert _bing_news_real_url(link) == "https://www.palmoilmagazine.com/cpo-price/2026/09/27/x"
+
+
+def test_bing_sin_url_o_apuntando_a_bing_se_descarta():
+    assert _bing_news_real_url("http://www.bing.com/news/apiclick.aspx?ref=FexRss") == ""
+    assert _bing_news_real_url(
+        "http://www.bing.com/news/apiclick.aspx?url=https%3a%2f%2fwww.bing.com%2fx") == ""
+
+
+def test_enlace_normal_no_se_toca():
+    assert _bing_news_real_url("https://www.reuters.com/a") == "https://www.reuters.com/a"
